@@ -6,7 +6,10 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
+<<<<<<< HEAD
 
+=======
+>>>>>>> faf2828 (init)
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
@@ -56,7 +59,11 @@ web_modules/
 
 # Optional stylelint cache
 .stylelintcache
+<<<<<<< HEAD
 
+=======
+.vscode
+>>>>>>> faf2828 (init)
 # Microbundle cache
 .rpt2_cache/
 .rts2_cache_cjs/
@@ -76,9 +83,15 @@ web_modules/
 .env
 .env.development.local
 .env.test.local
+<<<<<<< HEAD
 .env.production.local
 .env.local
 
+=======
+.env.production
+.env.local
+.env.build
+>>>>>>> faf2828 (init)
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
@@ -104,12 +117,15 @@ dist
 .temp
 .cache
 
+<<<<<<< HEAD
 # vitepress build output
 **/.vitepress/dist
 
 # vitepress cache directory
 **/.vitepress/cache
 
+=======
+>>>>>>> faf2828 (init)
 # Docusaurus cache and generated files
 .docusaurus
 
@@ -134,3 +150,7 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+<<<<<<< HEAD
+=======
+/.idea
+>>>>>>> faf2828 (init)

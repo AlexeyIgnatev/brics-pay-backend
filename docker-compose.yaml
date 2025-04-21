@@ -1,0 +1,83 @@
+services:
+  # minio:
+  #   container_name: brics_minio
+  #   image: minio/minio
+  #   ports:
+  #     - 9000:9000
+  #     - 9001:9001
+  #   volumes:
+  #     - brics-minio_storage:/data
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     MINIO_ROOT_USER: ${POSTGRES_USER}
+  #     MINIO_ROOT_PASSWORD: ${POSTGRES_PASSWORD}
+  #     MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+  #     MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+  #   command: server --console-address ":9001" /data
+
+  postgres:
+    container_name: brics_postgres
+    image: postgres:latest
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - 5432:5432
+    volumes:
+      - brics-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - postgres
+
+  pgadmin:
+    container_name: brics_pgadmin
+    image: dpage/pgadmin4
+    env_file:
+      - '.env'
+    environment:
+      PGADMIN_DEFAULT_EMAIL: 'brics@brics.com'
+      PGADMIN_DEFAULT_PASSWORD: ${POSTGRES_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - brics-pgadmin-data:/var/lib/pgadmin
+    ports:
+      - '5050:80'
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 600M
+    networks:
+      - postgres
+
+  # redis:
+  #   container_name: brics_redis
+  #   image: redis:latest
+  #   restart: always
+  #   ports:
+  #     - 6379:6379
+  #   healthcheck:
+  #     test: ['CMD', 'redis-cli', 'ping']
+  #     interval: 10s
+  #     timeout: 60s
+  #     retries: 5
+  #     start_period: 10s
+
+volumes:
+  brics-pgdata:
+  brics-pgadmin-data:
+  # brics-minio_storage:
+networks:
+  postgres:
+    driver: bridge
