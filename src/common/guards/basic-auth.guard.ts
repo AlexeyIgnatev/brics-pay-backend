@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { UsersService } from '../../users/users.service';
+import { LoginResponseDto } from '../../users/login.dto';
 
 @Injectable()
 export class BasicAuthGuard implements CanActivate {
@@ -34,7 +35,11 @@ export class BasicAuthGuard implements CanActivate {
     }
 
     try {
-      await this.usersService.getUserInfo({ username, password });
+      const user: LoginResponseDto = await this.usersService.getUserInfo({
+        username,
+        password,
+      });
+      request.user = user;
       return true;
     } catch (error) {
       throw new UnauthorizedException('Неверные учетные данные');
