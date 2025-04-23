@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Web3 from 'web3';
+import Web3, { TransactionReceipt } from 'web3';
 import {
   mockContractResponse,
   mockTransactionReceipt,
@@ -71,6 +71,27 @@ export class EthereumService {
     }
   }
 
+  async getTransactionReceipt(txHash: string): Promise<TransactionReceipt> {
+    let attempts = 0;
+    const maxAttempts = 10;
+    const delay = 2000; // 2 секунды
+
+    while (attempts < maxAttempts) {
+      const receipt = await this.web3.eth.getTransactionReceipt(txHash);
+      if (receipt) {
+        return receipt;
+      }
+
+      console.log(
+        `Waiting for transaction confirmation... Attempt ${attempts + 1}/${maxAttempts}`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      attempts++;
+    }
+
+    throw new Error('Transaction not found after multiple attempts');
+  }
+
   async transferFromFiat(address: string, amount: number): Promise<boolean> {
     try {
       const contract = new this.web3.eth.Contract(
@@ -99,7 +120,10 @@ export class EthereumService {
         .transferFromFiat(address, amountWithFee.toString())
         .encodeABI();
 
-      const nonce = await this.web3.eth.getTransactionCount(this.ADMIN_ADDRESS);
+      const nonce = await this.web3.eth.getTransactionCount(
+        this.ADMIN_ADDRESS,
+        'latest',
+      );
       const chainId = await this.web3.eth.getChainId();
 
       const account = this.web3.eth.accounts.privateKeyToAccount(
@@ -110,11 +134,12 @@ export class EthereumService {
       }
 
       const fee = await this.web3.eth.getGasPrice();
+      const increasedFee = Math.floor(Number(fee) * 1.1);
       const tx = {
         from: account.address,
         to: this.TOKEN_ADDRESS,
         gas: '1000000',
-        gasPrice: this.web3.utils.toHex(fee),
+        gasPrice: this.web3.utils.toHex(increasedFee),
         data,
         nonce: this.web3.utils.toHex(nonce),
         chainId: this.web3.utils.toHex(chainId),
@@ -124,7 +149,7 @@ export class EthereumService {
         from: account.address,
         to: this.TOKEN_ADDRESS,
         gas: '1000000',
-        gasPrice: this.web3.utils.toHex(fee),
+        gasPrice: this.web3.utils.toHex(increasedFee),
         dataLength: data.length,
         nonce: this.web3.utils.toHex(nonce),
         chainId: this.web3.utils.toHex(chainId),
@@ -141,8 +166,19 @@ export class EthereumService {
       const receipt = await this.web3.eth.sendSignedTransaction(
         signedTx.rawTransaction,
       );
+      console.log('receipt', receipt);
+      console.log('Transaction sent, hash:', signedTx.transactionHash);
 
-      return receipt.status === '0x1' || receipt.status === 1;
+      const receiptStatus = await this.getTransactionReceipt(
+        signedTx.transactionHash,
+      );
+      console.log('Transaction receipt:', receiptStatus);
+
+      return (
+        receiptStatus.status === '0x1' ||
+        receiptStatus.status === 1 ||
+        receiptStatus.status === 1n
+      );
     } catch (error) {
       console.error('Error in transferFromFiat:', error);
       throw error;
@@ -173,9 +209,6 @@ export class EthereumService {
         this.TOKEN_ADDRESS,
       );
 
-      if (!/^0x[a-fA-F0-9]{64}$/.test(userPrivateKey)) {
-        throw new Error('Invalid private key format');
-      }
       const account =
         this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
       if (account.address.toLowerCase() !== address.toLowerCase()) {
@@ -188,33 +221,36 @@ export class EthereumService {
       const nonce = await this.web3.eth.getTransactionCount(account.address);
       const chainId = await this.web3.eth.getChainId();
 
+      const fee = await this.web3.eth.getGasPrice();
+      const increasedFee = Math.floor(Number(fee) * 1.1);
       const tx = {
         from: this.ADMIN_ADDRESS,
         to: this.TOKEN_ADDRESS,
         gas: '1000000',
+        gasPrice: this.web3.utils.toHex(increasedFee),
         data: data,
-        maxPriorityFeePerGas: '1000000000',
-        maxFeePerGas: '2000000000',
-        type: '0x2',
         nonce: this.web3.utils.toHex(nonce),
         chainId: this.web3.utils.toHex(chainId),
       };
 
       const signedTx = await this.web3.eth.accounts.signTransaction(
         tx,
-        this.ADMIN_PRIVATE_KEY,
+        userPrivateKey,
       );
       if (!signedTx.rawTransaction) {
         throw new Error('Failed to sign transaction');
       }
       console.log('Signed tx:', signedTx);
-      const receipt = await this.web3.eth.sendSignedTransaction(
-        signedTx.rawTransaction,
-      );
+      await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
 
-      return receipt.status === BigInt(1);
-      // const contract = mockContractResponse;
-      // const amountWithFee = BigInt(Math.floor(amount * 10 ** 18));
+      const receiptStatus = await this.getTransactionReceipt(
+        signedTx.transactionHash,
+      );
+      return (
+        receiptStatus.status === '0x1' ||
+        receiptStatus.status === 1 ||
+        receiptStatus.status === 1n
+      );
     } catch (error) {
       console.error('Error in transferToFiat:', error);
       throw error;
@@ -250,10 +286,13 @@ export class EthereumService {
         .transfer(address, amountWithFee)
         .encodeABI();
 
+      const fee = await this.web3.eth.getGasPrice();
+      const increasedFee = Math.floor(Number(fee) * 1.1);
       const tx = {
         from: this.ADMIN_ADDRESS,
         to: this.TOKEN_ADDRESS,
         gas: '1000000',
+        gasPrice: this.web3.utils.toHex(increasedFee),
         data: data,
       };
 
@@ -261,14 +300,16 @@ export class EthereumService {
         tx,
         userPrivateKey,
       );
-      const receipt = await this.web3.eth.sendSignedTransaction(
-        signedTx.rawTransaction,
-      );
+      this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
 
-      return receipt.status === BigInt(1);
-      // const contract = mockContractResponse;
-      // const amountWithFee = BigInt(Math.floor(amount * 10 ** 18));
-      return true;
+      const receiptStatus = await this.getTransactionReceipt(
+        signedTx.transactionHash,
+      );
+      return (
+        receiptStatus.status === '0x1' ||
+        receiptStatus.status === 1 ||
+        receiptStatus.status === 1n
+      );
     } catch (error) {
       console.error('Error in transfer:', error);
       throw error;
