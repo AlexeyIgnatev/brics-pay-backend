@@ -87,20 +87,23 @@ export class BricsService {
   }
 
   async findAccount(accountNoOrPhone: string): Promise<BricsAccountDto> {
-    try {
-      const response: BricsAccountDto[] = await this.axiosInstance.post(
-        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
-        {
-          account: accountNoOrPhone,
-        },
-      );
-      return response.find(
-        (account: BricsAccountDto) => account.CurrencyID === 417,
-      )!;
-    } catch (error) {
-      console.error('Error getting account information:', error);
-      throw error;
-    }
+    // try {
+    //   const response: BricsAccountDto[] = await this.axiosInstance.post(
+    //     `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
+    //     {
+    //       account: accountNoOrPhone,
+    //     },
+    //   );
+    //   return response.find(
+    //     (account: BricsAccountDto) => account.CurrencyID === 417,
+    //   )!;
+    // } catch (error) {
+    //   console.error('Error getting account information:', error);
+    //   throw error;
+    // }
+    return mockAccountsResponse.data.find(
+      (account: BricsAccountDto) => account.CurrencyID === 417,
+    )!;
   }
 
   async getCustomerInfo(): Promise<BricsCustomerDto> {
@@ -202,24 +205,25 @@ export class BricsService {
   }
 
   async confirmLoad(operationId: number): Promise<boolean> {
-    const response = await this.axiosInstance.post(
-      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/ConfirmLoad`,
-      {
-        operationID: operationId,
-      },
-    );
-
+    // const response = await this.axiosInstance.post(
+    //   `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/ConfirmLoad`,
+    //   {
+    //     operationID: operationId,
+    //   },
+    // );
     await this.confirmFinal(operationId);
-    return response.status === 200;
+    // return response.status === 200;
+    return true;
   }
   async confirmFinal(operationId: number): Promise<boolean> {
-    const response = await this.axiosInstance.post(
-      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/Confirm`,
-      {
-        OperationID: operationId,
-        OperationTypeID: 1,
-      },
-    );
-    return response.status === 200;
+    // const response = await this.axiosInstance.post(
+    //   `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/Confirm`,
+    //   {
+    //     OperationID: operationId,
+    //     OperationTypeID: 1,
+    //   },
+    // );
+    // return response.status === 200;
+    return true;
   }
 }

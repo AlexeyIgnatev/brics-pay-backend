@@ -4,6 +4,7 @@ import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { PaymentsService } from './payments.service';
 import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
 import { LoginResponseDto } from 'src/users/login.dto';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('payments')
 export class PaymentsController {
@@ -11,6 +12,7 @@ export class PaymentsController {
 
   @Post('fiat-to-crypto')
   @UseGuards(BasicAuthGuard)
+  @ApiBearerAuth('Basic')
   async fiatToCrypto(
     @Body() paymentDto: PaymentDto,
     @Req() req: { user: LoginResponseDto },
@@ -19,6 +21,7 @@ export class PaymentsController {
   }
 
   @Post('crypto-to-fiat')
+  @ApiBearerAuth('Basic')
   @UseGuards(BasicAuthGuard)
   async cryptoToFiat(
     @Body() paymentDto: PaymentDto,
@@ -28,6 +31,7 @@ export class PaymentsController {
   }
 
   @Post('transfer')
+  @ApiBearerAuth('Basic')
   @UseGuards(BasicAuthGuard)
   async transfer(
     @Body() transferDto: TransferDto,
