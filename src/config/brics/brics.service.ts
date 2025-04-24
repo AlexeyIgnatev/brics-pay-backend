@@ -53,8 +53,7 @@ export class BricsService {
           cookies.join('; ');
       }
 
-      //   return this.getRequestVerificationToken(response.data);
-      return 'mock_token';
+      return this.getRequestVerificationToken(response.data);
     } catch (error) {
       console.error('Error getting token:', error);
       throw error;
@@ -62,10 +61,17 @@ export class BricsService {
   }
 
   async auth(username: string, password: string): Promise<boolean> {
-    console.log(`Попытка авторизации пользователя: ${username}`);
+    const token = await this.init();
     try {
-      // Мок авторизации
-      return true;
+      const response = await this.axiosInstance.post(
+        `${this.BRICS_API_ROOT}/InternetBanking/Account/Login?ReturnUrl=/InternetBanking/ru-RU`,
+        {
+          __RequestVerificationToken: token,
+          UserName: username,
+          Password: password,
+        },
+      );
+      return response.status === 302;
     } catch (error) {
       console.error('Ошибка при авторизации:', error);
       throw error;
@@ -87,32 +93,31 @@ export class BricsService {
   }
 
   async findAccount(accountNoOrPhone: string): Promise<BricsAccountDto> {
-    // try {
-    //   const response: BricsAccountDto[] = await this.axiosInstance.post(
-    //     `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
-    //     {
-    //       account: accountNoOrPhone,
-    //     },
-    //   );
-    //   return response.find(
-    //     (account: BricsAccountDto) => account.CurrencyID === 417,
-    //   )!;
-    // } catch (error) {
-    //   console.error('Error getting account information:', error);
-    //   throw error;
-    // }
-    return mockAccountsResponse.data.find(
-      (account: BricsAccountDto) => account.CurrencyID === 417,
-    )!;
+    try {
+      const response: BricsAccountDto[] = await this.axiosInstance.post(
+        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
+        {
+          account: accountNoOrPhone,
+        },
+      );
+      return response.find(
+        (account: BricsAccountDto) => account.CurrencyID === 417,
+      )!;
+    } catch (error) {
+      console.error('Error getting account information:', error);
+      throw error;
+    }
   }
 
   async getCustomerInfo(): Promise<BricsCustomerDto> {
+    const account = await this.getAccount();
+    const findedAccount = await this.findAccount(account.AccountNo);
+
     try {
-      //   const response = await this.axiosInstance.get(
-      //     `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/CustomerInfo`,
-      //   );
-      //   return response.data;
-      return mockCustomerInfo;
+      const response = await this.axiosInstance.get(
+        `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/customer/GetCustomerFullInfo?customerID=${findedAccount.CustomerID}`,
+      );
+      return response.data;
     } catch (error) {
       console.error('Error getting customer information:', error);
       throw error;
@@ -121,11 +126,14 @@ export class BricsService {
 
   async getSomBalance(): Promise<number> {
     try {
-      // Мок баланса в сомах
-      const somAccount = mockAccountsResponse.data.find(
-        (account: BricsAccountDto) => account.CurrencyID === 417,
+      const response = await this.axiosInstance.get(
+        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/CurrentAccounts`,
       );
-      return somAccount?.Balance || 0;
+      return (
+        response.data.find(
+          (account: BricsAccountDto) => account.CurrencyID === 417,
+        )?.Balance || 0
+      );
     } catch (error) {
       console.error('Error getting SOM balance:', error);
       throw error;
@@ -134,12 +142,11 @@ export class BricsService {
 
   async initTransactionScreen(): Promise<string> {
     try {
-      //   const response = await this.axiosInstance.get(
-      //     `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=1340000087861476&CurrencyID=417`,
-      //   );
+      const response = await this.axiosInstance.get(
+        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=1340000087861476&CurrencyID=417`,
+      );
 
-      //   return this.getRequestIdentificationToken(response.data);
-      return 'mock_token';
+      return this.getRequestIdentificationToken(response.data);
     } catch (error) {
       console.error('Ошибка при получении токена:', error);
       throw error;
@@ -148,82 +155,74 @@ export class BricsService {
 
   async createTransactionCryptoToFiat(
     amount: number,
-    customerId: number,
+    customerId: string,
   ): Promise<number> {
-    // const token = await this.initTransactionScreen();
-    // const ctAccountNo = await this.findAccount();
-    // const accountNo = this.CT_ACCOUNT_NO;
+    const token = await this.initTransactionScreen();
+    const ctAccountNo = await this.findAccount(customerId);
+    const accountNo = this.CT_ACCOUNT_NO;
 
-    // const response = await this.axiosInstance.post(
-    //   `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
+    const response = await this.axiosInstance.post(
+      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
 
-    //   {
-    //     DtAccountNo: accountNo,
-    //     CtAccountNo: ctAccountNo,
-    //     Sum: amount,
-    //     Comment: customerId,
-    //   },
-    //   {
-    //     headers: {
-    //       __requestverificationtoken: token,
-    //     },
-    //   },
-    // );
-    // return response.data.operationID;
-    const operationId = 1239391;
-    await this.confirmLoad(operationId);
-    return operationId;
+      {
+        DtAccountNo: accountNo,
+        CtAccountNo: ctAccountNo,
+        Sum: amount,
+        Comment: customerId,
+      },
+      {
+        headers: {
+          __requestverificationtoken: token,
+        },
+      },
+    );
+    return response.data.operationID;
   }
 
   async createTransactionFiatToCrypto(
     amount: number,
-    customerId: number,
+    customerId: string,
   ): Promise<number> {
-    // const token = await this.initTransactionScreen();
-    // const accountNo = await this.findAccount();
-    // const ctAccountNo = this.CT_ACCOUNT_NO;
+    const token = await this.initTransactionScreen();
+    const accountNo = await this.findAccount(customerId.toString());
+    const ctAccountNo = this.CT_ACCOUNT_NO;
 
-    // const response = await this.axiosInstance.post(
-    //   `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
+    const response = await this.axiosInstance.post(
+      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
 
-    //   {
-    //     DtAccountNo: accountNo,
-    //     CtAccountNo: ctAccountNo,
-    //     Sum: amount,
-    //     Comment: customerId,
-    //   },
-    //   {
-    //     headers: {
-    //       __requestverificationtoken: token,
-    //     },
-    //   },
-    // );
-    // return response.data.operationID;
-    const operationId = 1239391;
-    await this.confirmLoad(operationId);
-    return operationId;
+      {
+        DtAccountNo: accountNo,
+        CtAccountNo: ctAccountNo,
+        Sum: amount,
+        Comment: customerId,
+      },
+      {
+        headers: {
+          __requestverificationtoken: token,
+        },
+      },
+    );
+    return response.data.operationID;
   }
 
   async confirmLoad(operationId: number): Promise<boolean> {
-    // const response = await this.axiosInstance.post(
-    //   `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/ConfirmLoad`,
-    //   {
-    //     operationID: operationId,
-    //   },
-    // );
+    const response = await this.axiosInstance.post(
+      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/ConfirmLoad`,
+      {
+        operationID: operationId,
+      },
+    );
     await this.confirmFinal(operationId);
-    // return response.status === 200;
-    return true;
+    return response.status === 200;
   }
   async confirmFinal(operationId: number): Promise<boolean> {
-    // const response = await this.axiosInstance.post(
-    //   `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/Confirm`,
-    //   {
-    //     OperationID: operationId,
-    //     OperationTypeID: 1,
-    //   },
-    // );
-    // return response.status === 200;
-    return true;
+    const response = await this.axiosInstance.post(
+      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/Confirm`,
+      {
+        OperationID: operationId,
+        OperationTypeID: 1,
+      },
+    );
+    return response.status === 200;
   }
 }

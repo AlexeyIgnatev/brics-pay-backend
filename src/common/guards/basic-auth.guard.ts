@@ -35,11 +35,12 @@ export class BasicAuthGuard implements CanActivate {
     }
 
     try {
-      const user: LoginResponseDto = await this.usersService.getUserInfo({
+      const user: LoginResponseDto = await this.usersService.getUserInfo(
         username,
         password,
-      });
+      );
       request.user = user;
+
       return true;
     } catch (error) {
       throw new UnauthorizedException('Неверные учетные данные');

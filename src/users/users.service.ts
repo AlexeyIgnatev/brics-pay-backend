@@ -12,11 +12,11 @@ export class UsersService {
     private readonly ethereumService: EthereumService,
   ) {}
 
-  async getUserInfo(loginDto: LoginDto): Promise<LoginResponseDto> {
-    const auth = await this.bricsService.auth(
-      loginDto.username,
-      loginDto.password,
-    );
+  async getUserInfo(
+    username: string,
+    password: string,
+  ): Promise<LoginResponseDto> {
+    const auth = await this.bricsService.auth(username, password);
     if (!auth) {
       throw new UnauthorizedException('Неверный логин или пароль');
     }

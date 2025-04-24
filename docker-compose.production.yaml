@@ -8,12 +8,18 @@ services:
       - 8000:8000
     depends_on:
       - postgres
+    networks:
+      - postgres
 
   postgres:
     container_name: brics_postgres
     image: postgres:latest
     env_file:
       - .env.production
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - 5432:5432
     volumes:
@@ -25,7 +31,8 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
-
+    networks:
+      - postgres
 
   # minio:
   #   container_name: brics-minio
@@ -46,3 +53,7 @@ services:
 volumes:
   brics-pgdata:
   # brics-minio-storage:
+
+networks:
+  postgres:
+    driver: bridge

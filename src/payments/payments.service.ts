@@ -26,7 +26,7 @@ export class PaymentsService {
     const bricsTransaction =
       await this.bricsService.createTransactionCryptoToFiat(
         amount,
-        customer.customer_id,
+        customer.customer_id.toString(),
       );
     if (!bricsTransaction) {
       throw new Error('Brics transaction failed');
@@ -55,7 +55,7 @@ export class PaymentsService {
     const bricsTransaction =
       await this.bricsService.createTransactionFiatToCrypto(
         amount,
-        customer.customer_id,
+        customer.customer_id.toString(),
       );
     if (!bricsTransaction) {
       throw new Error('Brics transaction failed');
