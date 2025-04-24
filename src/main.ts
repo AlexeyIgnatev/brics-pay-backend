@@ -4,7 +4,9 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { SwaggerConfig } from './config/swagger';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log', 'verbose', 'debug'],
+  });
 
   app.enableVersioning({
     type: VersioningType.URI,

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Web3, { TransactionReceipt } from 'web3';
 import {
@@ -14,6 +14,7 @@ export class EthereumService {
   private readonly PLATFORM_FEE: number;
   private readonly ADMIN_ADDRESS: string;
   private readonly ADMIN_PRIVATE_KEY: string;
+  private readonly logger = new Logger(EthereumService.name);
 
   constructor(private readonly configService: ConfigService) {
     this.RPC_URL = this.configService.get<string>('RPC_URL')!;
@@ -27,6 +28,8 @@ export class EthereumService {
 
   generateAddress(): { address: string; privateKey: string } {
     const account = this.web3.eth.accounts.create();
+    this.logger.log(`Generated address: ${account.address}`);
+    this.logger.log(`Generated private key: ${account.privateKey}`);
     return {
       address: account.address,
       privateKey: account.privateKey,
@@ -41,8 +44,10 @@ export class EthereumService {
   validateAddress(address: string): boolean {
     try {
       this.web3.utils.toChecksumAddress(address);
+      this.logger.log(`Validated address: ${address}`);
       return true;
     } catch {
+      this.logger.error(`Invalid address: ${address}`);
       return false;
     }
   }
@@ -64,9 +69,10 @@ export class EthereumService {
         this.TOKEN_ADDRESS,
       );
       const balance = await contract.methods.balanceOf(address).call();
+      this.logger.log(`Token balance: ${balance}`);
       return Number(balance) / 10 ** 18;
     } catch (error) {
-      console.error('Error getting token balance:', error);
+      this.logger.error('Error getting token balance:', error);
       throw error;
     }
   }
@@ -82,7 +88,7 @@ export class EthereumService {
         return receipt;
       }
 
-      console.log(
+      this.logger.log(
         `Waiting for transaction confirmation... Attempt ${attempts + 1}/${maxAttempts}`,
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -145,7 +151,7 @@ export class EthereumService {
         chainId: this.web3.utils.toHex(chainId),
       };
 
-      console.log('Transaction params:', {
+      this.logger.log('Transaction params:', {
         from: account.address,
         to: this.TOKEN_ADDRESS,
         gas: '1000000',
@@ -166,13 +172,13 @@ export class EthereumService {
       const receipt = await this.web3.eth.sendSignedTransaction(
         signedTx.rawTransaction,
       );
-      console.log('receipt', receipt);
-      console.log('Transaction sent, hash:', signedTx.transactionHash);
+      this.logger.log('receipt', receipt);
+      this.logger.log('Transaction sent, hash:', signedTx.transactionHash);
 
       const receiptStatus = await this.getTransactionReceipt(
         signedTx.transactionHash,
       );
-      console.log('Transaction receipt:', receiptStatus);
+      this.logger.log('Transaction receipt:', receiptStatus);
 
       return (
         receiptStatus.status === '0x1' ||
@@ -180,7 +186,7 @@ export class EthereumService {
         receiptStatus.status === 1n
       );
     } catch (error) {
-      console.error('Error in transferFromFiat:', error);
+      this.logger.error('Error in transferFromFiat:', error);
       throw error;
     }
   }
@@ -240,7 +246,7 @@ export class EthereumService {
       if (!signedTx.rawTransaction) {
         throw new Error('Failed to sign transaction');
       }
-      console.log('Signed tx:', signedTx);
+      this.logger.log('Signed tx:', signedTx);
       await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
 
       const receiptStatus = await this.getTransactionReceipt(
@@ -252,7 +258,7 @@ export class EthereumService {
         receiptStatus.status === 1n
       );
     } catch (error) {
-      console.error('Error in transferToFiat:', error);
+      this.logger.error('Error in transferToFiat:', error);
       throw error;
     }
   }
@@ -311,7 +317,7 @@ export class EthereumService {
         receiptStatus.status === 1n
       );
     } catch (error) {
-      console.error('Error in transfer:', error);
+      this.logger.error('Error in transfer:', error);
       throw error;
     }
   }

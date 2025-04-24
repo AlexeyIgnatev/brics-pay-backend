@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import * as cheerio from 'cheerio';
@@ -14,6 +14,7 @@ export class BricsService {
   private readonly BRICS_API_ROOT: string;
   private readonly CT_ACCOUNT_NO: string;
   private readonly axiosInstance: AxiosInstance;
+  private readonly logger = new Logger(BricsService.name);
 
   constructor(private readonly configService: ConfigService) {
     this.BRICS_API_ROOT = this.configService.get<string>('BRICS_API_ROOT')!;
@@ -27,6 +28,7 @@ export class BricsService {
     const $ = cheerio.load(html);
     const token = $('input[name="__RequestVerificationToken"]').val();
     if (!token) {
+      this.logger.error('Токен не найден в ответе');
       throw new Error('Токен не найден в ответе');
     }
     return token as string;
@@ -36,6 +38,7 @@ export class BricsService {
     const $ = cheerio.load(html);
     const token = $('input[name="__RequestIdentificationToken"]').val();
     if (!token) {
+      this.logger.error('Токен не найден в ответе');
       throw new Error('Токен не найден в ответе');
     }
     return token as string;
@@ -55,7 +58,7 @@ export class BricsService {
 
       return this.getRequestVerificationToken(response.data);
     } catch (error) {
-      console.error('Error getting token:', error);
+      this.logger.error('Error getting token:', error);
       throw error;
     }
   }
@@ -73,7 +76,7 @@ export class BricsService {
       );
       return response.status === 302;
     } catch (error) {
-      console.error('Ошибка при авторизации:', error);
+      this.logger.error('Ошибка при авторизации:', error);
       throw error;
     }
   }
@@ -87,7 +90,7 @@ export class BricsService {
         (account: BricsAccountDto) => account.CurrencyID === 417,
       );
     } catch (error) {
-      console.error('Error getting accounts:', error);
+      this.logger.error('Error getting accounts:', error);
       throw error;
     }
   }
@@ -104,7 +107,7 @@ export class BricsService {
         (account: BricsAccountDto) => account.CurrencyID === 417,
       )!;
     } catch (error) {
-      console.error('Error getting account information:', error);
+      this.logger.error('Error getting account information:', error);
       throw error;
     }
   }
@@ -119,7 +122,7 @@ export class BricsService {
       );
       return response.data;
     } catch (error) {
-      console.error('Error getting customer information:', error);
+      this.logger.error('Error getting customer information:', error);
       throw error;
     }
   }
@@ -135,7 +138,7 @@ export class BricsService {
         )?.Balance || 0
       );
     } catch (error) {
-      console.error('Error getting SOM balance:', error);
+      this.logger.error('Error getting SOM balance:', error);
       throw error;
     }
   }
@@ -148,7 +151,7 @@ export class BricsService {
 
       return this.getRequestIdentificationToken(response.data);
     } catch (error) {
-      console.error('Ошибка при получении токена:', error);
+      this.logger.error('Ошибка при получении токена:', error);
       throw error;
     }
   }
@@ -176,6 +179,7 @@ export class BricsService {
         },
       },
     );
+    this.logger.log('Operation ID:', response.data.operationID);
     return response.data.operationID;
   }
 
@@ -202,6 +206,7 @@ export class BricsService {
         },
       },
     );
+    this.logger.log('Operation ID:', response.data.operationID);
     return response.data.operationID;
   }
 
@@ -213,6 +218,7 @@ export class BricsService {
       },
     );
     await this.confirmFinal(operationId);
+    this.logger.log('Confirm load:', response.status);
     return response.status === 200;
   }
   async confirmFinal(operationId: number): Promise<boolean> {
@@ -223,6 +229,7 @@ export class BricsService {
         OperationTypeID: 1,
       },
     );
+    this.logger.log('Confirm final:', response.status);
     return response.status === 200;
   }
 }

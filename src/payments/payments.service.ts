@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { EthereumService } from 'src/config/ethereum/ethereum.service';
@@ -10,12 +10,14 @@ export class PaymentsService {
     private readonly prisma: PrismaClient,
     private readonly ethereumService: EthereumService,
     private readonly bricsService: BricsService,
+    private readonly logger = new Logger(PaymentsService.name),
   ) {}
 
   async fiatToCrypto(
     paymentDto: PaymentDto,
     customer_id: number,
   ): Promise<StatusOKDto> {
+    this.logger.log('fiatToCrypto', paymentDto, customer_id);
     const { amount } = paymentDto;
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
@@ -45,10 +47,12 @@ export class PaymentsService {
     paymentDto: PaymentDto,
     customer_id: number,
   ): Promise<StatusOKDto> {
+    this.logger.log('cryptoToFiat', paymentDto, customer_id);
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
     });
     if (!customer) {
+      this.logger.error('Customer not found');
       throw new Error('Customer not found');
     }
     const { amount } = paymentDto;
@@ -58,6 +62,7 @@ export class PaymentsService {
         customer.customer_id.toString(),
       );
     if (!bricsTransaction) {
+      this.logger.error('Brics transaction failed');
       throw new Error('Brics transaction failed');
     }
     const ethTransaction = await this.ethereumService.transferToFiat(
@@ -66,6 +71,7 @@ export class PaymentsService {
       customer.private_key,
     );
     if (!ethTransaction) {
+      this.logger.error('Ethereum transaction failed');
       throw new Error('Ethereum transaction failed');
     }
     return new StatusOKDto();
@@ -75,22 +81,26 @@ export class PaymentsService {
     transferDto: TransferDto,
     customer_id: number,
   ): Promise<StatusOKDto> {
+    this.logger.log('transfer', transferDto, customer_id);
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
     });
     if (!customer) {
+      this.logger.error('Customer not found');
       throw new Error('Customer not found');
     }
     const bricsRecipient = await this.bricsService.findAccount(
       transferDto.phone_number,
     );
     if (!bricsRecipient) {
+      this.logger.error('Recipient not found');
       throw new Error('Recipient not found');
     }
     let recipient = await this.prisma.customer.findUnique({
       where: { customer_id: bricsRecipient.CustomerID },
     });
     if (!recipient) {
+      this.logger.log('Recipient not found, generating address');
       const recipientAddress = this.ethereumService.generateAddress();
       recipient = await this.prisma.customer.create({
         data: {
@@ -106,6 +116,7 @@ export class PaymentsService {
       customer.private_key,
     );
     if (!ethTransaction) {
+      this.logger.error('Ethereum transaction failed');
       throw new Error('Ethereum transaction failed');
     }
     return new StatusOKDto();

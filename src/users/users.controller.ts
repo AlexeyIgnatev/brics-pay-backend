@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, UseGuards, Req } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { LoginDto, LoginResponseDto } from './login.dto';
 import {
@@ -14,7 +14,7 @@ import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @Post('info')
+  @Get('info')
   @ApiResponse({
     status: 200,
     description: 'Успешное получение информации о пользователе',
