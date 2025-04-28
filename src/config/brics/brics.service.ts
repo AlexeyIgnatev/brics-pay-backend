@@ -137,6 +137,7 @@ export class BricsService {
           withCredentials: true,
           headers: {
             'Cookie': this.cookies != null ? this.cookies : undefined,
+            'Accept': 'application/json',
           },
         },
       );
