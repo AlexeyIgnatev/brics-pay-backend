@@ -1,6 +1,6 @@
 import { Injectable, Logger, Scope } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import * as cheerio from 'cheerio';
 import { BricsAccountDto, BricsCustomerDto } from './dto/brics.dto';
 import * as https from 'node:https';
@@ -142,10 +142,11 @@ export class BricsService {
           },
         },
       );
-      this.logger.debug(`Received getAccount response ${response.status} ${response.data}`);
-      return response.data.find(
+      this.logger.debug(`Received getAccount response ${response.status}`);
+      const accounts: BricsAccountDto[] = Object.values(response.data);
+      return accounts.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
-      );
+      )!!;
     } catch (error) {
       this.logger.error('Error getting accounts:', error);
       throw error;
