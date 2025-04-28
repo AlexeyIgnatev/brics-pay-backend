@@ -63,14 +63,31 @@ export class BricsService {
     return token as string;
   }
 
-  private async getRequestIdentificationToken(html: string): Promise<string> {
-    const $ = cheerio.load(html);
-    const token = $('input[name="__RequestIdentificationToken"]').val();
+  private async getTransactionToken(html: string): Promise<string> {
+    let $ = cheerio.load(html);
+
+    let innerHtml: string | null;
+
+    // Ищем скрипт с нужным id
+    const scriptTag = $('script#template-page');
+
+    if (scriptTag.length > 0) {
+      // Если нашли скрипт, достаем содержимое
+      innerHtml = scriptTag.html();
+      if (!innerHtml) {
+        this.logger.error('Script tag found but empty');
+        throw new Error('Script tag found but empty');
+      }
+      // Загружаем заново как HTML
+      $ = cheerio.load(innerHtml);
+    }
+
+    const token = $('input[name="__RequestVerificationToken"]').val();
     if (!token) {
       this.logger.error('Токен не найден в ответе');
       throw new Error('Токен не найден в ответе');
     }
-    this.logger.verbose(`Parsed RequestIdentificationToken ${token}`);
+    this.logger.verbose(`Parsed RequestVerificationToken ${token}`);
     return token as string;
   }
 
@@ -241,7 +258,6 @@ export class BricsService {
   async initTransactionScreen(accountNo: string): Promise<string> {
     try {
       this.logger.verbose(`Send initTransactionScreen request ${accountNo}`);
-      this.logger.verbose(this.cookies);
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`,
         {
@@ -251,10 +267,9 @@ export class BricsService {
           },
         },
       );
-      this.logger.verbose(response.data);
       this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose(`Received initTransactionScreen response ${response.status}`);
-      return this.getRequestVerificationToken(response.data);
+      return this.getTransactionToken(response.data);
     } catch (error) {
       this.logger.error('Ошибка при получении токена:', error);
       throw error;
