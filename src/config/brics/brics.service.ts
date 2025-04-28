@@ -142,7 +142,7 @@ export class BricsService {
         },
       );
       this.updateCookies(response.headers['set-cookie']);
-      this.logger.verbose(`Received getAccount response ${response.status} ${response.data}`);
+      this.logger.verbose(`Received getAccount response ${response.status}`);
       const accounts: BricsAccountDto[] = Object.values(response.data);
       return accounts.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
@@ -203,7 +203,7 @@ export class BricsService {
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/Deposits/GetCurrentAccounts?customerID=${customerId}`,
       );
-      this.logger.verbose(`Received getCustomerInfo response ${response.status}`);
+      this.logger.verbose(`Received getCustomerAccounts response ${response.status}`);
       return response.data['Result'].find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
       )!!;
@@ -240,7 +240,7 @@ export class BricsService {
 
   async initTransactionScreen(accountNo: string): Promise<string> {
     try {
-      this.logger.verbose('Send initTransactionScreen request');
+      this.logger.verbose(`Send initTransactionScreen request ${accountNo}`);
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`,
         {
@@ -252,7 +252,7 @@ export class BricsService {
       );
       this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose(`Received initTransactionScreen response ${response.status}`);
-      return this.getRequestIdentificationToken(response.data);
+      return this.getRequestVerificationToken(response.data);
     } catch (error) {
       this.logger.error('Ошибка при получении токена:', error);
       throw error;

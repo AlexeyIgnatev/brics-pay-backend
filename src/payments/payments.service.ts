@@ -20,7 +20,6 @@ export class PaymentsService {
     paymentDto: PaymentDto,
     customer_id: number,
   ): Promise<StatusOKDto> {
-    this.logger.log('fiatToCrypto', paymentDto, customer_id);
     const { amount } = paymentDto;
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
