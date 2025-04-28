@@ -29,7 +29,7 @@ export class PaymentsService {
       throw new Error('Customer not found');
     }
     const bricsTransaction =
-      await this.bricsService.createTransactionCryptoToFiat(
+      await this.bricsService.createTransactionFiatToCrypto(
         amount,
         customer.customer_id.toString(),
       );

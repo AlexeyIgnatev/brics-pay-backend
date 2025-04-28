@@ -188,15 +188,25 @@ export class BricsService {
       this.logger.verbose('Send getCustomerInfo request');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/customer/GetCustomerFullInfo?customerID=${findedAccount.CustomerID}`,
-        {
-          withCredentials: true,
-          headers: {
-            'Cookie': this.cookies != null ? this.cookies : undefined,
-          },
-        },
       );
       this.logger.verbose(`Received getCustomerInfo response ${response.status}`);
       return response.data;
+    } catch (error) {
+      this.logger.error('Error getting customer information:', error);
+      throw error;
+    }
+  }
+
+  async getCustomerAccount(customerId: string): Promise<BricsAccountDto> {
+    try {
+      this.logger.verbose('Send getCustomerAccounts request');
+      const response = await this.axiosInstance.get(
+        `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/Deposits/GetCurrentAccounts?customerID=${customerId}`,
+      );
+      this.logger.verbose(`Received getCustomerInfo response ${response.status}`);
+      return response.data['Result'].find(
+        (account: BricsAccountDto) => account.CurrencyID === 417,
+      )!!;
     } catch (error) {
       this.logger.error('Error getting customer information:', error);
       throw error;
@@ -228,12 +238,19 @@ export class BricsService {
     }
   }
 
-  async initTransactionScreen(): Promise<string> {
+  async initTransactionScreen(accountNo: string): Promise<string> {
     try {
       this.logger.verbose('Send initTransactionScreen request');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=1340000087861476&CurrencyID=417`,
+        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`,
+        {
+          withCredentials: true,
+          headers: {
+            'Cookie': this.cookies != null ? this.cookies : undefined,
+          },
+        },
       );
+      this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose(`Received initTransactionScreen response ${response.status}`);
       return this.getRequestIdentificationToken(response.data);
     } catch (error) {
@@ -246,55 +263,62 @@ export class BricsService {
     amount: number,
     customerId: string,
   ): Promise<number> {
-    const token = await this.initTransactionScreen();
-    const ctAccountNo = await this.findAccount(customerId);
-    const accountNo = this.CT_ACCOUNT_NO;
-
-    this.logger.verbose('Send createTransactionCryptoToFiat request');
-    const response = await this.axiosInstance.post(
-      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
-      {
-        DtAccountNo: accountNo,
-        CtAccountNo: ctAccountNo,
-        Sum: amount,
-        Comment: customerId,
-      },
-      {
-        headers: {
-          __requestverificationtoken: token,
-        },
-      },
-    );
-    this.logger.verbose(`Received createTransactionCryptoToFiat response ${response.status}`);
-    this.logger.log('Operation ID:', response.data.operationID);
-    return response.data.operationID;
+    // const token = await this.initTransactionScreen();
+    // const ctAccountNo = await this.findAccount(customerId);
+    // const accountNo = this.CT_ACCOUNT_NO;
+    //
+    // this.logger.verbose('Send createTransactionCryptoToFiat request');
+    // const response = await this.axiosInstance.post(
+    //   `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
+    //   {
+    //     DtAccountNo: accountNo,
+    //     CtAccountNo: ctAccountNo,
+    //     Sum: amount,
+    //     Comment: customerId,
+    //   },
+    //   {
+    //     headers: {
+    //       __requestverificationtoken: token,
+    //     },
+    //   },
+    // );
+    // this.logger.verbose(`Received createTransactionCryptoToFiat response ${response.status}`);
+    // this.logger.log('Operation ID:', response.data.operationID);
+    // return response.data.operationID;
+    return 0;
   }
 
   async createTransactionFiatToCrypto(
     amount: number,
     customerId: string,
   ): Promise<number> {
-    const token = await this.initTransactionScreen();
-    const accountNo = await this.findAccount(customerId.toString());
+    const account = await this.getCustomerAccount(customerId);
+    const token = await this.initTransactionScreen(account.AccountNo);
     const ctAccountNo = this.CT_ACCOUNT_NO;
 
     this.logger.verbose('Send createTransactionFiatToCrypto request');
     const response = await this.axiosInstance.post(
       `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
       {
-        DtAccountNo: accountNo,
+        DtAccountNo: account.AccountNo,
         CtAccountNo: ctAccountNo,
         Sum: amount,
         Comment: customerId,
       },
       {
+        withCredentials: true,
         headers: {
           __requestverificationtoken: token,
+          'Cookie': this.cookies != null ? this.cookies : undefined,
         },
       },
     );
+    this.updateCookies(response.headers['set-cookie']);
     this.logger.verbose(`Received createTransactionFiatToCrypto response ${response.status}`);
     this.logger.log('Operation ID:', response.data.operationID);
+    const operationId = response.data.operationID;
+    await this.confirmLoad(operationId);
+    await this.confirmFinal(operationId);
     return response.data.operationID;
   }
 
@@ -305,9 +329,15 @@ export class BricsService {
       {
         operationID: operationId,
       },
+      {
+        withCredentials: true,
+        headers: {
+          'Cookie': this.cookies != null ? this.cookies : undefined,
+        },
+      },
     );
+    this.updateCookies(response.headers['set-cookie']);
     this.logger.verbose(`Received confirmLoad response ${response.status}`);
-    await this.confirmFinal(operationId);
     return response.status === 200;
   }
 
@@ -319,7 +349,14 @@ export class BricsService {
         OperationID: operationId,
         OperationTypeID: 1,
       },
+      {
+        withCredentials: true,
+        headers: {
+          'Cookie': this.cookies != null ? this.cookies : undefined,
+        },
+      },
     );
+    this.updateCookies(response.headers['set-cookie']);
     this.logger.verbose(`Received confirmFinal response ${response.status}`);
     return response.status === 200;
   }
