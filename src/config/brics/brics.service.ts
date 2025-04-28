@@ -15,6 +15,7 @@ export class BricsService {
   constructor(private readonly configService: ConfigService) {
     this.BRICS_API_ROOT = this.configService.get<string>('BRICS_API_ROOT')!;
     this.CT_ACCOUNT_NO = this.configService.get<string>('CT_ACCOUNT_NO')!;
+
     this.axiosInstance = axios.create({
       withCredentials: true,
       httpsAgent: new https.Agent({
@@ -62,15 +63,26 @@ export class BricsService {
   async auth(username: string, password: string): Promise<boolean> {
     const token = await this.init();
     try {
-      this.logger.debug('Send Login request');
+      const body = {
+        __RequestVerificationToken: token,
+        UserName: username,
+        Password: password,
+      }
+      this.logger.debug('Send Login request', JSON.stringify(body));
       const response = await this.axiosInstance.post(
-        `${this.BRICS_API_ROOT}/InternetBanking/Account/Login?ReturnUrl=/InternetBanking/ru-RU`,
+        `${this.BRICS_API_ROOT}/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking%2Fru-RU`,
+        body,
         {
-          __RequestVerificationToken: token,
-          UserName: username,
-          Password: password,
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Accept-Language': 'ru-RU,ru;q=0.9',
+            'Referer': 'https://192.168.255.109/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking%2Fru-RU',
+            'Origin': 'https://192.168.255.109'
+          }
         },
-        { headers: { 'content-type': 'application/x-www-form-urlencoded' } },
       );
       this.logger.debug(`Received Login response ${response.status}`);
       return response.status === 302;
