@@ -313,20 +313,23 @@ export class BricsService {
     const token = await this.initTransactionScreen(account.AccountNo);
     const ctAccountNo = this.CT_ACCOUNT_NO;
 
-    this.logger.verbose('Send createTransactionFiatToCrypto request');
+    const transactionBody = {
+      InternalOperationType: 1,
+      OperationID: 0,
+      DtAccountNo: account.AccountNo,
+      CtAccountNo: ctAccountNo,
+      CurrencyID: 417,
+      Sum: amount,
+      Comment: customerId,
+      IsTemplate: false,
+      Schedule: null,
+    };
+
+    this.logger.verbose('Send createTransactionFiatToCrypto request', transactionBody);
+
     const response = await this.axiosInstance.post(
       `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
-      {
-        InternalOperationType: 1,
-        OperationID: 0,
-        DtAccountNo: account.AccountNo,
-        CtAccountNo: ctAccountNo,
-        CurrencyID: 417,
-        Sum: amount,
-        Comment: customerId,
-        IsTemplate: false,
-        Schedule: null
-      },
+      transactionBody,
       {
         withCredentials: true,
         headers: {
@@ -336,7 +339,7 @@ export class BricsService {
       },
     );
     this.updateCookies(response.headers['set-cookie']);
-    this.logger.verbose(`Received createTransactionFiatToCrypto response ${response.status}`);
+    this.logger.verbose(`Received createTransactionFiatToCrypto response ${response.status} ${response.data}`);
     this.logger.log('Operation ID:', response.data.operationID);
     const operationId = response.data.operationID;
     await this.confirmLoad(operationId);
@@ -359,7 +362,7 @@ export class BricsService {
       },
     );
     this.updateCookies(response.headers['set-cookie']);
-    this.logger.verbose(`Received confirmLoad response ${response.status}`);
+    this.logger.verbose(`Received confirmLoad response ${response.status} ${response.data}`);
     return response.status === 200;
   }
 
@@ -379,7 +382,7 @@ export class BricsService {
       },
     );
     this.updateCookies(response.headers['set-cookie']);
-    this.logger.verbose(`Received confirmFinal response ${response.status}`);
+    this.logger.verbose(`Received confirmFinal response ${response.status} ${response.data}`);
     return response.status === 200;
   }
 }
