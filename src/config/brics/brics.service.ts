@@ -241,6 +241,7 @@ export class BricsService {
   async initTransactionScreen(accountNo: string): Promise<string> {
     try {
       this.logger.verbose(`Send initTransactionScreen request ${accountNo}`);
+      this.logger.verbose(this.cookies);
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`,
         {
@@ -250,6 +251,7 @@ export class BricsService {
           },
         },
       );
+      this.logger.verbose(response.data);
       this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose(`Received initTransactionScreen response ${response.status}`);
       return this.getRequestVerificationToken(response.data);
