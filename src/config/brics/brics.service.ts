@@ -142,6 +142,7 @@ export class BricsService {
           },
         },
       );
+      this.updateCookies(response.headers['set-cookie']);
       this.logger.debug(`Received getAccount response ${response.status}`);
       const accounts: BricsAccountDto[] = Object.values(response.data);
       return accounts.find(
@@ -161,11 +162,19 @@ export class BricsService {
         {
           account: accountNoOrPhone,
         },
+        {
+          withCredentials: true,
+          headers: {
+            'Cookie': this.cookies != null ? this.cookies : undefined,
+          },
+        },
       );
+      this.updateCookies(response.headers['set-cookie']);
       this.logger.debug(`Received findAccount response ${response.status}`);
-      return response.data.find(
+      const accounts: BricsAccountDto[] = Object.values(response.data);
+      return accounts.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
-      )!;
+      )!!;
     } catch (error) {
       this.logger.error('Error getting account information:', error);
       throw error;
