@@ -4,14 +4,17 @@ import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { EthereumService } from 'src/config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
+
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly ethereumService: EthereumService,
     private readonly bricsService: BricsService,
-    private readonly logger = new Logger(PaymentsService.name),
-  ) {}
+  ) {
+  }
 
   async fiatToCrypto(
     paymentDto: PaymentDto,
