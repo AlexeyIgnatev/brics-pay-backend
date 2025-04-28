@@ -50,8 +50,6 @@ export class BricsService {
     this.cookies = Object.entries(existingCookies)
       .map(([key, value]) => `${key}=${value}`)
       .join('; ');
-
-    this.logger.debug(`Updated cookie: ${this.cookies}`);
   }
 
   private async getRequestVerificationToken(html: string): Promise<string> {
@@ -189,6 +187,12 @@ export class BricsService {
       this.logger.debug('Send getCustomerInfo request');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/customer/GetCustomerFullInfo?customerID=${findedAccount.CustomerID}`,
+        {
+          withCredentials: true,
+          headers: {
+            'Cookie': this.cookies != null ? this.cookies : undefined,
+          },
+        },
       );
       this.logger.debug(`Received getCustomerInfo response ${response.status}`);
       return response.data;
@@ -203,13 +207,20 @@ export class BricsService {
       this.logger.debug('Send getSomBalance request');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/CurrentAccounts`,
+        {
+          withCredentials: true,
+          headers: {
+            'Cookie': this.cookies != null ? this.cookies : undefined,
+          },
+        },
       );
+      this.updateCookies(response.headers['set-cookie']);
       this.logger.debug(`Received getSomBalance response ${response.status}`);
-      return (
-        response.data.find(
-          (account: BricsAccountDto) => account.CurrencyID === 417,
-        )?.Balance || 0
+      const accounts: BricsAccountDto[] = Object.values(response.data);
+      const account = accounts.find(
+        (account: BricsAccountDto) => account.CurrencyID === 417,
       );
+      return account?.Balance || 0;
     } catch (error) {
       this.logger.error('Error getting SOM balance:', error);
       throw error;

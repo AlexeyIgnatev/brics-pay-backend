@@ -34,11 +34,6 @@ export class EthereumService {
       address: account.address,
       privateKey: account.privateKey,
     };
-    // return {
-    //   address: '0x1234567890123456789012345678901234567890',
-    //   privateKey:
-    //     '0x1234567890123456789012345678901234567890123456789012345678901234',
-    // };
   }
 
   validateAddress(address: string): boolean {
