@@ -3,11 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import * as cheerio from 'cheerio';
 import { BricsAccountDto, BricsCustomerDto } from './dto/brics.dto';
-import {
-  mockLoginResponse,
-  mockCustomerInfo,
-  mockAccountsResponse,
-} from './mocks/brics.mocks';
+import * as https from 'node:https';
 
 @Injectable()
 export class BricsService {
@@ -21,6 +17,9 @@ export class BricsService {
     this.CT_ACCOUNT_NO = this.configService.get<string>('CT_ACCOUNT_NO')!;
     this.axiosInstance = axios.create({
       withCredentials: true,
+      httpsAgent: new https.Agent({
+        rejectUnauthorized: false,
+      }),
     });
   }
 
@@ -221,6 +220,7 @@ export class BricsService {
     this.logger.log('Confirm load:', response.status);
     return response.status === 200;
   }
+
   async confirmFinal(operationId: number): Promise<boolean> {
     const response = await this.axiosInstance.post(
       `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/Confirm`,
