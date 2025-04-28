@@ -116,6 +116,9 @@ export class BricsService {
             'Origin': 'https://192.168.255.109',
             'Cookie': this.cookies != null ? this.cookies : undefined,
           },
+          maxRedirects: 0,
+          validateStatus: (status: number) =>
+            status >= 200 && status < 400,
         },
       );
       this.updateCookies(response.headers['set-cookie']);
