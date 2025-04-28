@@ -339,7 +339,7 @@ export class BricsService {
       },
     );
     this.updateCookies(response.headers['set-cookie']);
-    this.logger.verbose(`Received createTransactionFiatToCrypto response ${response.status} ${response.data}`);
+    this.logger.verbose(`Received createTransactionFiatToCrypto response ${response.status} ${JSON.stringify(response.data)}`);
     this.logger.log('Operation ID:', response.data.operationID);
     const operationId = response.data.operationID;
     await this.confirmLoad(operationId);
@@ -362,7 +362,7 @@ export class BricsService {
       },
     );
     this.updateCookies(response.headers['set-cookie']);
-    this.logger.verbose(`Received confirmLoad response ${response.status} ${response.data}`);
+    this.logger.verbose(`Received confirmLoad response ${response.status} ${JSON.stringify(response.data)}`);
     return response.status === 200;
   }
 
@@ -382,7 +382,7 @@ export class BricsService {
       },
     );
     this.updateCookies(response.headers['set-cookie']);
-    this.logger.verbose(`Received confirmFinal response ${response.status} ${response.data}`);
+    this.logger.verbose(`Received confirmFinal response ${response.status} ${JSON.stringify(response.data)}`);
     return response.status === 200;
   }
 }
