@@ -72,6 +72,7 @@ export class BricsService {
           UserName: username,
           Password: password,
         },
+        { headers: { 'content-type': 'application/x-www-form-urlencoded' } },
       );
       return response.status === 302;
     } catch (error) {
