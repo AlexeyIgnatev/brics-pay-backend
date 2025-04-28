@@ -1,10 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Web3, { TransactionReceipt } from 'web3';
-import {
-  mockContractResponse,
-  mockTransactionReceipt,
-} from './mocks/ethereum.mocks';
+import Web3 from 'web3';
 
 @Injectable()
 export class EthereumService {
@@ -70,27 +66,6 @@ export class EthereumService {
       this.logger.error('Error getting token balance:', error);
       throw error;
     }
-  }
-
-  async getTransactionReceipt(txHash: string): Promise<TransactionReceipt> {
-    let attempts = 0;
-    const maxAttempts = 10;
-    const delay = 2000; // 2 секунды
-
-    while (attempts < maxAttempts) {
-      const receipt = await this.web3.eth.getTransactionReceipt(txHash);
-      if (receipt) {
-        return receipt;
-      }
-
-      this.logger.log(
-        `Waiting for transaction confirmation... Attempt ${attempts + 1}/${maxAttempts}`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      attempts++;
-    }
-
-    throw new Error('Transaction not found after multiple attempts');
   }
 
   async transferFromFiat(address: string, amount: number): Promise<boolean> {
@@ -168,17 +143,11 @@ export class EthereumService {
         signedTx.rawTransaction,
       );
       this.logger.log('receipt', receipt);
-      this.logger.log('Transaction sent, hash:', signedTx.transactionHash);
-
-      const receiptStatus = await this.getTransactionReceipt(
-        signedTx.transactionHash,
-      );
-      this.logger.log('Transaction receipt:', receiptStatus);
 
       return (
-        receiptStatus.status === '0x1' ||
-        receiptStatus.status === 1 ||
-        receiptStatus.status === 1n
+        receipt.status === '0x1' ||
+        receipt.status === 1 ||
+        receipt.status === 1n
       );
     } catch (error) {
       this.logger.error('Error in transferFromFiat:', error);
@@ -241,16 +210,13 @@ export class EthereumService {
       if (!signedTx.rawTransaction) {
         throw new Error('Failed to sign transaction');
       }
-      this.logger.log('Signed tx:', signedTx);
-      await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      this.logger.log('receipt', receipt);
 
-      const receiptStatus = await this.getTransactionReceipt(
-        signedTx.transactionHash,
-      );
       return (
-        receiptStatus.status === '0x1' ||
-        receiptStatus.status === 1 ||
-        receiptStatus.status === 1n
+        receipt.status === '0x1' ||
+        receipt.status === 1 ||
+        receipt.status === 1n
       );
     } catch (error) {
       this.logger.error('Error in transferToFiat:', error);
@@ -301,15 +267,13 @@ export class EthereumService {
         tx,
         userPrivateKey,
       );
-      this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      this.logger.log('receipt', receipt);
 
-      const receiptStatus = await this.getTransactionReceipt(
-        signedTx.transactionHash,
-      );
       return (
-        receiptStatus.status === '0x1' ||
-        receiptStatus.status === 1 ||
-        receiptStatus.status === 1n
+        receipt.status === '0x1' ||
+        receipt.status === 1 ||
+        receipt.status === 1n
       );
     } catch (error) {
       this.logger.error('Error in transfer:', error);
