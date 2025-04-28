@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Scope } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import * as cheerio from 'cheerio';
 import { BricsAccountDto, BricsCustomerDto } from './dto/brics.dto';
 import * as https from 'node:https';
 
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class BricsService {
   private readonly BRICS_API_ROOT: string;
   private readonly CT_ACCOUNT_NO: string;
@@ -30,6 +30,7 @@ export class BricsService {
       this.logger.error('Токен не найден в ответе');
       throw new Error('Токен не найден в ответе');
     }
+    this.logger.debug(`Parsed RequestVerificationToken ${token}`);
     return token as string;
   }
 
@@ -40,21 +41,17 @@ export class BricsService {
       this.logger.error('Токен не найден в ответе');
       throw new Error('Токен не найден в ответе');
     }
+    this.logger.debug(`Parsed RequestIdentificationToken ${token}`);
     return token as string;
   }
 
   async init(): Promise<string> {
     try {
+      this.logger.debug('Request Init page');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Account/Login`,
       );
-
-      const cookies = response.headers['set-cookie'];
-      if (cookies) {
-        this.axiosInstance.defaults.headers.common['Cookie'] =
-          cookies.join('; ');
-      }
-
+      this.logger.debug('Received Init page');
       return this.getRequestVerificationToken(response.data);
     } catch (error) {
       this.logger.error('Error getting token:', error);
@@ -65,6 +62,7 @@ export class BricsService {
   async auth(username: string, password: string): Promise<boolean> {
     const token = await this.init();
     try {
+      this.logger.debug('Send Login request');
       const response = await this.axiosInstance.post(
         `${this.BRICS_API_ROOT}/InternetBanking/Account/Login?ReturnUrl=/InternetBanking/ru-RU`,
         {
@@ -74,6 +72,7 @@ export class BricsService {
         },
         { headers: { 'content-type': 'application/x-www-form-urlencoded' } },
       );
+      this.logger.debug(`Received Login response ${response.status}`);
       return response.status === 302;
     } catch (error) {
       this.logger.error('Ошибка при авторизации:', error);
@@ -83,9 +82,11 @@ export class BricsService {
 
   async getAccount(): Promise<BricsAccountDto> {
     try {
+      this.logger.debug('Send getAccount request');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/CurrentAccounts`,
       );
+      this.logger.debug(`Received getAccount response ${response.status}`);
       return response.data.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
       );
@@ -97,13 +98,15 @@ export class BricsService {
 
   async findAccount(accountNoOrPhone: string): Promise<BricsAccountDto> {
     try {
-      const response: BricsAccountDto[] = await this.axiosInstance.post(
+      this.logger.debug('Send findAccount request');
+      const response = await this.axiosInstance.post(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
         {
           account: accountNoOrPhone,
         },
       );
-      return response.find(
+      this.logger.debug(`Received findAccount response ${response.status}`);
+      return response.data.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
       )!;
     } catch (error) {
@@ -117,9 +120,11 @@ export class BricsService {
     const findedAccount = await this.findAccount(account.AccountNo);
 
     try {
+      this.logger.debug('Send getCustomerInfo request');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/customer/GetCustomerFullInfo?customerID=${findedAccount.CustomerID}`,
       );
+      this.logger.debug(`Received getCustomerInfo response ${response.status}`);
       return response.data;
     } catch (error) {
       this.logger.error('Error getting customer information:', error);
@@ -129,9 +134,11 @@ export class BricsService {
 
   async getSomBalance(): Promise<number> {
     try {
+      this.logger.debug('Send getSomBalance request');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/CurrentAccounts`,
       );
+      this.logger.debug(`Received getSomBalance response ${response.status}`);
       return (
         response.data.find(
           (account: BricsAccountDto) => account.CurrencyID === 417,
@@ -145,10 +152,11 @@ export class BricsService {
 
   async initTransactionScreen(): Promise<string> {
     try {
+      this.logger.debug('Send initTransactionScreen request');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=1340000087861476&CurrencyID=417`,
       );
-
+      this.logger.debug(`Received initTransactionScreen response ${response.status}`);
       return this.getRequestIdentificationToken(response.data);
     } catch (error) {
       this.logger.error('Ошибка при получении токена:', error);
@@ -164,9 +172,9 @@ export class BricsService {
     const ctAccountNo = await this.findAccount(customerId);
     const accountNo = this.CT_ACCOUNT_NO;
 
+    this.logger.debug('Send createTransactionCryptoToFiat request');
     const response = await this.axiosInstance.post(
       `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
-
       {
         DtAccountNo: accountNo,
         CtAccountNo: ctAccountNo,
@@ -179,6 +187,7 @@ export class BricsService {
         },
       },
     );
+    this.logger.debug(`Received createTransactionCryptoToFiat response ${response.status}`);
     this.logger.log('Operation ID:', response.data.operationID);
     return response.data.operationID;
   }
@@ -191,9 +200,9 @@ export class BricsService {
     const accountNo = await this.findAccount(customerId.toString());
     const ctAccountNo = this.CT_ACCOUNT_NO;
 
+    this.logger.debug('Send createTransactionFiatToCrypto request');
     const response = await this.axiosInstance.post(
       `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
-
       {
         DtAccountNo: accountNo,
         CtAccountNo: ctAccountNo,
@@ -206,23 +215,26 @@ export class BricsService {
         },
       },
     );
+    this.logger.debug(`Received createTransactionFiatToCrypto response ${response.status}`);
     this.logger.log('Operation ID:', response.data.operationID);
     return response.data.operationID;
   }
 
   async confirmLoad(operationId: number): Promise<boolean> {
+    this.logger.debug('Send confirmLoad request');
     const response = await this.axiosInstance.post(
       `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/ConfirmLoad`,
       {
         operationID: operationId,
       },
     );
+    this.logger.debug(`Received confirmLoad response ${response.status}`);
     await this.confirmFinal(operationId);
-    this.logger.log('Confirm load:', response.status);
     return response.status === 200;
   }
 
   async confirmFinal(operationId: number): Promise<boolean> {
+    this.logger.debug('Send confirmFinal request');
     const response = await this.axiosInstance.post(
       `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/Confirm`,
       {
@@ -230,7 +242,7 @@ export class BricsService {
         OperationTypeID: 1,
       },
     );
-    this.logger.log('Confirm final:', response.status);
+    this.logger.debug(`Received confirmFinal response ${response.status}`);
     return response.status === 200;
   }
 }
