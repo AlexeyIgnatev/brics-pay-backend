@@ -135,8 +135,14 @@ export class BricsService {
       this.logger.debug('Send getAccount request');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/CurrentAccounts`,
+        {
+          withCredentials: true,
+          headers: {
+            'Cookie': this.cookies != null ? this.cookies : undefined,
+          },
+        },
       );
-      this.logger.debug(`Received getAccount response ${response.status}`);
+      this.logger.debug(`Received getAccount response ${response.status} ${response.data}`);
       return response.data.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
       );
