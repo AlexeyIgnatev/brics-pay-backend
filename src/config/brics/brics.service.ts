@@ -317,10 +317,15 @@ export class BricsService {
     const response = await this.axiosInstance.post(
       `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
       {
+        InternalOperationType: 1,
+        OperationID: 0,
         DtAccountNo: account.AccountNo,
         CtAccountNo: ctAccountNo,
+        CurrencyID: 417,
         Sum: amount,
         Comment: customerId,
+        IsTemplate: false,
+        Schedule: null
       },
       {
         withCredentials: true,
