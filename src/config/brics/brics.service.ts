@@ -11,6 +11,7 @@ export class BricsService {
   private readonly CT_ACCOUNT_NO: string;
   private readonly axiosInstance: AxiosInstance;
   private readonly logger = new Logger(BricsService.name);
+  private cookies: string = '';
 
   constructor(private readonly configService: ConfigService) {
     this.BRICS_API_ROOT = this.configService.get<string>('BRICS_API_ROOT')!;
@@ -22,6 +23,35 @@ export class BricsService {
         rejectUnauthorized: false,
       }),
     });
+  }
+
+  private updateCookies(setCookieHeaders?: string[]) {
+    if (!setCookieHeaders) return;
+
+    // Разбираем новые куки
+    const newCookies = setCookieHeaders.map(cookieString => cookieString.split(';')[0]); // Берём только "ключ=значение"
+
+    // Если уже были куки, добавляем новые
+    const existingCookies = this.cookies
+      ? this.cookies.split('; ').reduce((acc, cookie) => {
+        const [key, value] = cookie.split('=');
+        acc[key] = value;
+        return acc;
+      }, {} as Record<string, string>)
+      : {};
+
+    // Обновляем существующие куки новыми
+    newCookies.forEach(cookie => {
+      const [key, value] = cookie.split('=');
+      existingCookies[key] = value;
+    });
+
+    // Сохраняем обновлённую строку кук
+    this.cookies = Object.entries(existingCookies)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('; ');
+
+    this.logger.debug(`Updated cookie: ${this.cookies}`);
   }
 
   private async getRequestVerificationToken(html: string): Promise<string> {
@@ -51,13 +81,8 @@ export class BricsService {
       this.logger.debug('Request Init page');
       const response = await this.axiosInstance.get(
         `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Account/Login`,
-        {
-          withCredentials: true,
-          headers: {
-            'Access-Control-Allow-Origin': '*'
-          }
-        }
       );
+      this.updateCookies(response.headers['set-cookie']);
       this.logger.debug('Received Init page');
       return this.getRequestVerificationToken(response.data);
     } catch (error) {
@@ -73,7 +98,7 @@ export class BricsService {
         __RequestVerificationToken: token,
         UserName: username,
         Password: password,
-      }
+      };
       this.logger.debug('Send Login request', JSON.stringify(body));
       const response = await this.axiosInstance.post(
         `${this.BRICS_API_ROOT}/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking%2Fru-RU`,
@@ -88,10 +113,12 @@ export class BricsService {
             'Accept-Encoding': 'gzip, deflate, br, zstd',
             'Accept-Language': 'ru-RU,ru;q=0.9',
             'Referer': 'https://192.168.255.109/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking%2Fru-RU',
-            'Origin': 'https://192.168.255.109'
-          }
+            'Origin': 'https://192.168.255.109',
+            'Cookie': this.cookies != null ? this.cookies : undefined,
+          },
         },
       );
+      this.updateCookies(response.headers['set-cookie']);
       this.logger.debug(`Received Login response ${response.status}`);
       return response.status === 302;
     } catch (error) {
