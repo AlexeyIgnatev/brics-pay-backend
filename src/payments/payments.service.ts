@@ -1,9 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaClient } from '@prisma/client';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { EthereumService } from 'src/config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class PaymentsService {
@@ -13,8 +15,9 @@ export class PaymentsService {
     private readonly prisma: PrismaClient,
     private readonly ethereumService: EthereumService,
     private readonly bricsService: BricsService,
-  ) {
-  }
+    private readonly moduleRef: ModuleRef,
+    private readonly configService: ConfigService,
+  ) {}
 
   async fiatToCrypto(
     paymentDto: PaymentDto,
@@ -50,6 +53,7 @@ export class PaymentsService {
     customer_id: number,
   ): Promise<StatusOKDto> {
     this.logger.log('cryptoToFiat', paymentDto, customer_id);
+
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
     });
@@ -57,9 +61,22 @@ export class PaymentsService {
       this.logger.error('Customer not found');
       throw new Error('Customer not found');
     }
+
     const { amount } = paymentDto;
+
+    const adminBricsService = await this.moduleRef.create(BricsService);
+
+    const adminAuth = await adminBricsService.auth(
+      this.configService.get<string>('ADMIN_USERNAME')!,
+      this.configService.get<string>('ADMIN_PASSWORD')!,
+    );
+    if (!adminAuth) {
+      this.logger.error('Admin authentication failed');
+      throw new Error('Admin authentication failed');
+    }
+
     const bricsTransaction =
-      await this.bricsService.createTransactionFiatToCrypto(
+      await adminBricsService.createTransactionCryptoToFiat(
         amount,
         customer.customer_id.toString(),
       );
@@ -67,6 +84,8 @@ export class PaymentsService {
       this.logger.error('Brics transaction failed');
       throw new Error('Brics transaction failed');
     }
+
+    // 5. Выполняем Ethereum транзакцию
     const ethTransaction = await this.ethereumService.transferToFiat(
       customer.address,
       amount,
@@ -76,6 +95,7 @@ export class PaymentsService {
       this.logger.error('Ethereum transaction failed');
       throw new Error('Ethereum transaction failed');
     }
+
     return new StatusOKDto();
   }
 
