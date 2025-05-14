@@ -17,7 +17,8 @@ export class PaymentsService {
     private readonly bricsService: BricsService,
     private readonly moduleRef: ModuleRef,
     private readonly configService: ConfigService,
-  ) {}
+  ) {
+  }
 
   async fiatToCrypto(
     paymentDto: PaymentDto,
@@ -64,6 +65,16 @@ export class PaymentsService {
 
     const { amount } = paymentDto;
 
+    const ethTransaction = await this.ethereumService.transferToFiat(
+      customer.address,
+      amount,
+      customer.private_key,
+    );
+    if (!ethTransaction) {
+      this.logger.error('Ethereum transaction failed');
+      throw new Error('Ethereum transaction failed');
+    }
+
     const adminBricsService = await this.moduleRef.create(BricsService);
 
     const adminAuth = await adminBricsService.auth(
@@ -77,23 +88,12 @@ export class PaymentsService {
 
     const bricsTransaction =
       await adminBricsService.createTransactionCryptoToFiat(
-        amount,
+        amount * (1 - Number(this.configService.get('PLATFORM_FEE'))),
         customer.customer_id.toString(),
       );
     if (!bricsTransaction) {
       this.logger.error('Brics transaction failed');
       throw new Error('Brics transaction failed');
-    }
-
-    // 5. Выполняем Ethereum транзакцию
-    const ethTransaction = await this.ethereumService.transferToFiat(
-      customer.address,
-      amount,
-      customer.private_key,
-    );
-    if (!ethTransaction) {
-      this.logger.error('Ethereum transaction failed');
-      throw new Error('Ethereum transaction failed');
     }
 
     return new StatusOKDto();
@@ -133,7 +133,7 @@ export class PaymentsService {
       });
     }
     const ethTransaction = await this.ethereumService.transfer(
-      customer.address,
+      recipient.address,
       transferDto.amount,
       customer.private_key,
     );

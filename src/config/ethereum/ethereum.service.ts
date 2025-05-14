@@ -121,15 +121,7 @@ export class EthereumService {
         chainId: this.web3.utils.toHex(chainId),
       };
 
-      this.logger.log('Transaction params:', {
-        from: account.address,
-        to: this.TOKEN_ADDRESS,
-        gas: '1000000',
-        gasPrice: this.web3.utils.toHex(increasedFee),
-        dataLength: data.length,
-        nonce: this.web3.utils.toHex(nonce),
-        chainId: this.web3.utils.toHex(chainId),
-      });
+      this.logger.log('Transaction params:', tx);
 
       const signedTx = await this.web3.eth.accounts.signTransaction(
         tx,
@@ -181,20 +173,23 @@ export class EthereumService {
 
       const account =
         this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
+
       if (account.address.toLowerCase() !== address.toLowerCase()) {
         throw new Error('Private key does not match sender address');
       }
+
       const amountWithFee = BigInt(Math.floor(amount * 10 ** 18));
       const data = contract.methods
         .transferToFiat(address, amountWithFee)
         .encodeABI();
+
       const nonce = await this.web3.eth.getTransactionCount(account.address);
       const chainId = await this.web3.eth.getChainId();
 
       const fee = await this.web3.eth.getGasPrice();
       const increasedFee = Math.floor(Number(fee) * 1.1);
       const tx = {
-        from: this.ADMIN_ADDRESS,
+        from: account.address,
         to: this.TOKEN_ADDRESS,
         gas: '1000000',
         gasPrice: this.web3.utils.toHex(increasedFee),
@@ -202,6 +197,8 @@ export class EthereumService {
         nonce: this.web3.utils.toHex(nonce),
         chainId: this.web3.utils.toHex(chainId),
       };
+
+      this.logger.log('Transaction params:', tx);
 
       const signedTx = await this.web3.eth.accounts.signTransaction(
         tx,
@@ -248,20 +245,31 @@ export class EthereumService {
         this.TOKEN_ADDRESS,
       );
 
+      const account =
+        this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
+
       const amountWithFee = BigInt(Math.floor(amount * 10 ** 18));
       const data = contract.methods
         .transfer(address, amountWithFee)
         .encodeABI();
 
+      const nonce = await this.web3.eth.getTransactionCount(account.address);
+      const chainId = await this.web3.eth.getChainId();
+
       const fee = await this.web3.eth.getGasPrice();
       const increasedFee = Math.floor(Number(fee) * 1.1);
+
       const tx = {
-        from: this.ADMIN_ADDRESS,
+        from: account.address,
         to: this.TOKEN_ADDRESS,
         gas: '1000000',
         gasPrice: this.web3.utils.toHex(increasedFee),
         data: data,
+        nonce: this.web3.utils.toHex(nonce),
+        chainId: this.web3.utils.toHex(chainId),
       };
+
+      this.logger.log('Transaction params:', tx);
 
       const signedTx = await this.web3.eth.accounts.signTransaction(
         tx,
