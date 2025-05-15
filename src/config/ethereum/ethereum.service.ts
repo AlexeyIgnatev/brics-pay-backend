@@ -148,7 +148,6 @@ export class EthereumService {
   }
 
   async transferToFiat(
-    address: string,
     amount: number,
     userPrivateKey: string,
   ): Promise<boolean> {
@@ -170,55 +169,10 @@ export class EthereumService {
         this.TOKEN_ADDRESS,
       );
 
-      const userAccount = this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
-      if (userAccount.address.toLowerCase() !== address.toLowerCase()) {
-        throw new Error('Private key does not match sender address');
-      }
-
       const amountWithFee = BigInt(Math.floor(amount * 10 ** 18));
       const data = contract.methods.transferToFiat(amountWithFee).encodeABI();
 
-      await this.fundUserWalletIfNeeded(
-        userAccount.address,
-        data,
-        this.ADMIN_PRIVATE_KEY,
-      );
-
-      const nonce = await this.web3.eth.getTransactionCount(userAccount.address);
-      const gasEstimate = await this.web3.eth.estimateGas({
-        from: userAccount.address,
-        to: this.TOKEN_ADDRESS,
-        data: data,
-      });
-      const gasPrice = await this.web3.eth.getGasPrice();
-      const gasPriceWithMargin = Math.floor(Number(gasPrice) * 1.1);
-      const chainId = await this.web3.eth.getChainId();
-
-      const tx = {
-        from: userAccount.address,
-        to: this.TOKEN_ADDRESS,
-        gas: gasEstimate,
-        gasPrice: this.web3.utils.toHex(gasPriceWithMargin),
-        data: data,
-        nonce: this.web3.utils.toHex(nonce),
-        chainId: this.web3.utils.toHex(chainId),
-      };
-
-      this.logger.log('Transaction params:', tx);
-
-      const signedTx = await this.web3.eth.accounts.signTransaction(tx, userPrivateKey);
-      if (!signedTx.rawTransaction) {
-        throw new Error('Failed to sign user transaction');
-      }
-
-      const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-      this.logger.log('Transaction receipt:', receipt);
-
-      return (
-        receipt.status === '0x1' ||
-        receipt.status === 1 ||
-        receipt.status === 1n
-      );
+      return await this.makeTransactionUsingUserWallet(data, userPrivateKey);
     } catch (error) {
       this.logger.error('Error in transferToFiat:', error);
       throw error;
@@ -249,26 +203,50 @@ export class EthereumService {
         this.TOKEN_ADDRESS,
       );
 
-      const account =
-        this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
-
       const amountWithFee = BigInt(Math.floor(amount * 10 ** 18));
+
       const data = contract.methods
         .transfer(address, amountWithFee)
         .encodeABI();
 
-      const nonce = await this.web3.eth.getTransactionCount(account.address);
+      return await this.makeTransactionUsingUserWallet(data, userPrivateKey);
+    } catch (error) {
+      this.logger.error('Error in transfer:', error);
+      throw error;
+    }
+  }
+
+  private async makeTransactionUsingUserWallet(
+    contractCallData: string,
+    userPrivateKey: string
+  ): Promise<boolean> {
+    try {
+      const userAccount =
+        this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
+
+      await this.fundUserWalletIfNeeded(
+        userAccount.address,
+        contractCallData,
+        this.ADMIN_PRIVATE_KEY,
+      );
+
+      const nonce = await this.web3.eth.getTransactionCount(userAccount.address);
+      const gasEstimate = await this.web3.eth.estimateGas({
+        from: userAccount.address,
+        to: this.TOKEN_ADDRESS,
+        data: contractCallData,
+      });
+
+      const gasPrice = await this.web3.eth.getGasPrice();
+      const gasPriceWithMargin = Math.floor(Number(gasPrice) * 1.1);
       const chainId = await this.web3.eth.getChainId();
 
-      const fee = await this.web3.eth.getGasPrice();
-      const increasedFee = Math.floor(Number(fee) * 1.1);
-
       const tx = {
-        from: account.address,
+        from: userAccount.address,
         to: this.TOKEN_ADDRESS,
-        gas: '1000000',
-        gasPrice: this.web3.utils.toHex(increasedFee),
-        data: data,
+        gas: gasEstimate,
+        gasPrice: this.web3.utils.toHex(gasPriceWithMargin),
+        data: contractCallData,
         nonce: this.web3.utils.toHex(nonce),
         chainId: this.web3.utils.toHex(chainId),
       };
@@ -288,7 +266,7 @@ export class EthereumService {
         receipt.status === 1n
       );
     } catch (error) {
-      this.logger.error('Error in transfer:', error);
+      this.logger.error('Error in transaction:', error);
       throw error;
     }
   }

@@ -66,7 +66,6 @@ export class PaymentsService {
     const { amount } = paymentDto;
 
     const ethTransaction = await this.ethereumService.transferToFiat(
-      customer.address,
       amount,
       customer.private_key,
     );
