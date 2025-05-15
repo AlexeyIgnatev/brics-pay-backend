@@ -314,10 +314,10 @@ export class EthereumService {
       this.logger.log(`User wallet has sufficient balance: ${currentBalance}`);
       return;
     }
-
-    this.logger.log(`GasPrice: ${gasPriceWithMargin}. GasEstimate: ${gasEstimate}. RequiredBalance: ${requiredBalance}. CurrentBalance: ${currentBalance}`);
-
     const amountToSend = requiredBalance - currentBalance;
+
+    this.logger.log(`GasPrice: ${gasPriceWithMargin}. GasEstimate: ${gasEstimate}. RequiredBalance: ${requiredBalance}. CurrentBalance: ${currentBalance}. Amount: ${amountToSend}`);
+
     const chainId = await this.web3.eth.getChainId();
     const nonce = await this.web3.eth.getTransactionCount(fundAccount.address);
 
@@ -330,6 +330,8 @@ export class EthereumService {
       nonce: this.web3.utils.toHex(nonce),
       chainId: this.web3.utils.toHex(chainId),
     };
+
+    this.logger.log('Transaction params:', tx);
 
     const signedTx = await this.web3.eth.accounts.signTransaction(tx, fundPrivateKey);
     if (!signedTx.rawTransaction) {
