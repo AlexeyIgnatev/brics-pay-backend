@@ -150,7 +150,7 @@ export class EthereumService {
   async transferToFiat(
     address: string,
     amount: number,
-    userPrivateKey: string,
+    userPrivateKey: string
   ): Promise<boolean> {
     try {
       const contract = new this.web3.eth.Contract(
@@ -167,32 +167,39 @@ export class EthereumService {
             stateMutability: 'nonpayable',
             payable: false,
           },
-        ] as const,
+        ],
         this.TOKEN_ADDRESS,
       );
 
-      const account =
-        this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
-
-      if (account.address.toLowerCase() !== address.toLowerCase()) {
+      const userAccount = this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
+      if (userAccount.address.toLowerCase() !== address.toLowerCase()) {
         throw new Error('Private key does not match sender address');
       }
 
       const amountWithFee = BigInt(Math.floor(amount * 10 ** 18));
-      const data = contract.methods
-        .transferToFiat(address, amountWithFee)
-        .encodeABI();
+      const data = contract.methods.transferToFiat(address, amountWithFee).encodeABI();
 
-      const nonce = await this.web3.eth.getTransactionCount(account.address);
+      await this.fundUserWalletIfNeeded(
+        userAccount.address,
+        data,
+        this.ADMIN_PRIVATE_KEY,
+      );
+
+      const nonce = await this.web3.eth.getTransactionCount(userAccount.address);
+      const gasEstimate = await this.web3.eth.estimateGas({
+        from: userAccount.address,
+        to: this.TOKEN_ADDRESS,
+        data: data,
+      });
+      const gasPrice = await this.web3.eth.getGasPrice();
+      const gasPriceWithMargin = Math.floor(Number(gasPrice) * 1.1);
       const chainId = await this.web3.eth.getChainId();
 
-      const fee = await this.web3.eth.getGasPrice();
-      const increasedFee = Math.floor(Number(fee) * 1.1);
       const tx = {
-        from: account.address,
+        from: userAccount.address,
         to: this.TOKEN_ADDRESS,
-        gas: '1000000',
-        gasPrice: this.web3.utils.toHex(increasedFee),
+        gas: gasEstimate,
+        gasPrice: this.web3.utils.toHex(gasPriceWithMargin),
         data: data,
         nonce: this.web3.utils.toHex(nonce),
         chainId: this.web3.utils.toHex(chainId),
@@ -200,15 +207,13 @@ export class EthereumService {
 
       this.logger.log('Transaction params:', tx);
 
-      const signedTx = await this.web3.eth.accounts.signTransaction(
-        tx,
-        userPrivateKey,
-      );
+      const signedTx = await this.web3.eth.accounts.signTransaction(tx, userPrivateKey);
       if (!signedTx.rawTransaction) {
-        throw new Error('Failed to sign transaction');
+        throw new Error('Failed to sign user transaction');
       }
+
       const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-      this.logger.log('receipt', receipt);
+      this.logger.log('Transaction receipt:', receipt);
 
       return (
         receipt.status === '0x1' ||
@@ -287,5 +292,61 @@ export class EthereumService {
       this.logger.error('Error in transfer:', error);
       throw error;
     }
+  }
+
+  private async fundUserWalletIfNeeded(
+    userAddress: string,
+    contractCallData: string,
+    fundPrivateKey: string,
+  ): Promise<void> {
+    const fundAccount = this.web3.eth.accounts.privateKeyToAccount(fundPrivateKey);
+    const gasEstimate = await this.web3.eth.estimateGas({
+      from: userAddress,
+      to: this.TOKEN_ADDRESS,
+      data: contractCallData,
+    });
+
+    const gasPrice = await this.web3.eth.getGasPrice();
+    const gasPriceWithMargin = Math.floor(Number(gasPrice) * 1.1);
+    const requiredBalance = BigInt(gasEstimate) * BigInt(gasPriceWithMargin);
+
+    const currentBalance = BigInt(await this.web3.eth.getBalance(userAddress));
+    if (currentBalance >= requiredBalance) {
+      this.logger.log(`User wallet has sufficient balance: ${currentBalance}`);
+      return;
+    }
+
+    const amountToSend = requiredBalance - currentBalance;
+    const chainId = await this.web3.eth.getChainId();
+    const nonce = await this.web3.eth.getTransactionCount(fundAccount.address);
+
+    const tx = {
+      from: fundAccount.address,
+      to: userAddress,
+      value: this.web3.utils.toHex(amountToSend.toString()),
+      gas: 21000,
+      gasPrice: this.web3.utils.toHex(gasPriceWithMargin),
+      nonce: this.web3.utils.toHex(nonce),
+      chainId: this.web3.utils.toHex(chainId),
+    };
+
+    const signedTx = await this.web3.eth.accounts.signTransaction(tx, fundPrivateKey);
+    if (!signedTx.rawTransaction) {
+      throw new Error('Failed to sign fund transfer transaction');
+    }
+
+    const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+    this.logger.log('Funding transaction receipt:', receipt);
+
+    // Опциональное ожидание поступления средств
+    const start = Date.now();
+    let updatedBalance = BigInt(await this.web3.eth.getBalance(userAddress));
+    while (updatedBalance < requiredBalance) {
+      if (Date.now() - start > 10000) throw new Error('Timeout waiting for user funding');
+      await new Promise((r) => setTimeout(r, 1000));
+      updatedBalance = BigInt(await this.web3.eth.getBalance(userAddress));
+    }
+
+    this.logger.log(`User wallet funded successfully. Balance: ${updatedBalance}`);
   }
 }
