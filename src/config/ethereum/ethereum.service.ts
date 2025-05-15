@@ -324,7 +324,7 @@ export class EthereumService {
     const tx = {
       from: fundAccount.address,
       to: userAddress,
-      value: this.web3.utils.toHex(amountToSend.toString()),
+      value: this.bigintToHex(amountToSend),
       gas: 21000,
       gasPrice: this.web3.utils.toHex(gasPriceWithMargin),
       nonce: this.web3.utils.toHex(nonce),
@@ -351,5 +351,9 @@ export class EthereumService {
     }
 
     this.logger.log(`User wallet funded successfully. Balance: ${updatedBalance}`);
+  }
+
+  bigintToHex(value: bigint): string {
+    return '0x' + value.toString(16);
   }
 }
