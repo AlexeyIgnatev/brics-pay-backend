@@ -150,7 +150,7 @@ export class EthereumService {
   async transferToFiat(
     address: string,
     amount: number,
-    userPrivateKey: string
+    userPrivateKey: string,
   ): Promise<boolean> {
     try {
       const contract = new this.web3.eth.Contract(
@@ -314,6 +314,8 @@ export class EthereumService {
       this.logger.log(`User wallet has sufficient balance: ${currentBalance}`);
       return;
     }
+
+    this.logger.log(`GasPrice: ${gasPriceWithMargin}. GasEstimate: ${gasEstimate}. RequiredBalance: ${requiredBalance}. CurrentBalance: ${currentBalance}`);
 
     const amountToSend = requiredBalance - currentBalance;
     const chainId = await this.web3.eth.getChainId();
