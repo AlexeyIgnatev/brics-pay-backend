@@ -78,7 +78,7 @@ export class PaymentsService {
     const adminBricsService = await this.moduleRef.create(BricsService);
 
     const adminAuth = await adminBricsService.auth(
-      this.configService.get<string>('ADMIN_USERNAME')!,
+      this.configService.get<string>('ADMIN_LOGIN')!,
       this.configService.get<string>('ADMIN_PASSWORD')!,
     );
     if (!adminAuth) {
