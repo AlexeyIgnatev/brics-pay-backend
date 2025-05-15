@@ -158,16 +158,15 @@ export class EthereumService {
           {
             constant: false,
             inputs: [
-              { name: 'account', type: 'address' },
               { name: 'amount', type: 'uint256' },
             ],
             name: 'transferToFiat',
-            outputs: [],
+            outputs: [{ name: '', type: 'bool' }],
             type: 'function',
             stateMutability: 'nonpayable',
             payable: false,
           },
-        ],
+        ] as const,
         this.TOKEN_ADDRESS,
       );
 
@@ -177,7 +176,7 @@ export class EthereumService {
       }
 
       const amountWithFee = BigInt(Math.floor(amount * 10 ** 18));
-      const data = contract.methods.transferToFiat(address, amountWithFee).encodeABI();
+      const data = contract.methods.transferToFiat(amountWithFee).encodeABI();
 
       await this.fundUserWalletIfNeeded(
         userAccount.address,
