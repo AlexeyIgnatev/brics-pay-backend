@@ -20,6 +20,7 @@ export class BalanceDto {
   @ApiProperty({ description: 'Баланс в электронных сомах' })
   ESOM: number;
 }
+
 export class LoginResponseDto {
   @ApiProperty({ description: 'Идентификатор клиента' })
   customer_id: number;
@@ -43,3 +44,7 @@ export class LoginResponseDto {
   email: string;
 }
 
+export class ExtendedLoginResponseDto extends LoginResponseDto {
+  @ApiProperty({ description: 'Комиссия площадки' })
+  platform_fee: number;
+}
