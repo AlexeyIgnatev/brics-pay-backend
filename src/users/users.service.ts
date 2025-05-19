@@ -51,9 +51,9 @@ export class UsersService {
         SOM: somBalance,
         ESOM: tokenBalance,
       },
-      first_name: customerInfo.CustomerNameTranslit,
-      middle_name: customerInfo.OtchestvoTranslit,
-      last_name: customerInfo.SurnameTranslit,
+      first_name: customerInfo.CustomerNameTranslit || customerInfo.CustomerName,
+      middle_name: customerInfo.OtchestvoTranslit || customerInfo.Otchestvo,
+      last_name: customerInfo.SurnameTranslit || customerInfo.Surname,
       phone: customerInfo.ContactPhone1,
       email: customerInfo.EMail,
     };
