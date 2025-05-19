@@ -54,8 +54,8 @@ export class UsersService {
       first_name: customerInfo.CustomerNameTranslit || customerInfo.CustomerName,
       middle_name: customerInfo.OtchestvoTranslit || customerInfo.Otchestvo,
       last_name: customerInfo.SurnameTranslit || customerInfo.Surname,
-      phone: customerInfo.ContactPhone1,
-      email: customerInfo.EMail,
+      phone: customerInfo.ContactPhone1 || '',
+      email: customerInfo.EMail || '',
     };
   }
 }
