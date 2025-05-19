@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { BricsService } from 'src/config/brics/brics.service';
-import { LoginDto, LoginResponseDto } from './login.dto';
+import { LoginResponseDto } from './login.dto';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 
 @Injectable()
@@ -10,7 +10,8 @@ export class UsersService {
     private readonly bricsService: BricsService,
     private readonly prisma: PrismaClient,
     private readonly ethereumService: EthereumService,
-  ) {}
+  ) {
+  }
 
   async getUserInfo(
     username: string,
@@ -50,9 +51,9 @@ export class UsersService {
         SOM: somBalance,
         ESOM: tokenBalance,
       },
-      first_name: customerInfo.CustomerName,
-      middle_name: customerInfo.Otchestvo,
-      last_name: customerInfo.Surname,
+      first_name: customerInfo.CustomerNameTranslit,
+      middle_name: customerInfo.OtchestvoTranslit,
+      last_name: customerInfo.SurnameTranslit,
       phone: customerInfo.ContactPhone1,
       email: customerInfo.EMail,
     };

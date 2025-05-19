@@ -12,4 +12,7 @@ export class BricsCustomerDto {
   CustomerName: string;
   Surname: string;
   Otchestvo: string;
+  SurnameTranslit: string;
+  CustomerNameTranslit: string;
+  OtchestvoTranslit: string;
 }
