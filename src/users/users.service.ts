@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { BricsService } from 'src/config/brics/brics.service';
-import { LoginResponseDto } from './login.dto';
+import { UserDto } from './dto/user.dto';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 
 @Injectable()
@@ -16,7 +16,7 @@ export class UsersService {
   async getUserInfo(
     username: string,
     password: string,
-  ): Promise<LoginResponseDto> {
+  ): Promise<UserDto> {
     const auth = await this.bricsService.auth(username, password);
     if (!auth) {
       throw new UnauthorizedException('Неверный логин или пароль');

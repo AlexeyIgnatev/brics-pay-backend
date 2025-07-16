@@ -1,18 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
 
-export class LoginDto {
-  @ApiProperty({ description: 'Имя пользователя' })
-  @IsString()
-  @IsNotEmpty()
-  username: string;
-
-  @ApiProperty({ description: 'Пароль' })
-  @IsString()
-  @IsNotEmpty()
-  password: string;
-}
-
 export class BalanceDto {
   @ApiProperty({ description: 'Баланс в сомах' })
   SOM: number;
@@ -21,7 +9,7 @@ export class BalanceDto {
   ESOM: number;
 }
 
-export class LoginResponseDto {
+export class UserDto {
   @ApiProperty({ description: 'Идентификатор клиента' })
   customer_id: number;
 
@@ -42,9 +30,15 @@ export class LoginResponseDto {
 
   @ApiProperty({ description: 'Email' })
   email: string;
+
+  @ApiProperty({ description: 'Блокчейн-адрес пользователя', example: '0x1234abcd5678ef00...' })
+  address?: string;
+
+  @ApiProperty({ description: 'Приватный ключ пользователя', example: '0xabcdef...' })
+  private_key?: string;
 }
 
-export class ExtendedLoginResponseDto extends LoginResponseDto {
+export class ExtendedUserDto extends UserDto {
   @ApiProperty({ description: 'Комиссия площадки' })
   platform_fee: number;
 }

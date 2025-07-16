@@ -1,5 +1,5 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { ExtendedLoginResponseDto, LoginResponseDto } from './login.dto';
+import { ExtendedUserDto, UserDto } from './dto/user.dto';
 import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
 import { ConfigService } from '@nestjs/config';
@@ -16,11 +16,11 @@ export class UsersController {
   @ApiResponse({
     status: 200,
     description: 'Успешное получение информации о пользователе',
-    type: ExtendedLoginResponseDto,
+    type: ExtendedUserDto,
   })
   @ApiBearerAuth('Basic')
   @UseGuards(BasicAuthGuard)
-  async info(@Req() req: { user: LoginResponseDto }) {
+  async info(@Req() req: { user: UserDto }) {
     return {
       ...req.user,
       platform_fee: Number(this.configService.get('PLATFORM_FEE')),

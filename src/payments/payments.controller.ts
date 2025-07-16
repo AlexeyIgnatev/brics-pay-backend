@@ -1,21 +1,21 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
-import { Request } from 'express';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { PaymentsService } from './payments.service';
 import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
-import { LoginResponseDto } from 'src/users/login.dto';
+import { UserDto } from 'src/users/dto/user.dto';
 import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('payments')
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {}
+  constructor(private readonly paymentsService: PaymentsService) {
+  }
 
   @Post('fiat-to-crypto')
   @UseGuards(BasicAuthGuard)
   @ApiBearerAuth('Basic')
   async fiatToCrypto(
     @Body() paymentDto: PaymentDto,
-    @Req() req: { user: LoginResponseDto },
+    @Req() req: { user: UserDto },
   ) {
     return this.paymentsService.fiatToCrypto(paymentDto, req?.user.customer_id);
   }
@@ -25,7 +25,7 @@ export class PaymentsController {
   @UseGuards(BasicAuthGuard)
   async cryptoToFiat(
     @Body() paymentDto: PaymentDto,
-    @Req() req: { user: LoginResponseDto },
+    @Req() req: { user: UserDto },
   ) {
     return this.paymentsService.cryptoToFiat(paymentDto, req?.user.customer_id);
   }
@@ -35,7 +35,7 @@ export class PaymentsController {
   @UseGuards(BasicAuthGuard)
   async transfer(
     @Body() transferDto: TransferDto,
-    @Req() req: { user: LoginResponseDto },
+    @Req() req: { user: UserDto },
   ) {
     return this.paymentsService.transfer(transferDto, req?.user.customer_id);
   }
