@@ -1,20 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { WalletDto } from './wallet.dto';
 
-export class BalanceDto {
-  @ApiProperty({ description: 'Баланс в сомах' })
-  SOM: number;
-
-  @ApiProperty({ description: 'Баланс в электронных сомах' })
-  ESOM: number;
-}
-
-export class UserDto {
+export class UserInfoDto {
   @ApiProperty({ description: 'Идентификатор клиента' })
   customer_id: number;
-
-  @ApiProperty({ description: 'Баланс' })
-  balance: BalanceDto;
 
   @ApiProperty({ description: 'Имя' })
   first_name: string;
@@ -31,14 +20,18 @@ export class UserDto {
   @ApiProperty({ description: 'Email' })
   email: string;
 
-  @ApiProperty({ description: 'Блокчейн-адрес пользователя', example: '0x1234abcd5678ef00...' })
-  address?: string;
-
   @ApiProperty({ description: 'Приватный ключ пользователя', example: '0xabcdef...' })
   private_key?: string;
 }
 
-export class ExtendedUserDto extends UserDto {
+export class UserDto extends UserInfoDto {
+  @ApiProperty({
+    description: 'Кошельки',
+    type: () => WalletDto,
+    isArray: true
+  })
+  wallets: WalletDto[];
+
   @ApiProperty({ description: 'Комиссия площадки' })
   platform_fee: number;
 }

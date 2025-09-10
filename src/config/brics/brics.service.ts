@@ -36,13 +36,13 @@ export class BricsService {
     // Если уже были куки, добавляем новые
     const existingCookies = this.cookies
       ? this.cookies.split('; ').reduce(
-          (acc, cookie) => {
-            const [key, value] = cookie.split('=');
-            acc[key] = value;
-            return acc;
-          },
-          {} as Record<string, string>,
-        )
+        (acc, cookie) => {
+          const [key, value] = cookie.split('=');
+          acc[key] = value;
+          return acc;
+        },
+        {} as Record<string, string>,
+      )
       : {};
 
     // Обновляем существующие куки новыми
@@ -206,12 +206,12 @@ export class BricsService {
 
   async getCustomerInfo(): Promise<BricsCustomerDto> {
     const account = await this.getAccount();
-    const findedAccount = await this.findAccount(account.AccountNo);
+    const foundAccount = await this.findAccount(account.AccountNo);
 
     try {
       this.logger.verbose('Send getCustomerInfo request');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/customer/GetCustomerFullInfo?customerID=${findedAccount.CustomerID}`,
+        `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/customer/GetCustomerFullInfo?customerID=${foundAccount.CustomerID}`,
       );
       this.logger.verbose(
         `Received getCustomerInfo response ${response.status}`,
@@ -293,57 +293,8 @@ export class BricsService {
     amount: number,
     customerId: string,
   ): Promise<number> {
-    try {
-      const customerAccount = await this.getCustomerAccount(customerId);
-
-      const token = await this.initTransactionScreen(this.CT_ACCOUNT_NO);
-
-      const transactionBody = {
-        InternalOperationType: 1,
-        OperationID: 0,
-        DtAccountNo: this.CT_ACCOUNT_NO,
-        CtAccountNo: customerAccount.AccountNo,
-        CurrencyID: 417,
-        Sum: amount,
-        Comment: customerId,
-        IsTemplate: false,
-        Schedule: null,
-      };
-
-      this.logger.verbose(
-        'Send createTransactionCryptoToFiat request',
-        transactionBody,
-      );
-
-      const response = await this.axiosInstance.post(
-        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
-        transactionBody,
-        {
-          withCredentials: true,
-          headers: {
-            __requestverificationtoken: token,
-            Cookie: this.cookies != null ? this.cookies : undefined,
-          },
-        },
-      );
-
-      this.updateCookies(response.headers['set-cookie']);
-
-      this.logger.verbose(
-        `Received createTransactionCryptoToFiat response ${response.status} ${JSON.stringify(response.data)}`,
-      );
-
-      const operationId = response.data.operationID;
-      this.logger.log('Operation ID:', operationId);
-
-      await this.confirmLoad(operationId);
-      await this.confirmFinal(operationId);
-
-      return operationId;
-    } catch (error) {
-      this.logger.error('Error in createTransactionCryptoToFiat:', error);
-      throw error;
-    }
+    const customerAccount = await this.getCustomerAccount(customerId);
+    return this.createTransfer(this.CT_ACCOUNT_NO, customerAccount.AccountNo, amount, customerId);
   }
 
   async createTransactionFiatToCrypto(
@@ -351,23 +302,41 @@ export class BricsService {
     customerId: string,
   ): Promise<number> {
     const account = await this.getCustomerAccount(customerId);
-    const token = await this.initTransactionScreen(account.AccountNo);
-    const ctAccountNo = this.CT_ACCOUNT_NO;
+    return this.createTransfer(account.AccountNo, this.CT_ACCOUNT_NO, amount, customerId);
+  }
+
+  async createTransferFiatToFiat(
+    amount: number,
+    customerId: string,
+    receiverId: string,
+  ): Promise<number> {
+    const account = await this.getCustomerAccount(customerId);
+    const receiverAccount = await this.getCustomerAccount(receiverId);
+    return this.createTransfer(account.AccountNo, receiverAccount.AccountNo, amount, customerId);
+  }
+
+  async createTransfer(
+    fromAccount: string,
+    toAccount: string,
+    amount: number,
+    comment: string,
+  ): Promise<number> {
+    const token = await this.initTransactionScreen(fromAccount);
 
     const transactionBody = {
       InternalOperationType: 1,
       OperationID: 0,
-      DtAccountNo: account.AccountNo,
-      CtAccountNo: ctAccountNo,
+      DtAccountNo: fromAccount,
+      CtAccountNo: toAccount,
       CurrencyID: 417,
       Sum: amount,
-      Comment: customerId,
+      Comment: comment,
       IsTemplate: false,
       Schedule: null,
     };
 
     this.logger.verbose(
-      'Send createTransactionFiatToCrypto request',
+      'Send createTransfer request',
       transactionBody,
     );
 
@@ -382,15 +351,20 @@ export class BricsService {
         },
       },
     );
+
     this.updateCookies(response.headers['set-cookie']);
+
     this.logger.verbose(
-      `Received createTransactionFiatToCrypto response ${response.status} ${JSON.stringify(response.data)}`,
+      `Received createTransfer response ${response.status} ${JSON.stringify(response.data)}`,
     );
-    this.logger.log('Operation ID:', response.data.operationID);
+
     const operationId = response.data.operationID;
+    this.logger.log('Operation ID:', operationId);
+
     await this.confirmLoad(operationId);
     await this.confirmFinal(operationId);
-    return response.data.operationID;
+
+    return operationId;
   }
 
   async confirmLoad(operationId: number): Promise<boolean> {

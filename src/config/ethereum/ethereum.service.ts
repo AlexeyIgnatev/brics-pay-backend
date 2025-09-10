@@ -43,7 +43,7 @@ export class EthereumService {
     }
   }
 
-  async getTokenBalance(address: string): Promise<number> {
+  async getEsomBalance(address: string): Promise<number> {
     try {
       const contract = new this.web3.eth.Contract(
         [
@@ -60,7 +60,7 @@ export class EthereumService {
         this.TOKEN_ADDRESS,
       );
       const balance = await contract.methods.balanceOf(address).call();
-      this.logger.log(`Token balance: ${balance}`);
+      this.logger.log(`ESOM balance: ${balance}`);
       return Number(balance) / 10 ** 18;
     } catch (error) {
       this.logger.error('Error getting token balance:', error);

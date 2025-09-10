@@ -23,7 +23,7 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - brics-pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 10s
@@ -34,25 +34,8 @@ services:
     networks:
       - postgres
 
-  # minio:
-  #   container_name: brics-minio
-  #   image: minio/minio
-  #   ports:
-  #     - 9000:9000
-  #     - 9001:9001
-  #   volumes:
-  #     - brics-minio-storage:/data
-  #   env_file:
-  #   environment:
-  #     MINIO_ROOT_USER: ${POSTGRES_USER}
-  #     MINIO_ROOT_PASSWORD: ${POSTGRES_PASSWORD}
-  #     MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-  #     MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-  #   command: server --console-address ":9001" /data
-
 volumes:
-  brics-pgdata:
-  # brics-minio-storage:
+  postgres_data:
 
 networks:
   postgres:

@@ -1,7 +1,6 @@
-import { IsNotEmpty, IsString } from 'class-validator';
-
+import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber } from 'class-validator';
+import { Currency } from '../../users/enums/currency';
 
 export class PaymentDto {
   @ApiProperty({ description: 'Сумма платежа' })
@@ -19,5 +18,15 @@ export class TransferDto {
   @ApiProperty({ description: 'Номер телефона получателя' })
   @IsString()
   @IsNotEmpty()
-  phone_number: string;
+  @IsOptional()
+  phone_number?: string;
+
+  @ApiProperty({ description: 'Адрес крипто кошелька' })
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  address?: string;
+
+  @ApiProperty({ enum: Currency })
+  currency: Currency;
 }

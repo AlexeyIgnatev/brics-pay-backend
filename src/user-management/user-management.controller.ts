@@ -4,8 +4,8 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PaginatedUserResponseDto } from './dto/paginated-user-response.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
-import { UserDto } from '../users/dto/user.dto';
 import { UserBlockStatusDto } from './dto/user-block-status.dto';
+import { UserInfoDto } from '../users/dto/user-info.dto';
 
 @ApiTags('Управление пользователями')
 @ApiBasicAuth()
@@ -18,13 +18,12 @@ export class UserManagementController {
   })
   @ApiResponse({
     status: 201,
-    type: UserDto,
+    type: UserInfoDto,
     description: 'Успешно созданный пользователь',
   })
-  async create(@Body() dto: CreateUserDto): Promise<UserDto> {
+  async create(@Body() dto: CreateUserDto): Promise<UserInfoDto> {
     return Promise.resolve({
       customer_id: 101,
-      balance: { SOM: 0, ESOM: 0 },
       first_name: dto.first_name,
       middle_name: dto.middle_name,
       last_name: dto.last_name,
@@ -87,12 +86,12 @@ export class UserManagementController {
   @ApiParam({ name: 'id', example: 101, description: 'ID пользователя' })
   @ApiResponse({
     status: 200,
-    type: UserDto,
+    type: UserInfoDto,
     description: 'Данные пользователя',
   })
   async findOne(
     @Param('id', ParseIntPipe) id: number,
-  ): Promise<UserDto> {
+  ): Promise<UserInfoDto> {
     return Promise.resolve({
       customer_id: id,
       balance: { SOM: 1500, ESOM: 300 },
@@ -114,13 +113,13 @@ export class UserManagementController {
   @ApiParam({ name: 'id', example: 101, description: 'ID пользователя' })
   @ApiResponse({
     status: 200,
-    type: UserDto,
+    type: UserInfoDto,
     description: 'Обновлённый пользователь',
   })
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateUserDto,
-  ): Promise<UserDto> {
+  ): Promise<UserInfoDto> {
     return Promise.resolve({
       customer_id: id,
       balance: { SOM: 0, ESOM: 0 }, // Баланс не меняется этим методом

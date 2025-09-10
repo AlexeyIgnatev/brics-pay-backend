@@ -1,9 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { UserDto } from '../../users/dto/user.dto';
+import { UserInfoDto } from '../../users/dto/user-info.dto';
 
 export class PaginatedUserResponseDto {
-  @ApiProperty({ type: [UserDto], description: 'Список пользователей на текущей странице' })
-  items: UserDto[];
+  @ApiProperty({ type: [UserInfoDto], description: 'Список пользователей на текущей странице' })
+  items: UserInfoDto[];
 
   @ApiProperty({ example: 100, description: 'Общее количество пользователей' })
   total: number;

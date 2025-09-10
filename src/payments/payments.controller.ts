@@ -2,8 +2,11 @@ import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { PaymentsService } from './payments.service';
 import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
-import { UserDto } from 'src/users/dto/user.dto';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import { UserInfoDto } from '../users/dto/user-info.dto';
+import { GetTransactions } from './dto/get-transactions.dto';
+import { TransactionDto } from './dto/transaction.dto';
+import { StatusOKDto } from '../common/dto/status.dto';
 
 @Controller('payments')
 export class PaymentsController {
@@ -15,8 +18,8 @@ export class PaymentsController {
   @ApiBearerAuth('Basic')
   async fiatToCrypto(
     @Body() paymentDto: PaymentDto,
-    @Req() req: { user: UserDto },
-  ) {
+    @Req() req: { user: UserInfoDto },
+  ): Promise<StatusOKDto>  {
     return this.paymentsService.fiatToCrypto(paymentDto, req?.user.customer_id);
   }
 
@@ -25,8 +28,8 @@ export class PaymentsController {
   @UseGuards(BasicAuthGuard)
   async cryptoToFiat(
     @Body() paymentDto: PaymentDto,
-    @Req() req: { user: UserDto },
-  ) {
+    @Req() req: { user: UserInfoDto },
+  ): Promise<StatusOKDto>  {
     return this.paymentsService.cryptoToFiat(paymentDto, req?.user.customer_id);
   }
 
@@ -35,8 +38,18 @@ export class PaymentsController {
   @UseGuards(BasicAuthGuard)
   async transfer(
     @Body() transferDto: TransferDto,
-    @Req() req: { user: UserDto },
-  ) {
+    @Req() req: { user: UserInfoDto },
+  ): Promise<StatusOKDto> {
     return this.paymentsService.transfer(transferDto, req?.user.customer_id);
+  }
+
+  @Post('history')
+  @ApiBearerAuth('Basic')
+  @UseGuards(BasicAuthGuard)
+  async getHistory(
+    @Body() getTransactions: GetTransactions,
+    @Req() req: { user: UserInfoDto },
+  ): Promise<TransactionDto[]> {
+    return [];
   }
 }
