@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Currency } from '../../users/enums/currency';
 
@@ -28,5 +28,6 @@ export class TransferDto {
   address?: string;
 
   @ApiProperty({ enum: Currency })
+  @IsEnum(Currency)
   currency: Currency;
 }
