@@ -7,6 +7,7 @@ import { UserInfoDto } from '../users/dto/user-info.dto';
 import { GetTransactions } from './dto/get-transactions.dto';
 import { TransactionDto } from './dto/transaction.dto';
 import { StatusOKDto } from '../common/dto/status.dto';
+import { ConvertDto } from './dto/convert.dto';
 
 @Controller('payments')
 export class PaymentsController {
@@ -42,6 +43,17 @@ export class PaymentsController {
   ): Promise<StatusOKDto> {
     return this.paymentsService.transfer(transferDto, req?.user.customer_id);
   }
+
+  @Post('convert')
+  @ApiBearerAuth('Basic')
+  @UseGuards(BasicAuthGuard)
+  async convert(
+    @Body() dto: ConvertDto,
+    @Req() req: { user: UserInfoDto },
+  ): Promise<StatusOKDto>  {
+    return this.paymentsService.convert(dto, req?.user.customer_id);
+  }
+
 
   @Post('history')
   @ApiBearerAuth('Basic')

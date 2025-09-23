@@ -17,11 +17,15 @@ import { UpdateAdminDto } from './dto/update-admin.dto';
 import { AdminResponseDto } from './dto/admin-response.dto';
 import { PaginatedAdminResponseDto } from './dto/paginated-admin-response.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import { SettingsService } from '../config/settings/settings.service';
+import { SettingsDto } from './dto/settings.dto';
 
 @ApiTags('Управление администраторами')
 @ApiBasicAuth()
 @Controller('admin-management')
 export class AdminManagementController {
+  constructor(private readonly settingsService: SettingsService) {}
+
   @Post()
   @ApiOperation({
     summary: 'Создать нового администратора',
@@ -133,6 +137,23 @@ export class AdminManagementController {
       createdAt: new Date(),
       role: 'admin',
     });
+  }
+
+
+  @Get('settings')
+  @ApiOperation({ summary: 'Получить текущие настройки системы' })
+  @ApiResponse({ status: 200, type: SettingsDto })
+  async getSettings(): Promise<SettingsDto> {
+    const s = await this.settingsService.get();
+    return s as any;
+  }
+
+  @Put('settings')
+  @ApiOperation({ summary: 'Обновить настройки системы' })
+  @ApiResponse({ status: 200, type: SettingsDto })
+  async updateSettings(@Body() dto: Partial<SettingsDto>): Promise<SettingsDto> {
+    const s = await this.settingsService.update(dto as any);
+    return s as any;
   }
 
   @Put(':id')

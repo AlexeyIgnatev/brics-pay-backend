@@ -18,5 +18,93 @@ model Customer {
     address     String
     private_key String
 
+    balances    UserAssetBalance[]
+    trades      UserTrade[]
+    withdrawals WithdrawRequest[]
+
     @@map("customers")
+}
+
+enum Asset {
+  ESOM
+  SOM
+  BTC
+  ETH
+  USDT_TRC20
+}
+
+enum WithdrawStatus {
+  PENDING
+  SUBMITTED
+  SUCCESS
+  FAILED
+}
+
+model Settings {
+  id                              Int      @id @default(1)
+  esom_per_usd                    Decimal  @db.Decimal(38, 18)
+  esom_som_conversion_fee_pct     Decimal  @db.Decimal(5, 2)
+
+  btc_trade_fee_pct               Decimal  @db.Decimal(5, 2)
+  eth_trade_fee_pct               Decimal  @db.Decimal(5, 2)
+  usdt_trade_fee_pct              Decimal  @db.Decimal(5, 2)
+
+  btc_withdraw_fee_fixed          Decimal  @db.Decimal(38, 18)
+  eth_withdraw_fee_fixed          Decimal  @db.Decimal(38, 18)
+  usdt_withdraw_fee_fixed         Decimal  @db.Decimal(38, 18)
+
+  min_withdraw_btc                Decimal  @db.Decimal(38, 18)
+  min_withdraw_eth                Decimal  @db.Decimal(38, 18)
+  min_withdraw_usdt_trc20         Decimal  @db.Decimal(38, 18)
+
+  updatedAt                       DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model UserAssetBalance {
+  id           Int      @id @default(autoincrement())
+  customer_id  Int
+  asset        Asset
+  balance      Decimal  @db.Decimal(38, 18) @default(0)
+  updatedAt    DateTime @updatedAt
+
+  customer     Customer @relation(fields: [customer_id], references: [customer_id])
+
+  @@unique([customer_id, asset])
+  @@map("user_asset_balances")
+}
+
+model UserTrade {
+  id            Int      @id @default(autoincrement())
+  customer_id   Int
+  asset_from    Asset
+  asset_to      Asset
+  amount_from   Decimal  @db.Decimal(38, 18)
+  amount_to     Decimal  @db.Decimal(38, 18)
+  price_usd     Decimal  @db.Decimal(38, 18)
+  notional_usdt Decimal  @db.Decimal(38, 18)
+  fee_esom      Decimal  @db.Decimal(38, 18) @default(0)
+  createdAt     DateTime @default(now())
+
+  customer      Customer @relation(fields: [customer_id], references: [customer_id])
+
+  @@map("user_trades")
+}
+
+model WithdrawRequest {
+  id           Int             @id @default(autoincrement())
+  customer_id  Int
+  asset        Asset
+  address      String
+  amount       Decimal         @db.Decimal(38, 18)
+  fee          Decimal         @db.Decimal(38, 18)
+  txid         String?
+  status       WithdrawStatus  @default(PENDING)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  customer     Customer        @relation(fields: [customer_id], references: [customer_id])
+
+  @@map("withdraw_requests")
 }

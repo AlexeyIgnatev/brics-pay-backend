@@ -6,9 +6,11 @@ import { EthereumModule } from 'src/config/ethereum/ethrereum.module';
 import { PrismaClient } from '@prisma/client';
 import { UsersModule } from '../users/users.module';
 import { ConfigModule } from '@nestjs/config';
+import { SettingsModule } from '../config/settings/settings.module';
+import { ExchangeModule } from '../config/exchange/exchange.module';
 
 @Module({
-  imports: [EthereumModule, BricsModule, UsersModule, ConfigModule],
+  imports: [EthereumModule, BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule],
   controllers: [PaymentsController],
   providers: [PaymentsService, PrismaClient],
 })

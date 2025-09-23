@@ -1,11 +1,13 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Asset } from '@prisma/client';
 import { BricsService } from 'src/config/brics/brics.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { UserInfoDto } from './dto/user-info.dto';
 import { WalletDto } from './dto/wallet.dto';
 import { Currency } from './enums/currency';
 import { CryptoService } from '../config/crypto/crypto.service';
+import { SettingsService } from '../config/settings/settings.service';
+import { BybitExchangeService } from '../config/exchange/bybit.service';
 
 @Injectable()
 export class UsersService {
@@ -14,6 +16,8 @@ export class UsersService {
     private readonly prisma: PrismaClient,
     private readonly ethereumService: EthereumService,
     private readonly cryptoService: CryptoService,
+    private readonly settingsService: SettingsService,
+    private readonly exchangeService: BybitExchangeService,
   ) {
   }
 
@@ -55,15 +59,41 @@ export class UsersService {
   }
 
   async getUserWallets(userInfo: UserInfoDto): Promise<WalletDto[]> {
-    let user = await this.prisma.customer.findUniqueOrThrow({
-      where: {
-        customer_id: userInfo.customer_id,
-      },
+    const user = await this.prisma.customer.findUniqueOrThrow({
+      where: { customer_id: userInfo.customer_id },
     });
 
-    const [somBalance, tokenBalance] = await Promise.all([
+    const [somBalance, esomBalance, settings, pricesUsd] = await Promise.all([
       this.bricsService.getSomBalance(),
       this.ethereumService.getEsomBalance(user.address),
+      this.settingsService.get(),
+      this.exchangeService.getUsdPrices(['BTC' as Asset, 'ETH' as Asset, 'USDT_TRC20' as Asset]),
+    ]);
+
+    const esomPerUsd = Number(settings.esom_per_usd);
+    const btcUsd = Number(pricesUsd['BTC'] || 0);
+    const ethUsd = Number(pricesUsd['ETH'] || 0);
+    const usdtUsd = 1;
+
+    const btcBaseEsom = btcUsd * esomPerUsd;
+    const ethBaseEsom = ethUsd * esomPerUsd;
+    const usdtBaseEsom = usdtUsd * esomPerUsd;
+
+    const btcFee = Number(settings.btc_trade_fee_pct) / 100;
+    const ethFee = Number(settings.eth_trade_fee_pct) / 100;
+    const usdtFee = Number(settings.usdt_trade_fee_pct) / 100;
+
+    const btcBuy = btcBaseEsom * (1 + btcFee);
+    const btcSell = btcBaseEsom * (1 - btcFee);
+    const ethBuy = ethBaseEsom * (1 + ethFee);
+    const ethSell = ethBaseEsom * (1 - ethFee);
+    const usdtBuy = usdtBaseEsom * (1 + usdtFee);
+    const usdtSell = usdtBaseEsom * (1 - usdtFee);
+
+    const [btcBalanceRec, ethBalanceRec, usdtBalanceRec] = await Promise.all([
+      this.prisma.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id: user.customer_id, asset: 'BTC' as Asset } } }),
+      this.prisma.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id: user.customer_id, asset: 'ETH' as Asset } } }),
+      this.prisma.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id: user.customer_id, asset: 'USDT_TRC20' as Asset } } }),
     ]);
 
     return [
@@ -71,36 +101,36 @@ export class UsersService {
         currency: Currency.SOM,
         address: userInfo.phone,
         balance: somBalance,
-        buy_rate: 1.0,
-        sell_rate: 1.0,
+        buy_rate: Number(settings.esom_per_usd), // курс ESOM к SOM в профиле не показываем, но оставим buy_rate как курс ESOM
+        sell_rate: Number(settings.esom_per_usd),
       },
       {
         currency: Currency.ESOM,
         address: user.address,
-        balance: tokenBalance,
+        balance: esomBalance,
         buy_rate: 1.0,
         sell_rate: 1.0,
       },
       {
         currency: Currency.BTC,
         address: this.cryptoService.btcBech32AddressFromPrivateKey(user.private_key),
-        balance: 0.0,
-        buy_rate: 1.0,
-        sell_rate: 1.0,
+        balance: Number(btcBalanceRec?.balance ?? 0),
+        buy_rate: btcBuy,
+        sell_rate: btcSell,
       },
       {
         currency: Currency.ETH,
         address: this.cryptoService.ethAddressFromPrivateKey(user.private_key),
-        balance: 0.0,
-        buy_rate: 1.0,
-        sell_rate: 1.0,
+        balance: Number(ethBalanceRec?.balance ?? 0),
+        buy_rate: ethBuy,
+        sell_rate: ethSell,
       },
       {
         currency: Currency.USDT_TRC20,
         address: this.cryptoService.trxAddressFromPrivateKey(user.private_key),
-        balance: 0.0,
-        buy_rate: 1.0,
-        sell_rate: 1.0,
+        balance: Number(usdtBalanceRec?.balance ?? 0),
+        buy_rate: usdtBuy,
+        sell_rate: usdtSell,
       },
     ];
   }
