@@ -41,3 +41,5 @@ Repository structure (key paths)
 CI and GitHub workflows
 - No .github/ directory found; no GitHub Actions workflows present in this repository.
 - Local quality tools: ESLint (eslint.config.mjs) and Prettier (.prettierrc). Jest for tests defined in package.json.
+
+Last reviewed: 2025-09-22
