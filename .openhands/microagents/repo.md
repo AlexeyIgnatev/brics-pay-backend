@@ -1,45 +1,53 @@
 Repository purpose
-- Backend service for BRICS Pay integrating fiat banking operations with crypto token flows.
-- Provides REST APIs for user info, payments (fiat↔crypto, transfers), and admin/transaction views.
-- Uses NestJS + Prisma (PostgreSQL) and integrates with an Ethereum-like RPC and an external BRICS Internet Banking web portal.
+- Production-ready NestJS backend for BRICS Pay enabling buy/sell and on-chain withdrawals for BTC, ETH, and USDT_TRC20 via the real Bybit API, while preserving existing SOM↔ESOM and internal transfer flows.
+- Exposes REST APIs for user profile and wallets, universal conversion (ESOM↔Crypto, Crypto↔Crypto, SOM↔ESOM), transfers, and admin settings.
+- Uses Prisma (PostgreSQL) and integrates with an Ethereum RPC for ESOM token operations and a BRICS Internet Banking portal for SOM operations.
 
 General setup
 - Runtime: Node.js 20, NestJS 11, TypeScript 5.
-- Database: PostgreSQL via Prisma. Prisma schema defines Customer model and migrations are included.
-- Env config: copy .env.example to .env and set values (DATABASE_URL, BRICS_API_ROOT, RPC_URL, TOKEN_ADDRESS, ADMIN_ADDRESS, PRIVATE_ADMIN_KEY, PLATFORM_FEE, etc.).
-- Local dev:
+- Database: PostgreSQL via Prisma. Migrations are applied automatically in Docker entrypoint (prisma migrate deploy).
+- Environment:
+  - Required: DATABASE_URL; BRICS_API_ROOT; RPC_URL; TOKEN_ADDRESS; ADMIN_ADDRESS; ADMIN_PRIVATE_KEY; PLATFORM_FEE
+  - Bybit: BYBIT_API_KEY, BYBIT_API_SECRET, optional BYBIT_BASE_URL
+  - For local Docker DB from host, set POSTGRES_HOST=host.docker.internal in .env
+- Local development:
   - npm install
   - npx prisma generate
-  - Ensure Postgres is running (docker compose up postgres) and DATABASE_URL points to it
-  - npm run start:dev (app listens on PORT or 8000)
-- Docker/dev services: docker-compose.yaml provides postgres and pgadmin; Makefile targets run-dev/stop-dev. Production compose builds the app + postgres (Makefile run-prod/stop-prod).
-- Swagger: available at /api; versioning enabled via URI.
-- Testing: Jest configured; npm test, npm run test:watch, npm run test:e2e.
-- Linting/formatting: ESLint + Prettier (scripts: npm run lint, npm run format).
+  - Ensure Postgres is up (docker compose up postgres) and DATABASE_URL is correct
+  - npx prisma migrate dev --name init (or use docker entrypoint which runs migrate deploy)
+  - npm run start:dev (default port 8000)
+- Docker:
+  - docker compose up (postgres and pgadmin). The app image builds via Dockerfile; entrypoint waits for DB, runs prisma migrate deploy, then starts app.
+- Tooling:
+  - Swagger at /api (x-api-key header if enabled)
+  - Linting/formatting: ESLint + Prettier (npm run lint, npm run format)
+  - Tests: Jest (npm test). No CI configured.
 
 Repository structure (key paths)
 - src/
-  - app.module.ts, main.ts: NestJS bootstrap, global pipes, CORS, versioning, Swagger setup.
-  - common/: shared DTOs, base controller factory, guards (BasicAuthGuard), and helpers.
-  - config/:
-    - prisma/: PrismaService (connects on module init)
-    - ethereum/: EthereumService (Web3 integration, address generation, token transfers, fiat↔token flows)
-    - brics/: BricsService (axios + cheerio scraping/requests to BRICS InternetBanking, auth, create/find operations)
-    - redis/: RedisService (ioredis client wrapper)
-    - swagger/: Swagger configuration
-  - users/: UsersController, UsersService, user DTOs/enums
-  - payments/: PaymentsController/Service for fiat-to-crypto, crypto-to-fiat, and transfers (ESOM/SOM); integrates Prisma, EthereumService, BricsService
-  - transactions/: Controller with admin-oriented listings and lookups (stubbed/example responses)
-  - admin-management/, user-management/, blockchain-config/: modules and DTOs for admin and configuration operations
+  - app.module.ts, main.ts: bootstrap and global config
+  - common/: shared DTOs, guards (BasicAuthGuard), helpers
+  - config/
+    - exchange/: BybitExchangeService (v5 REST) and interfaces for market buy/sell, USD tickers, and on-chain withdraw
+    - settings/: SettingsService + module (DB-backed singleton settings with fees, rates, mins)
+    - ethereum/: EthereumService (addresses, ESOM transfers, fiat↔token flows)
+    - brics/: BricsService (auth and SOM operations via InternetBanking portal)
+    - swagger/: middleware and Swagger setup
+  - users/: UsersService computes buy_rate/sell_rate in ESOM for BTC/ETH/USDT_TRC20 using Bybit USD prices × Settings.esom_per_usd and per-asset fee pct; balances from UserAssetBalance
+  - payments/: PaymentsService
+    - convert(): universal ESOM↔Crypto, Crypto↔Crypto, SOM↔ESOM orchestration
+    - withdrawCrypto(): enforces Settings mins and fixed fees; debits internal balance; calls Bybit withdraw; records WithdrawRequest
+    - transfer(): routes BTC/ETH/USDT_TRC20 to withdrawCrypto; SOM/ESOM use existing flows
+  - admin-management/: GET/PUT /admin-management/settings for Settings
+  - transactions/, user-management/, blockchain-config/: supporting modules
 - prisma/
-  - schema.prisma (PostgreSQL datasource), migrations/ (initial migration)
-- test/
-  - e2e test setup and sample app test
-- Dockerfile, docker-compose*.yaml, Makefile, entrypoint.sh (waits for DB, runs prisma migrate deploy, starts app)
-- Config: eslint.config.mjs, .prettierrc, tsconfig*.json, nest-cli.json
+  - schema.prisma with enums Asset, WithdrawStatus; models: Customer, Settings, UserAssetBalance, UserTrade, WithdrawRequest
+  - migrations/ with initial table creation; entrypoint applies deploy
+- DevOps: Dockerfile, docker-compose*.yaml (postgres, pgadmin), entrypoint.sh (waits for DB, runs migrations), Makefile
+- Config: eslint.config.mjs, .prettierrc, tsconfig*.json, nest-cli.json, package.json scripts
 
 CI and GitHub workflows
-- No .github/ directory found; no GitHub Actions workflows present in this repository.
-- Local quality tools: ESLint (eslint.config.mjs) and Prettier (.prettierrc). Jest for tests defined in package.json.
+- .github/ not found. No GitHub Actions workflows present.
+- Quality tools available locally: ESLint, Prettier, Jest.
 
 Last reviewed: 2025-09-22
