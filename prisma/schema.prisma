@@ -19,9 +19,16 @@ enum AdminRole {
 
 
 model Customer {
-    customer_id Int    @id
+    customer_id Int     @id
     address     String
     private_key String
+
+    first_name  String?
+    middle_name String?
+    last_name   String?
+    phone       String?
+    email       String?
+    updatedAt   DateTime @updatedAt
 
     balances    UserAssetBalance[]
     trades      UserTrade[]

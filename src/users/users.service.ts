@@ -37,6 +37,12 @@ export class UsersService {
       },
     });
 
+    const first_name = customerInfo.CustomerNameTranslit || customerInfo.CustomerName;
+    const middle_name = customerInfo.OtchestvoTranslit || customerInfo.Otchestvo;
+    const last_name = customerInfo.SurnameTranslit || customerInfo.Surname;
+    const phone = customerInfo.ContactPhone1 || '';
+    const email = customerInfo.EMail || '';
+
     if (!user) {
       const userAddress = this.ethereumService.generateAddress();
       await this.prisma.customer.create({
@@ -44,17 +50,28 @@ export class UsersService {
           customer_id: customerInfo.CustomerID,
           address: userAddress.address,
           private_key: userAddress.privateKey,
+          first_name,
+          middle_name,
+          last_name,
+          phone,
+          email,
         },
+      });
+    } else {
+      // Обновим кешированные поля, если изменились
+      await this.prisma.customer.update({
+        where: { customer_id: customerInfo.CustomerID },
+        data: { first_name, middle_name, last_name, phone, email },
       });
     }
 
     return {
       customer_id: customerInfo.CustomerID,
-      first_name: customerInfo.CustomerNameTranslit || customerInfo.CustomerName,
-      middle_name: customerInfo.OtchestvoTranslit || customerInfo.Otchestvo,
-      last_name: customerInfo.SurnameTranslit || customerInfo.Surname,
-      phone: customerInfo.ContactPhone1 || '',
-      email: customerInfo.EMail || '',
+      first_name,
+      middle_name,
+      last_name,
+      phone,
+      email,
     };
   }
 
