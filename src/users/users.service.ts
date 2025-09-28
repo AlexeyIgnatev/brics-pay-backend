@@ -58,11 +58,16 @@ export class UsersService {
         },
       });
     } else {
-      // Обновим кешированные поля, если изменились
-      await this.prisma.customer.update({
-        where: { customer_id: customerInfo.CustomerID },
-        data: { first_name, middle_name, last_name, phone, email },
-      });
+      // Обновлять только пустые поля — если админ ранее отредактировал, не перезаписываем
+      const data: any = {};
+      if (!user.first_name && first_name) data.first_name = first_name;
+      if (!user.middle_name && middle_name) data.middle_name = middle_name;
+      if (!user.last_name && last_name) data.last_name = last_name;
+      if (!user.phone && phone) data.phone = phone;
+      if (!user.email && email) data.email = email;
+      if (Object.keys(data).length) {
+        await this.prisma.customer.update({ where: { customer_id: customerInfo.CustomerID }, data });
+      }
     }
 
     return {
