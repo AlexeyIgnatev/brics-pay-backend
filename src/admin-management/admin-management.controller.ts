@@ -53,16 +53,6 @@ export class AdminManagementController {
     return this.service.me(req.admin.id);
   }
 
-  @Get(':id')
-  @UseGuards(AdminAuthGuard)
-  @ApiBearerAuth('Bearer')
-  @ApiOperation({ summary: 'Получить администратора по ID' })
-  @ApiParam({ name: 'id', example: 1 })
-  @ApiResponse({ status: 200, type: AdminResponseDto })
-  async findOne(@Param('id', ParseIntPipe) id: number): Promise<AdminResponseDto> {
-    return this.service.findOne(id);
-  }
-
   @Get('settings')
   @UseGuards(AdminAuthGuard)
   @ApiBearerAuth('Bearer')
@@ -81,6 +71,16 @@ export class AdminManagementController {
   async updateSettings(@Body() dto: Partial<SettingsDto>): Promise<SettingsDto> {
     const s = await this.settingsService.update(dto as any);
     return s as any;
+  }
+
+  @Get(':id')
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Получить администратора по ID' })
+  @ApiParam({ name: 'id', example: 1 })
+  @ApiResponse({ status: 200, type: AdminResponseDto })
+  async findOne(@Param('id', ParseIntPipe) id: number): Promise<AdminResponseDto> {
+    return this.service.findOne(id);
   }
 
   @Put(':id')
