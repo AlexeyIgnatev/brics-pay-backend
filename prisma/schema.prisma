@@ -13,6 +13,11 @@ datasource db {
     url      = env("DATABASE_URL")
 }
 
+enum AdminRole {
+  SUPER_ADMIN
+}
+
+
 model Customer {
     customer_id Int    @id
     address     String
@@ -107,4 +112,17 @@ model WithdrawRequest {
   customer     Customer        @relation(fields: [customer_id], references: [customer_id])
 
   @@map("withdraw_requests")
+}
+
+model Admin {
+  id            Int        @id @default(autoincrement())
+  email         String     @unique
+  password_hash String
+  first_name    String
+  last_name     String
+  role          AdminRole  @default(SUPER_ADMIN)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@map("admins")
 }

@@ -1,146 +1,71 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  Param,
-  ParseIntPipe,
-  Post,
-  Put,
-  Query,
-  Request,
-} from '@nestjs/common';
-import { ApiBasicAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateAdminDto } from './dto/update-admin.dto';
 import { AdminResponseDto } from './dto/admin-response.dto';
 import { PaginatedAdminResponseDto } from './dto/paginated-admin-response.dto';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { SettingsService } from '../config/settings/settings.service';
 import { SettingsDto } from './dto/settings.dto';
+import { AdminManagementService } from './admin-management.service';
+import { AdminAuthDto, AdminAuthResponseDto } from './dto/admin-auth.dto';
+import { AdminListQueryDto } from './dto/admin-list-query.dto';
+import { AdminAuthGuard } from './guards/admin-auth.guard';
 
 @ApiTags('Управление администраторами')
-@ApiBasicAuth()
 @Controller('admin-management')
 export class AdminManagementController {
-  constructor(private readonly settingsService: SettingsService) {}
+  constructor(private readonly settingsService: SettingsService, private readonly service: AdminManagementService) {}
+
+  @Post('auth/login')
+  @ApiOperation({ summary: 'Авторизация администратора (email+password)' })
+  @ApiResponse({ status: 200, type: AdminAuthResponseDto })
+  async login(@Body() dto: AdminAuthDto): Promise<AdminAuthResponseDto> {
+    const res = await this.service.login(dto.email, dto.password);
+    return { accessToken: res.accessToken, refreshToken: res.refreshToken };
+  }
 
   @Post()
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
   @ApiOperation({
     summary: 'Создать нового администратора',
-    description:
-      'Только главный админ может создавать новых администраторов. Пароль будет захеширован на сервере.',
   })
-  @ApiResponse({
-    status: 201,
-    type: AdminResponseDto,
-    description: 'Успешно созданный администратор',
-  })
-  async create(
-    @Body() createAdminDto: CreateAdminDto,
-  ): Promise<AdminResponseDto> {
-    return Promise.resolve({
-      id: 123,
-      username: createAdminDto.username,
-      firstName: createAdminDto.firstName,
-      lastName: createAdminDto.lastName,
-      createdAt: new Date(),
-      role: createAdminDto.role,
-    });
+  @ApiResponse({ status: 201, type: AdminResponseDto })
+  async create(@Body() createAdminDto: CreateAdminDto): Promise<AdminResponseDto> {
+    return this.service.create(createAdminDto);
   }
 
   @Get()
-  @ApiOperation({
-    summary: 'Получить список администраторов',
-    description:
-      'Возвращает список администраторов с пагинацией. Только для главного админа.',
-  })
-  @ApiResponse({
-    status: 200,
-    type: PaginatedAdminResponseDto,
-    description: 'Пагинированный список администраторов',
-  })
-  async findAll(
-    @Query() query: PaginationQueryDto,
-  ): Promise<PaginatedAdminResponseDto> {
-    return Promise.resolve({
-      items: [
-        {
-          id: 1,
-          username: 'admin',
-          firstName: 'Иван',
-          lastName: 'Иванов',
-          createdAt: new Date(),
-          role: 'admin',
-        },
-        {
-          id: 2,
-          username: 'manager',
-          firstName: 'Петр',
-          lastName: 'Петров',
-          createdAt: new Date(),
-          role: 'manager',
-        },
-      ],
-      total: 2,
-      offset: query.offset ?? 0,
-      limit: query.limit ?? 10,
-    });
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Получить список администраторов' })
+  @ApiResponse({ status: 200, type: PaginatedAdminResponseDto })
+  async findAll(@Query() query: AdminListQueryDto): Promise<PaginatedAdminResponseDto> {
+    return this.service.list(query);
   }
 
   @Get('me')
-  @ApiOperation({
-    summary: 'Получить информацию о себе',
-    description:
-      'Возвращает информацию о текущем пользователе (авторизованном администраторе).',
-  })
-  @ApiResponse({
-    status: 200,
-    type: AdminResponseDto,
-    description: 'Информация о текущем пользователе',
-  })
-  async getMe(@Request() req: any): Promise<AdminResponseDto> {
-    return Promise.resolve({
-      id: 1,
-      username: 'admin',
-      firstName: 'Иван',
-      lastName: 'Иванов',
-      createdAt: new Date(),
-      role: 'admin',
-    });
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Текущий админ' })
+  @ApiResponse({ status: 200, type: AdminResponseDto })
+  async getMe(@Req() req: any): Promise<AdminResponseDto> {
+    return this.service.me(req.admin.id);
   }
 
   @Get(':id')
-  @ApiOperation({
-    summary: 'Получить администратора по ID',
-    description: 'Только для главного админа.',
-  })
-  @ApiParam({
-    name: 'id',
-    example: 1,
-    description: 'ID администратора',
-  })
-  @ApiResponse({
-    status: 200,
-    type: AdminResponseDto,
-    description: 'Информация об администраторе',
-  })
-  async findOne(
-    @Param('id', ParseIntPipe) id: number,
-  ): Promise<AdminResponseDto> {
-    return Promise.resolve({
-      id,
-      username: 'admin',
-      firstName: 'Иван',
-      lastName: 'Иванов',
-      createdAt: new Date(),
-      role: 'admin',
-    });
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Получить администратора по ID' })
+  @ApiParam({ name: 'id', example: 1 })
+  @ApiResponse({ status: 200, type: AdminResponseDto })
+  async findOne(@Param('id', ParseIntPipe) id: number): Promise<AdminResponseDto> {
+    return this.service.findOne(id);
   }
 
-
   @Get('settings')
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Получить текущие настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })
   async getSettings(): Promise<SettingsDto> {
@@ -149,6 +74,8 @@ export class AdminManagementController {
   }
 
   @Put('settings')
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Обновить настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })
   async updateSettings(@Body() dto: Partial<SettingsDto>): Promise<SettingsDto> {
@@ -157,50 +84,23 @@ export class AdminManagementController {
   }
 
   @Put(':id')
-  @ApiOperation({
-    summary: 'Обновить данные администратора',
-    description: 'Редактировать данные администратора по ID. Только для главного админа.',
-  })
-  @ApiParam({
-    name: 'id',
-    example: 1,
-    description: 'ID администратора',
-  })
-  @ApiResponse({
-    status: 200,
-    type: AdminResponseDto,
-    description: 'Обновлённый администратор',
-  })
-  async update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() updateAdminDto: UpdateAdminDto,
-  ): Promise<AdminResponseDto> {
-    return Promise.resolve({
-      id,
-      username: updateAdminDto.username ?? 'admin',
-      firstName: updateAdminDto.firstName ?? 'Иван',
-      lastName: updateAdminDto.lastName ?? 'Иванов',
-      createdAt: new Date(),
-      role: updateAdminDto.role ?? 'admin',
-    });
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Обновить данные администратора' })
+  @ApiParam({ name: 'id', example: 1 })
+  @ApiResponse({ status: 200, type: AdminResponseDto })
+  async update(@Param('id', ParseIntPipe) id: number, @Body() updateAdminDto: UpdateAdminDto): Promise<AdminResponseDto> {
+    return this.service.update(id, updateAdminDto);
   }
 
   @Delete(':id')
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
   @HttpCode(204)
-  @ApiOperation({
-    summary: 'Удалить администратора',
-    description: 'Удаляет администратора по ID. Только для главного админа.',
-  })
-  @ApiParam({
-    name: 'id',
-    example: 1,
-    description: 'ID администратора',
-  })
-  @ApiResponse({
-    status: 204,
-    description: 'Администратор успешно удалён',
-  })
+  @ApiOperation({ summary: 'Удалить администратора' })
+  @ApiParam({ name: 'id', example: 1 })
+  @ApiResponse({ status: 204, description: 'Администратор успешно удалён' })
   async remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
-    return Promise.resolve();
+    await this.service.remove(id);
   }
 }

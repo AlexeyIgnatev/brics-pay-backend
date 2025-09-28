@@ -1,11 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsEmail } from 'class-validator';
 
 export class CreateAdminDto {
-  @ApiProperty({ example: 'superuser', description: 'Уникальное имя пользователя (логин)' })
-  @IsString()
+  @ApiProperty({ example: 'admin@example.com', description: 'Email (логин администратора)' })
+  @IsEmail()
   @IsNotEmpty()
-  username: string;
+  email: string;
 
   @ApiProperty({ example: 'password123', description: 'Пароль (будет захеширован на сервере)' })
   @IsString()
@@ -22,7 +22,7 @@ export class CreateAdminDto {
   @IsNotEmpty()
   lastName: string;
 
-  @ApiProperty({ example: 'admin', description: 'Роль администратора (например: admin, manager, operator)' })
+  @ApiProperty({ example: 'SUPER_ADMIN', description: 'Роль администратора' })
   @IsString()
   @IsNotEmpty()
   role: string;

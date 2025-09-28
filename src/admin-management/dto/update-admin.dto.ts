@@ -1,11 +1,11 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsEmail } from 'class-validator';
 
 export class UpdateAdminDto {
-  @ApiPropertyOptional({ example: 'newuser', description: 'Новое имя пользователя (логин)' })
-  @IsString()
+  @ApiPropertyOptional({ example: 'admin@example.com', description: 'Новый email (логин)' })
+  @IsEmail()
   @IsOptional()
-  username?: string;
+  email?: string;
 
   @ApiPropertyOptional({ example: 'newpassword', description: 'Новый пароль (будет захеширован на сервере)' })
   @IsString()
@@ -22,7 +22,7 @@ export class UpdateAdminDto {
   @IsOptional()
   lastName?: string;
 
-  @ApiPropertyOptional({ example: 'manager', description: 'Новая роль администратора' })
+  @ApiPropertyOptional({ example: 'SUPER_ADMIN', description: 'Новая роль администратора' })
   @IsString()
   @IsOptional()
   role?: string;
