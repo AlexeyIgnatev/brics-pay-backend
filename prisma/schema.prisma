@@ -28,6 +28,8 @@ model Customer {
     last_name   String?
     phone       String?
     email       String?
+    status      UserStatus @default(ACTIVE)
+    createdAt   DateTime   @default(now())
     updatedAt   DateTime @updatedAt
 
     balances    UserAssetBalance[]
@@ -37,7 +39,6 @@ model Customer {
     // Back-relations for transactions
     sender_transactions   Transaction[] @relation("tx_sender")
     receiver_transactions Transaction[] @relation("tx_receiver")
-
 
     @@map("customers")
 }
@@ -182,4 +183,10 @@ model Admin {
   updatedAt     DateTime   @updatedAt
 
   @@map("admins")
+}
+
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
 }

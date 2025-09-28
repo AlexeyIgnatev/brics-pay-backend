@@ -2,22 +2,37 @@ import { Injectable } from '@nestjs/common';
 import { Asset, PrismaClient } from '@prisma/client';
 import { UsersListQueryDto, UsersListResponseDto, AdminUpdateUserDto, UsersListItemDto } from './dto/users-list.dto';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
+import { PriceCacheService } from './price-cache.service';
 
 @Injectable()
 export class UserManagementService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly exchange: BybitExchangeService,
+    private readonly priceCache: PriceCacheService,
   ) {}
 
   private async getUsdPricesCached(): Promise<Record<string, number>> {
-    // TODO: replace with real cache provider. For now, single-flight call
-    const prices = await this.exchange.getUsdPrices(['BTC' as any as Asset, 'ETH' as any as Asset, 'USDT_TRC20' as any as Asset]);
-    return {
-      BTC: Number(prices['BTC'] || 0),
-      ETH: Number(prices['ETH'] || 0),
-      USDT_TRC20: 1,
-    };
+    const keys = ['BTC', 'ETH', 'USDT_TRC20'] as const;
+    const out: Record<string, number> = {};
+    const missing: Asset[] = [] as any;
+    for (const k of keys) {
+      const v = this.priceCache.get(`USD:${k}`);
+      if (v == null) missing.push(k as any as Asset);
+      else out[k] = v;
+    }
+    if (missing.length) {
+      const fetched = await this.exchange.getUsdPrices(missing);
+      for (const k of missing) {
+        const key = k as unknown as string;
+        const val = key === 'USDT_TRC20' ? 1 : Number(fetched[key] || 0);
+        this.priceCache.set(`USD:${key}`, val);
+        out[key] = val;
+      }
+    }
+    // Ensure USDT_TRC20 mapped to 1 if absent
+    if (out['USDT_TRC20'] == null) { this.priceCache.set('USD:USDT_TRC20', 1); out['USDT_TRC20'] = 1; }
+    return out;
   }
 
   async list(q: UsersListQueryDto): Promise<UsersListResponseDto> {
