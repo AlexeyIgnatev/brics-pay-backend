@@ -4,8 +4,6 @@ import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateAdminDto } from './dto/update-admin.dto';
 import { AdminResponseDto } from './dto/admin-response.dto';
 import { PaginatedAdminResponseDto } from './dto/paginated-admin-response.dto';
-import { SettingsService } from '../config/settings/settings.service';
-import { SettingsDto } from './dto/settings.dto';
 import { AdminManagementService } from './admin-management.service';
 import { AdminAuthDto, AdminAuthResponseDto, AdminRefreshDto } from './dto/admin-auth.dto';
 import { AdminListQueryDto } from './dto/admin-list-query.dto';
@@ -14,7 +12,7 @@ import { AdminAuthGuard } from './guards/admin-auth.guard';
 @ApiTags('Управление администраторами')
 @Controller('admin-management')
 export class AdminManagementController {
-  constructor(private readonly settingsService: SettingsService, private readonly service: AdminManagementService) {}
+  constructor(private readonly service: AdminManagementService) {}
 
   @Post('auth/login')
   @ApiOperation({ summary: 'Авторизация администратора (email+password)' })
@@ -61,25 +59,6 @@ export class AdminManagementController {
     return this.service.me(req.admin.id);
   }
 
-  @Get('settings')
-  @UseGuards(AdminAuthGuard)
-  @ApiBearerAuth('Bearer')
-  @ApiOperation({ summary: 'Получить текущие настройки системы' })
-  @ApiResponse({ status: 200, type: SettingsDto })
-  async getSettings(): Promise<SettingsDto> {
-    const s = await this.settingsService.get();
-    return s as any;
-  }
-
-  @Put('settings')
-  @UseGuards(AdminAuthGuard)
-  @ApiBearerAuth('Bearer')
-  @ApiOperation({ summary: 'Обновить настройки системы' })
-  @ApiResponse({ status: 200, type: SettingsDto })
-  async updateSettings(@Body() dto: Partial<SettingsDto>): Promise<SettingsDto> {
-    const s = await this.settingsService.update(dto as any);
-    return s as any;
-  }
 
   @Get(':id')
   @UseGuards(AdminAuthGuard)
