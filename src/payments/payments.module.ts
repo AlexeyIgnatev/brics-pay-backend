@@ -8,9 +8,10 @@ import { UsersModule } from '../users/users.module';
 import { ConfigModule } from '@nestjs/config';
 import { SettingsModule } from '../config/settings/settings.module';
 import { ExchangeModule } from '../config/exchange/exchange.module';
+import { UserManagementModule } from '../user-management/user-management.module';
 
 @Module({
-  imports: [EthereumModule, BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule],
+  imports: [EthereumModule, BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule, UserManagementModule],
   controllers: [PaymentsController],
   providers: [PaymentsService, PrismaClient],
 })

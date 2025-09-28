@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+/* eslint-disable max-classes-per-file */
+
 import { ModuleRef } from '@nestjs/core';
 import { Asset, PrismaClient } from '@prisma/client';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
@@ -10,6 +12,7 @@ import { Currency } from '../users/enums/currency';
 import { ConvertDto } from './dto/convert.dto';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
+import { BalanceRescanService } from '../user-management/balance-rescan.service';
 
 @Injectable()
 export class PaymentsService {
@@ -21,6 +24,7 @@ export class PaymentsService {
     private readonly configService: ConfigService,
     private readonly settingsService: SettingsService,
     private readonly exchangeService: BybitExchangeService,
+    private readonly rescanService: BalanceRescanService,
   ) {}
 
   async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {
@@ -58,6 +62,7 @@ export class PaymentsService {
           fee_esom: '0',
         },
       });
+      await this.rescanService.triggerForUsers(customer_id, null);
       return new StatusOKDto();
     }
 
@@ -84,6 +89,7 @@ export class PaymentsService {
           fee_esom: '0',
         },
       });
+      await this.rescanService.triggerForUsers(customer_id, null);
       return new StatusOKDto();
     }
 
@@ -99,6 +105,7 @@ export class PaymentsService {
         await addBalance(from, -amountFrom);
         await addBalance('USDT_TRC20', usdtIntermediate);
         await this.prisma.userTrade.create({ data: { customer_id, asset_from: from, asset_to: 'USDT_TRC20', amount_from: amountFrom.toString(), amount_to: usdtIntermediate.toString(), price_usd: '1', notional_usdt: usdtIntermediate.toString(), fee_esom: '0' } });
+        await this.rescanService.triggerForUsers(customer_id, null);
         return new StatusOKDto();
       }
       const buy = await this.exchangeService.marketBuy(to, usdtIntermediate.toString());
@@ -168,6 +175,7 @@ export class PaymentsService {
     }
 
     const ethTransaction = await this.ethereumService.transferFromFiat(customer.address, amount);
+    await this.rescanService.triggerForUsers(customer.customer_id, null);
     if (!ethTransaction?.success) {
       throw new Error('Ethereum transaction failed');
     }
@@ -202,6 +210,7 @@ export class PaymentsService {
     }
 
     const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
+    await this.rescanService.triggerForUsers(customer.customer_id, null);
     if (!ethTransaction?.success) {
       throw new Error('Ethereum transaction failed');
     }
