@@ -168,9 +168,22 @@ export class PaymentsService {
     }
 
     const ethTransaction = await this.ethereumService.transferFromFiat(customer.address, amount);
-    if (!ethTransaction) {
+    if (!ethTransaction?.success) {
       throw new Error('Ethereum transaction failed');
     }
+
+    // record transaction BANK_TO_WALLET
+    await this.prisma.transaction.create({ data: {
+      kind: 'BANK_TO_WALLET' as any,
+      status: 'SUCCESS' as any,
+      som_amount: amount.toString(),
+      asset: 'ESOM',
+      tx_hash: ethTransaction.txHash,
+      bank_op_id: bricsTransaction,
+      sender_customer_id: customer.customer_id,
+      receiver_wallet_address: customer.address,
+      comment: 'Fiat->Crypto',
+    }});
 
     return new StatusOKDto();
   }
@@ -189,7 +202,7 @@ export class PaymentsService {
     }
 
     const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
-    if (!ethTransaction) {
+    if (!ethTransaction?.success) {
       throw new Error('Ethereum transaction failed');
     }
 
@@ -199,6 +212,19 @@ export class PaymentsService {
       this.configService.get<string>('ADMIN_LOGIN')!,
       this.configService.get<string>('ADMIN_PASSWORD')!,
     );
+
+    // record transaction WALLET_TO_BANK
+    await this.prisma.transaction.create({ data: {
+      kind: 'WALLET_TO_BANK' as any,
+      status: 'SUCCESS' as any,
+      som_amount: amount.toString(),
+      asset: 'ESOM',
+      tx_hash: ethTransaction.txHash,
+      bank_op_id: bricsTransaction,
+      sender_customer_id: customer.customer_id,
+      comment: 'Crypto->Fiat',
+    }});
+
     if (!adminAuth) {
       throw new Error('Admin authentication failed');
     }
@@ -274,11 +300,25 @@ export class PaymentsService {
       transferDto.amount,
       customer.private_key,
     );
-    if (!ethTransaction) {
+    if (!ethTransaction?.success) {
       throw new Error('Ethereum transaction failed');
     }
 
+    // record transaction WALLET_TO_WALLET
+    await this.prisma.transaction.create({ data: {
+      kind: 'WALLET_TO_WALLET' as any,
+      status: 'SUCCESS' as any,
+      som_amount: transferDto.amount.toString(),
+      asset: 'ESOM',
+      tx_hash: ethTransaction.txHash,
+      sender_customer_id: customer.customer_id,
+      receiver_customer_id: recipient.customer_id,
+      comment: 'ESOM transfer',
+    }});
+
     return new StatusOKDto();
+  }
+
   }
 
   async transferSom(
@@ -307,6 +347,19 @@ export class PaymentsService {
     if (!bricsTransaction) {
       throw new Error('Brics transaction failed');
     }
+
+    // record transaction BANK_TO_BANK
+    await this.prisma.transaction.create({ data: {
+      kind: 'BANK_TO_BANK' as any,
+      status: 'SUCCESS' as any,
+      som_amount: transferDto.amount.toString(),
+      asset: 'SOM',
+      bank_op_id: bricsTransaction,
+      sender_customer_id: customer.customer_id,
+      receiver_customer_id: bricsRecipient.CustomerID,
+      comment: 'SOM transfer',
+    }});
+
 
     return new StatusOKDto();
   }

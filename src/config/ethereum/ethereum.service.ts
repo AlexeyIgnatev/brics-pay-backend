@@ -68,7 +68,7 @@ export class EthereumService {
     }
   }
 
-  async transferFromFiat(address: string, amount: number): Promise<boolean> {
+  async transferFromFiat(address: string, amount: number): Promise<{ success: boolean, txHash?: string }> {
     try {
       const contract = new this.web3.eth.Contract(
         [
@@ -136,11 +136,8 @@ export class EthereumService {
       );
       this.logger.log('receipt', receipt);
 
-      return (
-        receipt.status === '0x1' ||
-        receipt.status === 1 ||
-        receipt.status === 1n
-      );
+      const ok = (receipt.status === '0x1' || receipt.status === 1 || receipt.status === 1n);
+      return { success: ok, txHash: (receipt as any).transactionHash };
     } catch (error) {
       this.logger.error('Error in transferFromFiat:', error);
       throw error;
@@ -150,7 +147,7 @@ export class EthereumService {
   async transferToFiat(
     amount: number,
     userPrivateKey: string,
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean, txHash?: string }> {
     try {
       const contract = new this.web3.eth.Contract(
         [
@@ -183,7 +180,7 @@ export class EthereumService {
     address: string,
     amount: number,
     userPrivateKey: string,
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean, txHash?: string }> {
     try {
       const contract = new this.web3.eth.Contract(
         [
@@ -219,7 +216,7 @@ export class EthereumService {
   private async makeTransactionUsingUserWallet(
     contractCallData: string,
     userPrivateKey: string
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean, txHash?: string }> {
     try {
       const userAccount =
         this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
@@ -260,11 +257,8 @@ export class EthereumService {
       const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
       this.logger.log('receipt', receipt);
 
-      return (
-        receipt.status === '0x1' ||
-        receipt.status === 1 ||
-        receipt.status === 1n
-      );
+      const ok = (receipt.status === '0x1' || receipt.status === 1 || receipt.status === 1n);
+      return { success: ok, txHash: (receipt as any).transactionHash };
     } catch (error) {
       this.logger.error('Error in transaction:', error);
       throw error;

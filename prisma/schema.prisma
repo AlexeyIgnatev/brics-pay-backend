@@ -52,6 +52,20 @@ enum WithdrawStatus {
   FAILED
 }
 
+enum TransactionKind {
+  BANK_TO_BANK
+  BANK_TO_WALLET
+  WALLET_TO_BANK
+  WALLET_TO_WALLET
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  REJECTED
+  FAILED
+}
+
 model Settings {
   id                              Int      @id @default(1)
   esom_per_usd                    Decimal  @db.Decimal(38, 18)
@@ -102,6 +116,37 @@ model UserTrade {
   customer      Customer @relation(fields: [customer_id], references: [customer_id])
 
   @@map("user_trades")
+}
+
+
+model Transaction {
+  id                Int               @id @default(autoincrement())
+  kind              TransactionKind
+  status            TransactionStatus @default(PENDING)
+
+  som_amount        Decimal           @db.Decimal(38, 18)
+  asset             Asset?
+
+  tx_hash           String?
+  bank_op_id        Int?
+
+  sender_customer_id Int?
+  receiver_customer_id Int?
+  sender_wallet_address  String?
+  receiver_wallet_address String?
+
+  comment           String?
+  createdAt         DateTime          @default(now())
+
+  sender_customer   Customer?         @relation("tx_sender", fields: [sender_customer_id], references: [customer_id])
+  receiver_customer Customer?         @relation("tx_receiver", fields: [receiver_customer_id], references: [customer_id])
+
+  @@index([kind])
+  @@index([status])
+  @@index([createdAt])
+  @@index([sender_customer_id])
+  @@index([receiver_customer_id])
+  @@map("transactions")
 }
 
 model WithdrawRequest {
