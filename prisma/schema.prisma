@@ -33,6 +33,11 @@ model Customer {
     balances    UserAssetBalance[]
     trades      UserTrade[]
     withdrawals WithdrawRequest[]
+    
+    // Back-relations for transactions
+    sender_transactions   Transaction[] @relation("tx_sender")
+    receiver_transactions Transaction[] @relation("tx_receiver")
+
 
     @@map("customers")
 }

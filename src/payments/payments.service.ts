@@ -212,19 +212,6 @@ export class PaymentsService {
       this.configService.get<string>('ADMIN_LOGIN')!,
       this.configService.get<string>('ADMIN_PASSWORD')!,
     );
-
-    // record transaction WALLET_TO_BANK
-    await this.prisma.transaction.create({ data: {
-      kind: 'WALLET_TO_BANK' as any,
-      status: 'SUCCESS' as any,
-      som_amount: amount.toString(),
-      asset: 'ESOM',
-      tx_hash: ethTransaction.txHash,
-      bank_op_id: bricsTransaction,
-      sender_customer_id: customer.customer_id,
-      comment: 'Crypto->Fiat',
-    }});
-
     if (!adminAuth) {
       throw new Error('Admin authentication failed');
     }
@@ -236,6 +223,18 @@ export class PaymentsService {
     if (!bricsTransaction) {
       throw new Error('Brics transaction failed');
     }
+
+    // record transaction WALLET_TO_BANK (after we know bank_op_id)
+    await this.prisma.transaction.create({ data: {
+      kind: 'WALLET_TO_BANK' as any,
+      status: 'SUCCESS' as any,
+      som_amount: amount.toString(),
+      asset: 'ESOM',
+      tx_hash: ethTransaction.txHash,
+      bank_op_id: bricsTransaction,
+      sender_customer_id: customer.customer_id,
+      comment: 'Crypto->Fiat',
+    }});
 
     return new StatusOKDto();
   }
@@ -317,8 +316,6 @@ export class PaymentsService {
     }});
 
     return new StatusOKDto();
-  }
-
   }
 
   async transferSom(
