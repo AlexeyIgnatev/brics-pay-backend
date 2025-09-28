@@ -7,7 +7,7 @@ import { PaginatedAdminResponseDto } from './dto/paginated-admin-response.dto';
 import { SettingsService } from '../config/settings/settings.service';
 import { SettingsDto } from './dto/settings.dto';
 import { AdminManagementService } from './admin-management.service';
-import { AdminAuthDto, AdminAuthResponseDto } from './dto/admin-auth.dto';
+import { AdminAuthDto, AdminAuthResponseDto, AdminRefreshDto } from './dto/admin-auth.dto';
 import { AdminListQueryDto } from './dto/admin-list-query.dto';
 import { AdminAuthGuard } from './guards/admin-auth.guard';
 
@@ -21,6 +21,14 @@ export class AdminManagementController {
   @ApiResponse({ status: 200, type: AdminAuthResponseDto })
   async login(@Body() dto: AdminAuthDto): Promise<AdminAuthResponseDto> {
     const res = await this.service.login(dto.email, dto.password);
+    return { accessToken: res.accessToken, refreshToken: res.refreshToken };
+  }
+
+  @Post('auth/refresh')
+  @ApiOperation({ summary: 'Обновление access/refresh токенов по refresh токену' })
+  @ApiResponse({ status: 200, type: AdminAuthResponseDto })
+  async refresh(@Body() dto: AdminRefreshDto): Promise<AdminAuthResponseDto> {
+    const res = await this.service.refresh(dto.refreshToken);
     return { accessToken: res.accessToken, refreshToken: res.refreshToken };
   }
 

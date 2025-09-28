@@ -12,6 +12,12 @@ export class AdminAuthDto {
   password: string;
 }
 
+export class AdminRefreshDto {
+  @ApiProperty({ description: 'Refresh JWT token' })
+  @IsNotEmpty()
+  refreshToken: string;
+}
+
 export class AdminAuthResponseDto {
   @ApiProperty()
   accessToken: string;

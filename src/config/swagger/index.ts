@@ -9,6 +9,7 @@ export const SwaggerConfig = async (app: INestApplication) => {
     .setDescription('The API description')
     .setVersion('0.0.1')
     .addBasicAuth({ type: 'http', in: 'header' }, 'Basic')
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT', in: 'header' }, 'Bearer')
     .build();
   await SwaggerModule.loadPluginMetadata(metadata);
   const document = SwaggerModule.createDocument(app, cfg);

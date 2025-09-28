@@ -123,10 +123,7 @@ export class AdminManagementService {
     return admin;
   }
 
-  async login(email: string, password: string) {
-    const admin = await this.validateAdmin(email, password);
-    const payload = { sub: admin.id, email: admin.email, role: admin.role };
-
+  private async signTokens(payload: any) {
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: this.config.get<string>('ADMIN_JWT_ACCESS_SECRET') || 'dev_admin_access_secret',
       expiresIn: this.config.get<string>('ADMIN_JWT_ACCESS_TTL') || '15m',
@@ -136,12 +133,32 @@ export class AdminManagementService {
       secret: this.config.get<string>('ADMIN_JWT_REFRESH_SECRET') || 'dev_admin_refresh_secret',
       expiresIn: this.config.get<string>('ADMIN_JWT_REFRESH_TTL') || '7d',
     });
+    return { accessToken, refreshToken };
+  }
 
+  async login(email: string, password: string) {
+    const admin = await this.validateAdmin(email, password);
+    const payload = { sub: admin.id, email: admin.email, role: admin.role };
+    const { accessToken, refreshToken } = await this.signTokens(payload);
     return {
       accessToken,
       refreshToken,
       admin: this.toDto(admin),
     };
+  }
+
+  async refresh(refreshToken: string) {
+    try {
+      const decoded: any = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.config.get<string>('ADMIN_JWT_REFRESH_SECRET') || 'dev_admin_refresh_secret',
+      });
+      const admin = await this.prisma.admin.findUnique({ where: { id: decoded.sub } });
+      if (!admin) throw new UnauthorizedException('Админ не найден');
+      const payload = { sub: admin.id, email: admin.email, role: admin.role };
+      return await this.signTokens(payload);
+    } catch (e) {
+      throw new UnauthorizedException('Неверный или истекший refresh токен');
+    }
   }
 
   async me(adminId: number): Promise<AdminResponseDto> {
