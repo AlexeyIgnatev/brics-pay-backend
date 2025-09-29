@@ -324,6 +324,7 @@ export class PaymentsService {
       comment: 'ESOM transfer',
     }});
 
+    await this.rescanService.triggerForUsers(customer.customer_id, recipient.customer_id);
     return new StatusOKDto();
   }
 

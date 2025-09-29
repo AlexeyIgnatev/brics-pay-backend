@@ -3,6 +3,7 @@ import { Asset, PrismaClient } from '@prisma/client';
 import { UsersListQueryDto, UsersListResponseDto, AdminUpdateUserDto, UsersListItemDto } from './dto/users-list.dto';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 import { PriceCacheService } from './price-cache.service';
+import { BalanceCacheService, UserAssetBalances } from './balance-cache.service';
 
 @Injectable()
 export class UserManagementService {
@@ -10,6 +11,7 @@ export class UserManagementService {
     private readonly prisma: PrismaClient,
     private readonly exchange: BybitExchangeService,
     private readonly priceCache: PriceCacheService,
+    private readonly balanceCache: BalanceCacheService,
   ) {}
 
   private async getUsdPricesCached(): Promise<Record<string, number>> {
@@ -66,12 +68,19 @@ export class UserManagementService {
     const prices = await this.getUsdPricesCached();
 
     const items: UsersListItemDto[] = itemsRaw.map((c) => {
-      const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as any;
-      const ESOM = Number(bal.ESOM || 0);
-      const SOM = Number(bal.SOM || 0);
-      const BTC = Number(bal.BTC || 0);
-      const ETH = Number(bal.ETH || 0);
-      const USDT_TRC20 = Number(bal.USDT_TRC20 || 0);
+      const cached = this.balanceCache.get(c.customer_id);
+      let ESOM: number, SOM: number, BTC: number, ETH: number, USDT_TRC20: number;
+      if (cached) {
+        ({ ESOM, SOM, BTC, ETH, USDT_TRC20 } = cached);
+      } else {
+        const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as any;
+        ESOM = Number(bal.ESOM || 0);
+        SOM = Number(bal.SOM || 0);
+        BTC = Number(bal.BTC || 0);
+        ETH = Number(bal.ETH || 0);
+        USDT_TRC20 = Number(bal.USDT_TRC20 || 0);
+        this.balanceCache.set(c.customer_id, { ESOM, SOM, BTC, ETH, USDT_TRC20 });
+      }
 
       const total_crypto_usd = BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
       const total_salam = SOM + ESOM + total_crypto_usd * esomPerUsd; // Общий баланс по ТЗ
@@ -104,6 +113,7 @@ export class UserManagementService {
     if ((dto as any).status !== undefined) data.status = (dto as any).status;
 
     const c = await this.prisma.customer.update({ where: { customer_id: id }, data, include: { balances: true } });
+    this.balanceCache.invalidate(id);
 
     const settings = await this.prisma.settings.findUnique({ where: { id: 1 } });
     const esomPerUsd = Number(settings?.esom_per_usd || 0);

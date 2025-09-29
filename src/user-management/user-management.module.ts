@@ -8,11 +8,12 @@ import { EthereumModule } from '../config/ethereum/ethrereum.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PriceCacheService } from './price-cache.service';
 import { BalanceRescanService } from './balance-rescan.service';
+import { BalanceCacheService } from './balance-cache.service';
 
 @Module({
   imports: [AdminManagementModule, ExchangeModule, EthereumModule, ScheduleModule.forRoot()],
   controllers: [UserManagementController],
-  providers: [UserManagementService, PrismaClient, PriceCacheService, BalanceRescanService],
-  exports: [BalanceRescanService],
+  providers: [UserManagementService, PrismaClient, PriceCacheService, BalanceRescanService, BalanceCacheService],
+  exports: [BalanceRescanService, BalanceCacheService],
 })
 export class UserManagementModule {}
