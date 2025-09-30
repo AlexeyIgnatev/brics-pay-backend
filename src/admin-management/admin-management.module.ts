@@ -6,7 +6,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AdminAuthGuard } from './guards/admin-auth.guard';
 
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({ global: true })],
   controllers: [AdminManagementController],
   providers: [PrismaService, AdminManagementService, AdminAuthGuard],
   exports: [AdminManagementService, AdminAuthGuard],
