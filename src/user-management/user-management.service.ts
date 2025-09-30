@@ -142,4 +142,47 @@ export class UserManagementService {
       createdAt: (c as any).createdAt ?? undefined,
     };
   }
+
+  async getById(id: number): Promise<UsersListItemDto> {
+    const c = await this.prisma.customer.findUnique({ where: { customer_id: id }, include: { balances: true } });
+    if (!c) return undefined as any;
+
+    const settings = await this.prisma.settings.findUnique({ where: { id: 1 } });
+    const esomPerUsd = Number(settings?.esom_per_usd || 0);
+    const prices = await this.getUsdPricesCached();
+
+    const cached = this.balanceCache.get(c.customer_id);
+    let ESOM: number, SOM: number, BTC: number, ETH: number, USDT_TRC20: number;
+    if (cached) {
+      ({ ESOM, SOM, BTC, ETH, USDT_TRC20 } = cached);
+    } else {
+      const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as any;
+      ESOM = Number(bal.ESOM || 0);
+      SOM = Number(bal.SOM || 0);
+      BTC = Number(bal.BTC || 0);
+      ETH = Number(bal.ETH || 0);
+      USDT_TRC20 = Number(bal.USDT_TRC20 || 0);
+      this.balanceCache.set(c.customer_id, { ESOM, SOM, BTC, ETH, USDT_TRC20 });
+    }
+
+    const total_crypto_usd = BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
+    const total_salam = SOM + ESOM + total_crypto_usd * esomPerUsd;
+
+    return {
+      customer_id: c.customer_id,
+      first_name: c.first_name ?? undefined,
+      middle_name: c.middle_name ?? undefined,
+      last_name: c.last_name ?? undefined,
+      phone: c.phone ?? undefined,
+      email: c.email ?? undefined,
+      status: (c as any).status ?? 'ACTIVE',
+      balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
+      som_balance: SOM,
+      total_balance: total_salam,
+      createdAt: (c as any).createdAt ?? undefined,
+    };
+  }
 }
+
+
+

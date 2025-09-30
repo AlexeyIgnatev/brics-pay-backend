@@ -1,33 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, PrismaClient, TransactionKind, TransactionStatus } from '@prisma/client';
-
-export interface TransactionsListQuery {
-  kind?: TransactionKind[];
-  status?: TransactionStatus[];
-  asset?: string[];
-  date_from?: string;
-  date_to?: string;
-  amount_min?: number;
-  amount_max?: number;
-  id?: number; // bank_op_id
-  tx_hash?: string;
-  sender?: string; // search by sender FIO/email/phone or wallet address
-  receiver?: string; // search by receiver FIO/email/phone or wallet address
-  sort_by?: 'createdAt' | 'som_amount' | 'status' | 'kind';
-  sort_dir?: 'asc' | 'desc';
-  offset?: number;
-  limit?: number;
-}
+import { Prisma, PrismaClient } from '@prisma/client';
+import { TransactionsListDto } from './dto/transactions-list.dto';
 
 @Injectable()
 export class TransactionsService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async list(query: TransactionsListQuery) {
+  async list(query: TransactionsListDto) {
     const where: Prisma.TransactionWhereInput = {};
 
-    if (query.kind?.length) where.kind = { in: query.kind };
-    if (query.status?.length) where.status = { in: query.status };
+    if (query.kind?.length) where.kind = { in: query.kind as any };
+    if (query.status?.length) where.status = { in: query.status as any };
     if (query.asset?.length) where.asset = { in: query.asset as any };
     if (query.tx_hash) where.tx_hash = { contains: query.tx_hash };
     if (query.id) where.bank_op_id = query.id;

@@ -9,11 +9,13 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { PriceCacheService } from './price-cache.service';
 import { BalanceRescanService } from './balance-rescan.service';
 import { BalanceCacheService } from './balance-cache.service';
+import { CryptoModule } from '../config/crypto/crypto.module';
+import { BalanceFetchService } from './balance-fetch.service';
 
 @Module({
-  imports: [AdminManagementModule, ExchangeModule, EthereumModule, ScheduleModule.forRoot()],
+  imports: [AdminManagementModule, ExchangeModule, EthereumModule, CryptoModule, ScheduleModule.forRoot()],
   controllers: [UserManagementController],
-  providers: [UserManagementService, PrismaClient, PriceCacheService, BalanceRescanService, BalanceCacheService],
-  exports: [BalanceRescanService, BalanceCacheService],
+  providers: [UserManagementService, PrismaClient, PriceCacheService, BalanceRescanService, BalanceCacheService, BalanceFetchService],
+  exports: [BalanceRescanService, BalanceCacheService, BalanceFetchService],
 })
 export class UserManagementModule {}

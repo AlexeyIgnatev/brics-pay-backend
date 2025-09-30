@@ -18,6 +18,13 @@ export class UserManagementController {
     return this.svc.list(query);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Получение пользователя по ID' })
+  @ApiParam({ name: 'id', example: 123 })
+  async getOne(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.getById(id);
+  }
+
   @Put(':id')
   @ApiOperation({ summary: 'Редактирование пользователя', description: 'ФИО, телефон, email, статус' })
   @ApiParam({ name: 'id', example: 101 })

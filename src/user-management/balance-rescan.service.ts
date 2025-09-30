@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient, Asset } from '@prisma/client';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { BalanceFetchService } from './balance-fetch.service';
 
 @Injectable()
 export class BalanceRescanService {
@@ -9,6 +10,7 @@ export class BalanceRescanService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly eth: EthereumService,
+    private readonly fetcher: BalanceFetchService,
   ) {}
 
   async rescanUserEsom(customer_id: number, address?: string) {
@@ -23,6 +25,9 @@ export class BalanceRescanService {
         create: { customer_id, asset: 'ESOM' as Asset, balance: esom.toString() },
         update: { balance: esom.toString() },
       });
+
+      // also refresh other crypto balances to keep cache fresh
+      await this.fetcher.refreshAllBalancesForUser(customer_id);
     } catch (e) {
       this.logger.error(`Rescan ESOM failed for user ${customer_id}: ${e}`);
     }
@@ -35,11 +40,12 @@ export class BalanceRescanService {
 
   @Cron(CronExpression.EVERY_DAY_AT_1AM)
   async dailyRescan() {
-    this.logger.log('Starting daily ESOM balances rescan');
+    this.logger.log('Starting daily balances rescan (ESOM, ETH, BTC, USDT_TRC20)');
     const customers = await this.prisma.customer.findMany({ select: { customer_id: true, address: true } });
     for (const c of customers) {
       await this.rescanUserEsom(c.customer_id, c.address);
+      await this.fetcher.refreshAllBalancesForUser(c.customer_id);
     }
-    this.logger.log('Daily ESOM balances rescan finished');
+    this.logger.log('Daily balances rescan finished');
   }
 }
