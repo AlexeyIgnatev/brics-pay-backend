@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SettingsService } from '../config/settings/settings.service';
-import { SettingsDto } from '../admin-management/dto/settings.dto';
+import { SettingsDto } from './dto/settings.dto';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 
 @ApiTags('Конфигурация блокчейна')
