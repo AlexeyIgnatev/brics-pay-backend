@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { TransactionsListDto } from './dto/transactions-list.dto';
+import { TransactionsListDto, TransactionsListResponseDto } from './dto/transactions-list.dto';
+import { TransactionsStatsTodayDto } from './dto/transactions-stats.dto';
 
 @Injectable()
 export class TransactionsService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async list(query: TransactionsListDto) {
+  async list(query: TransactionsListDto): Promise<TransactionsListResponseDto> {
     const where: Prisma.TransactionWhereInput = {};
 
     if (query.kind?.length) where.kind = { in: query.kind as any };
@@ -25,7 +26,6 @@ export class TransactionsService {
       if (query.date_to) (where.createdAt as any).lte = new Date(query.date_to);
     }
 
-    // Text search by participants
     if (query.sender) {
       where.OR = where.OR || [];
       (where.OR as any[]).push(
@@ -72,10 +72,10 @@ export class TransactionsService {
       })
     ]);
 
-    return { total, items, offset: query.offset ?? 0, limit: query.limit ?? 20 };
+    return { total, items, offset: query.offset ?? 0, limit: query.limit ?? 20 } as any;
   }
 
-  async statsToday() {
+  async statsToday(): Promise<TransactionsStatsTodayDto> {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const end = new Date();
@@ -88,9 +88,9 @@ export class TransactionsService {
     const usersCount = await this.prisma.customer.count();
 
     return {
-      total_amount_som: totalSom._sum.som_amount ?? 0,
-      bank_to_bank_som: bankToBank._sum.som_amount ?? 0,
-      wallet_to_wallet_som: walletToWallet._sum.som_amount ?? 0,
+      total_amount_som: (totalSom._sum.som_amount as any) ?? 0,
+      bank_to_bank_som: (bankToBank._sum.som_amount as any) ?? 0,
+      wallet_to_wallet_som: (walletToWallet._sum.som_amount as any) ?? 0,
       users_count: usersCount,
       date_from: start.toISOString(),
       date_to: end.toISOString(),
