@@ -1,10 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient, Settings } from '@prisma/client';
 import { SettingsPartialDto } from '../../blockchain-config/dto/settings-partial.dto';
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  private readonly logger = new Logger(SettingsService.name);
+
+  constructor(private readonly prisma: PrismaClient) {
+  }
 
   async get(): Promise<Settings> {
     let s = await this.prisma.settings.findUnique({ where: { id: 1 } });
@@ -31,6 +34,8 @@ export class SettingsService {
 
   async update(partial: SettingsPartialDto): Promise<Settings> {
     await this.get();
+
+    this.logger.debug(`Update settings ${JSON.stringify(partial, null, 2)}`);
     return this.prisma.settings.update({
       where: { id: 1 },
       data: partial,
