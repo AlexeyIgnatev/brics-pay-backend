@@ -124,15 +124,15 @@ export class UsersService {
         currency: Currency.SOM,
         address: userInfo.phone,
         balance: somBalance,
-        buy_rate: Number(settings.esom_per_usd), // курс ESOM к SOM в профиле не показываем, но оставим buy_rate как курс ESOM
-        sell_rate: Number(settings.esom_per_usd),
+        buy_rate: 1.0,
+        sell_rate: 1.0,
       },
       {
         currency: Currency.ESOM,
         address: user.address,
         balance: esomBalance,
-        buy_rate: 1.0,
-        sell_rate: 1.0,
+        buy_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct),
+        sell_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct),
       },
       {
         currency: Currency.BTC,
