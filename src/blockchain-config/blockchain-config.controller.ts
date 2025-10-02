@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import { SettingsService } from '../config/settings/settings.service';
 import { SettingsDto } from './dto/settings.dto';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
+import { SettingsPartialDto } from './dto/settings-partial.dto';
 
 @ApiTags('Конфигурация блокчейна')
 @Controller('blockchain-config')
@@ -25,7 +26,7 @@ export class BlockchainConfigController {
   @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Обновить настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })
-  async updateSettings(@Body() dto: SettingsDto): Promise<SettingsDto> {
+  async updateSettings(@Body() dto: SettingsPartialDto): Promise<SettingsDto> {
     const s = await this.settingsService.update(dto as any);
     return s as any;
   }
