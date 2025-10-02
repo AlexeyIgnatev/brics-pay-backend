@@ -27,7 +27,7 @@ export class BlockchainConfigController {
   @ApiOperation({ summary: 'Обновить настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })
   async updateSettings(@Body() dto: SettingsPartialDto): Promise<SettingsDto> {
-    const s = await this.settingsService.update(dto as any);
+    const s = await this.settingsService.update(dto);
     return s as any;
   }
 }

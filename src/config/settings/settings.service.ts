@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient, Settings } from '@prisma/client';
+import { SettingsPartialDto } from '../../blockchain-config/dto/settings-partial.dto';
 
 @Injectable()
 export class SettingsService {
@@ -28,11 +29,11 @@ export class SettingsService {
     return s;
   }
 
-  async update(partial: Partial<Settings>): Promise<Settings> {
+  async update(partial: SettingsPartialDto): Promise<Settings> {
     await this.get();
     return this.prisma.settings.update({
       where: { id: 1 },
-      data: partial as any,
+      data: partial,
     });
   }
 }
