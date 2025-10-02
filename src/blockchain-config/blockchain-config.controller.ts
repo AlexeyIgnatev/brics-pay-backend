@@ -7,7 +7,8 @@ import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 @ApiTags('Конфигурация блокчейна')
 @Controller('blockchain-config')
 export class BlockchainConfigController {
-  constructor(private readonly settingsService: SettingsService) {}
+  constructor(private readonly settingsService: SettingsService) {
+  }
 
   @Get('settings')
   @UseGuards(AdminAuthGuard)
@@ -24,7 +25,7 @@ export class BlockchainConfigController {
   @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Обновить настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })
-  async updateSettings(@Body() dto: Partial<SettingsDto>): Promise<SettingsDto> {
+  async updateSettings(@Body() dto: SettingsDto): Promise<SettingsDto> {
     const s = await this.settingsService.update(dto as any);
     return s as any;
   }
