@@ -126,7 +126,7 @@ export class AdminManagementService {
   private async signTokens(payload: any) {
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: this.config.get<string>('ADMIN_JWT_ACCESS_SECRET') || 'dev_admin_access_secret',
-      expiresIn: this.config.get<string>('ADMIN_JWT_ACCESS_TTL') || '15m',
+      expiresIn: this.config.get<string>('ADMIN_JWT_ACCESS_TTL') || '7d',
     });
 
     const refreshToken = await this.jwtService.signAsync(payload, {
