@@ -109,22 +109,7 @@ model UserAssetBalance {
   @@map("user_asset_balances")
 }
 
-model UserTrade {
-  id            Int      @id @default(autoincrement())
-  customer_id   Int
-  asset_from    Asset
-  asset_to      Asset
-  amount_from   Decimal  @db.Decimal(38, 18)
-  amount_to     Decimal  @db.Decimal(38, 18)
-  price_usd     Decimal  @db.Decimal(38, 18)
-  notional_usdt Decimal  @db.Decimal(38, 18)
-  fee_esom      Decimal  @db.Decimal(38, 18) @default(0)
-  createdAt     DateTime @default(now())
-
-  customer      Customer @relation(fields: [customer_id], references: [customer_id])
-
-  @@map("user_trades")
-}
+// Deprecated: UserTrade removed in favor of unified Transaction model
 
 
 model Transaction {
@@ -135,7 +120,6 @@ model Transaction {
   // monetary values stored in Decimal
   amount               Decimal           @db.Decimal(38, 18) // absolute amount in "asset" units
   asset                Asset             // which asset this amount refers to
-  som_amount           Decimal           @db.Decimal(38, 18) // normalized value in SOM-equivalent at operation time
   amount_from          Decimal?          @db.Decimal(38, 18) // for conversions: source amount
   asset_from           Asset?            // for conversions: source asset
   fee_amount           Decimal?          @db.Decimal(38, 18) // optional fee in same asset units

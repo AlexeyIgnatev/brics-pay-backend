@@ -64,10 +64,10 @@ export class TransactionsListDto {
   @IsString()
   receiver?: string;
 
-  @ApiPropertyOptional({ enum: ['createdAt', 'som_amount', 'status', 'kind'], default: 'createdAt' })
+  @ApiPropertyOptional({ enum: ['createdAt', 'amount', 'status', 'kind'], default: 'createdAt' })
   @IsOptional()
-  @IsIn(['createdAt', 'som_amount', 'status', 'kind'])
-  sort_by?: 'createdAt' | 'som_amount' | 'status' | 'kind';
+  @IsIn(['createdAt', 'amount', 'status', 'kind'])
+  sort_by?: 'createdAt' | 'amount' | 'status' | 'kind';
 
   @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'desc' })
   @IsOptional()
@@ -102,7 +102,7 @@ export class TransactionItemDto {
   @ApiProperty() id: number;
   @ApiProperty() kind: string;
   @ApiProperty() status: string;
-  @ApiProperty({ description: 'Нормализованная сумма (в SOM)' }) som_amount: number;
+  @ApiProperty({ description: 'Сумма операции в единицах currency' }) amount: number;
   @ApiProperty({ required: false }) asset?: string;
   @ApiProperty({ required: false }) tx_hash?: string;
   @ApiProperty({ required: false }) bank_op_id?: number;
