@@ -68,6 +68,10 @@ export class PaymentsService {
           return TransactionType.CONVERSION;
         case 'WALLET_TO_WALLET':
           return TransactionType.TRANSFER;
+        case 'CONVERSION':
+          return TransactionType.CONVERSION;
+        case 'WITHDRAW_CRYPTO':
+          return TransactionType.EXPENSE;
         default:
           return TransactionType.TRANSFER;
       }
@@ -82,9 +86,6 @@ export class PaymentsService {
     }));
   }
 
-
-    private readonly balanceFetchService: BalanceFetchService,
-  ) {}
 
   async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {
     const user = await this.prisma.customer.findUniqueOrThrow({ where: { customer_id } });
@@ -116,7 +117,7 @@ export class PaymentsService {
         asset_from: 'ESOM',
         amount: order.amount_asset,
         asset: to,
-        som_amount: amountFrom.toString(),
+
         price_usd: order.price_usd,
         notional_usd: order.notional_usdt,
         sender_customer_id: customer_id,
@@ -144,7 +145,7 @@ export class PaymentsService {
         asset_from: from,
         amount: esomAmount.toString(),
         asset: 'ESOM',
-        som_amount: esomAmount.toString(),
+
         price_usd: '1',
         notional_usd: notionalUsdt.toString(),
         sender_customer_id: customer_id,
@@ -172,7 +173,7 @@ export class PaymentsService {
           asset_from: from,
           amount: usdtIntermediate.toString(),
           asset: 'USDT_TRC20',
-          som_amount: (usdtIntermediate * esomPerUsd).toString(),
+
           price_usd: '1',
           notional_usd: usdtIntermediate.toString(),
           sender_customer_id: customer_id,
@@ -191,7 +192,7 @@ export class PaymentsService {
         asset_from: from,
         amount: buy.amount_asset,
         asset: to,
-        som_amount: (Number(buy.notional_usdt) * esomPerUsd).toString(),
+
         price_usd: buy.price_usd,
         notional_usd: buy.notional_usdt,
         sender_customer_id: customer_id,
@@ -237,7 +238,7 @@ export class PaymentsService {
         kind: 'WITHDRAW_CRYPTO' as any,
         status: 'SUCCESS' as any,
         amount: amount.toString(),
-        som_amount: (asset === 'USDT_TRC20' ? amount * esomPerUsd : amount * 0).toString(),
+
         asset,
         fee_amount: feeFixed.toString(),
         tx_hash: txid,
@@ -282,7 +283,6 @@ export class PaymentsService {
       kind: 'BANK_TO_WALLET' as any,
       status: 'SUCCESS' as any,
       amount: amount.toString(),
-      som_amount: amount.toString(),
       asset: 'ESOM',
       tx_hash: ethTransaction.txHash,
       bank_op_id: bricsTransaction,
@@ -343,7 +343,6 @@ export class PaymentsService {
       kind: 'WALLET_TO_BANK' as any,
       status: 'SUCCESS' as any,
       amount: amount.toString(),
-      som_amount: amount.toString(),
       asset: 'ESOM',
       tx_hash: ethTransaction.txHash,
       bank_op_id: bricsTransaction,
@@ -430,7 +429,6 @@ export class PaymentsService {
       kind: 'WALLET_TO_WALLET' as any,
       status: 'SUCCESS' as any,
       amount: transferDto.amount.toString(),
-      som_amount: transferDto.amount.toString(),
       asset: 'ESOM',
       tx_hash: ethTransaction.txHash,
       sender_customer_id: customer.customer_id,
@@ -477,7 +475,6 @@ export class PaymentsService {
       kind: 'BANK_TO_BANK' as any,
       status: 'SUCCESS' as any,
       amount: transferDto.amount.toString(),
-      som_amount: transferDto.amount.toString(),
       asset: 'SOM',
       bank_op_id: bricsTransaction,
       sender_customer_id: customer.customer_id,
