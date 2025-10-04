@@ -42,7 +42,7 @@ export class PaymentsService {
       ].filter(Boolean),
     };
 
-    if (body.currency?.length) where.asset = { in: body.currency as any };
+    if (body.currency?.length) where.asset_out = { in: body.currency as any };
     if (body.from_time || body.to_time) {
       where.createdAt = {} as any;
       if (body.from_time) (where.createdAt as any).gte = new Date(body.from_time);
@@ -57,7 +57,7 @@ export class PaymentsService {
     });
 
     const mapType = (t: any): TransactionType => {
-      switch (t.kind) {
+      switch (t.kind as string) {
         case 'BANK_TO_BANK':
           if (t.sender_customer_id === customer_id) return TransactionType.EXPENSE;
           if (t.receiver_customer_id === customer_id) return TransactionType.INCOME;
@@ -78,8 +78,8 @@ export class PaymentsService {
     };
 
     return items.map(t => ({
-      currency: (t.asset || 'SOM') as any,
-      amount: Number(t.amount),
+      currency: (t.asset_out || 'SOM') as any,
+      amount: Number(t.amount_out),
       type: mapType(t),
       successful: t.status === 'SUCCESS',
       created_at: t.createdAt.getTime(),
@@ -113,10 +113,7 @@ export class PaymentsService {
       await this.prisma.transaction.create({ data: ({
         kind: 'CONVERSION' as any,
         status: 'SUCCESS' as any,
-        amount_from: amountFrom.toString(),
-        asset_from: 'ESOM',
-        amount: order.amount_asset,
-        asset: to,
+        
         amount_in: amountFrom.toString(),
         asset_in: 'ESOM',
         amount_out: order.amount_asset,
@@ -145,10 +142,7 @@ export class PaymentsService {
       await this.prisma.transaction.create({ data: ({
         kind: 'CONVERSION' as any,
         status: 'SUCCESS' as any,
-        amount_from: amountFrom.toString(),
-        asset_from: from,
-        amount: esomAmount.toString(),
-        asset: 'ESOM',
+        
         amount_in: amountFrom.toString(),
         asset_in: from,
         amount_out: esomAmount.toString(),
@@ -177,10 +171,7 @@ export class PaymentsService {
         await this.prisma.transaction.create({ data: ({
           kind: 'CONVERSION' as any,
           status: 'SUCCESS' as any,
-          amount_from: amountFrom.toString(),
-          asset_from: from,
-          amount: usdtIntermediate.toString(),
-          asset: 'USDT_TRC20',
+          
           amount_in: amountFrom.toString(),
           asset_in: from,
           amount_out: usdtIntermediate.toString(),
@@ -200,10 +191,7 @@ export class PaymentsService {
       await this.prisma.transaction.create({ data: ({
         kind: 'CONVERSION' as any,
         status: 'SUCCESS' as any,
-        amount_from: amountFrom.toString(),
-        asset_from: from,
-        amount: buy.amount_asset,
-        asset: to,
+        
         amount_in: amountFrom.toString(),
         asset_in: from,
         amount_out: buy.amount_asset,

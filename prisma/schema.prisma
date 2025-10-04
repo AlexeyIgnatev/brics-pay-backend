@@ -118,17 +118,11 @@ model Transaction {
   status               TransactionStatus @default(PENDING)
 
   // monetary values stored in Decimal
-  // Deprecated: amount/asset and amount_from/asset_from will be replaced by amount_in/asset_in and amount_out/asset_out
-  amount               Decimal           @db.Decimal(38, 18) // absolute amount in "asset" units (deprecated)
-  asset                Asset             // which asset this amount refers to (deprecated)
-  amount_from          Decimal?          @db.Decimal(38, 18) // for conversions: source amount (deprecated)
-  asset_from           Asset?            // for conversions: source asset (deprecated)
-
   // New unified representation: amount_in/asset_in is what user gives, amount_out/asset_out is what user receives
-  amount_in            Decimal?          @db.Decimal(38, 18)
-  asset_in             Asset?
-  amount_out           Decimal?          @db.Decimal(38, 18)
-  asset_out            Asset?
+  amount_in            Decimal           @db.Decimal(38, 18)
+  asset_in             Asset
+  amount_out           Decimal           @db.Decimal(38, 18)
+  asset_out            Asset
 
   fee_amount           Decimal?          @db.Decimal(38, 18) // optional fee in same asset units
   price_usd            Decimal?          @db.Decimal(38, 18) // unit price in USD when applicable
