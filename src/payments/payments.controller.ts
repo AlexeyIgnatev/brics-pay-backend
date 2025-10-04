@@ -62,6 +62,6 @@ export class PaymentsController {
     @Body() getTransactions: GetTransactions,
     @Req() req: { user: UserInfoDto },
   ): Promise<TransactionDto[]> {
-    return [];
+    return this.paymentsService.getHistory(getTransactions, req?.user.customer_id);
   }
 }

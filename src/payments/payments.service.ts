@@ -14,6 +14,10 @@ import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 import { BalanceFetchService } from '../user-management/balance-fetch.service';
 
+import { GetTransactions } from './dto/get-transactions.dto';
+import { TransactionDto } from './dto/transaction.dto';
+import { TransactionType } from './enums/transaction-type';
+
 @Injectable()
 export class PaymentsService {
   constructor(
@@ -24,6 +28,61 @@ export class PaymentsService {
     private readonly configService: ConfigService,
     private readonly settingsService: SettingsService,
     private readonly exchangeService: BybitExchangeService,
+    private readonly balanceFetchService: BalanceFetchService,
+  ) {}
+
+  async getHistory(body: GetTransactions, customer_id: number): Promise<TransactionDto[]> {
+    const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+    const where: any = {
+      OR: [
+        { sender_customer_id: customer_id },
+        { receiver_customer_id: customer_id },
+        me?.address ? { sender_wallet_address: me.address } : undefined,
+        me?.address ? { receiver_wallet_address: me.address } : undefined,
+      ].filter(Boolean),
+    };
+
+    if (body.currency?.length) where.asset = { in: body.currency as any };
+    if (body.from_time || body.to_time) {
+      where.createdAt = {} as any;
+      if (body.from_time) (where.createdAt as any).gte = new Date(body.from_time);
+      if (body.to_time) (where.createdAt as any).lte = new Date(body.to_time);
+    }
+
+    const items = await this.prisma.transaction.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: body.skip ?? 0,
+      take: body.take ?? 50,
+    });
+
+    const mapType = (t: any): TransactionType => {
+      switch (t.kind) {
+        case 'BANK_TO_BANK':
+          if (t.sender_customer_id === customer_id) return TransactionType.EXPENSE;
+          if (t.receiver_customer_id === customer_id) return TransactionType.INCOME;
+          return TransactionType.TRANSFER;
+        case 'BANK_TO_WALLET':
+          return TransactionType.CONVERSION;
+        case 'WALLET_TO_BANK':
+          return TransactionType.CONVERSION;
+        case 'WALLET_TO_WALLET':
+          return TransactionType.TRANSFER;
+        default:
+          return TransactionType.TRANSFER;
+      }
+    };
+
+    return items.map(t => ({
+      currency: (t.asset || 'SOM') as any,
+      amount: Number(t.som_amount),
+      type: mapType(t),
+      successful: t.status === 'SUCCESS',
+      created_at: t.createdAt.getTime(),
+    }));
+  }
+
+
     private readonly balanceFetchService: BalanceFetchService,
   ) {}
 
