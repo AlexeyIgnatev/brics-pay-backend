@@ -110,19 +110,23 @@ export class PaymentsService {
         : await this.exchangeService.marketBuy(to, usdtAmount.toString());
       await this.ethereumService.transferToFiat(amountFrom, user.private_key);
       await addBalance(to, Number(order.amount_asset));
-      await this.prisma.transaction.create({ data: {
+      await this.prisma.transaction.create({ data: ({
         kind: 'CONVERSION' as any,
         status: 'SUCCESS' as any,
         amount_from: amountFrom.toString(),
         asset_from: 'ESOM',
         amount: order.amount_asset,
         asset: to,
+        amount_in: amountFrom.toString(),
+        asset_in: 'ESOM',
+        amount_out: order.amount_asset,
+        asset_out: to,
 
         price_usd: order.price_usd,
         notional_usd: order.notional_usdt,
         sender_customer_id: customer_id,
         comment: `Convert ESOM->${to}`,
-      }});
+      } as any)});
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
       return new StatusOKDto();
     }
@@ -138,19 +142,23 @@ export class PaymentsService {
       const esomAmount = notionalUsdt * esomPerUsd;
       await this.ethereumService.transferFromFiat(user.address, esomAmount);
       await addBalance(from, -amountFrom);
-      await this.prisma.transaction.create({ data: {
+      await this.prisma.transaction.create({ data: ({
         kind: 'CONVERSION' as any,
         status: 'SUCCESS' as any,
         amount_from: amountFrom.toString(),
         asset_from: from,
         amount: esomAmount.toString(),
         asset: 'ESOM',
+        amount_in: amountFrom.toString(),
+        asset_in: from,
+        amount_out: esomAmount.toString(),
+        asset_out: 'ESOM',
 
         price_usd: '1',
         notional_usd: notionalUsdt.toString(),
         sender_customer_id: customer_id,
         comment: `Convert ${from}->ESOM`,
-      }});
+      } as any)});
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
       return new StatusOKDto();
     }
@@ -166,38 +174,46 @@ export class PaymentsService {
       if (to === 'USDT_TRC20') {
         await addBalance(from, -amountFrom);
         await addBalance('USDT_TRC20', usdtIntermediate);
-        await this.prisma.transaction.create({ data: {
+        await this.prisma.transaction.create({ data: ({
           kind: 'CONVERSION' as any,
           status: 'SUCCESS' as any,
           amount_from: amountFrom.toString(),
           asset_from: from,
           amount: usdtIntermediate.toString(),
           asset: 'USDT_TRC20',
+          amount_in: amountFrom.toString(),
+          asset_in: from,
+          amount_out: usdtIntermediate.toString(),
+          asset_out: 'USDT_TRC20',
 
           price_usd: '1',
           notional_usd: usdtIntermediate.toString(),
           sender_customer_id: customer_id,
           comment: `Convert ${from}->USDT_TRC20`,
-        }});
+        } as any)});
         await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
         return new StatusOKDto();
       }
       const buy = await this.exchangeService.marketBuy(to, usdtIntermediate.toString());
       await addBalance(from, -amountFrom);
       await addBalance(to, Number(buy.amount_asset));
-      await this.prisma.transaction.create({ data: {
+      await this.prisma.transaction.create({ data: ({
         kind: 'CONVERSION' as any,
         status: 'SUCCESS' as any,
         amount_from: amountFrom.toString(),
         asset_from: from,
         amount: buy.amount_asset,
         asset: to,
+        amount_in: amountFrom.toString(),
+        asset_in: from,
+        amount_out: buy.amount_asset,
+        asset_out: to,
 
         price_usd: buy.price_usd,
         notional_usd: buy.notional_usdt,
         sender_customer_id: customer_id,
         comment: `Convert ${from}->${to}`,
-      }});
+      } as any)});
       return new StatusOKDto();
     }
 
@@ -234,18 +250,22 @@ export class PaymentsService {
         const w = await tx.withdrawRequest.create({ data: { customer_id, asset, address, amount: amount.toString(), fee: feeFixed.toString(), status: 'PENDING' } });
       const { txid } = await this.exchangeService.withdraw(asset, address, amount.toString());
       await tx.withdrawRequest.update({ where: { id: w.id }, data: { status: 'SUBMITTED', txid } });
-      await tx.transaction.create({ data: {
+      await tx.transaction.create({ data: ({
         kind: 'WITHDRAW_CRYPTO' as any,
         status: 'SUCCESS' as any,
         amount: amount.toString(),
 
         asset,
+        amount_in: amount.toString(),
+        asset_in: asset,
+        amount_out: amount.toString(),
+        asset_out: asset,
         fee_amount: feeFixed.toString(),
         tx_hash: txid,
         external_address: address,
         sender_customer_id: customer_id,
         comment: `Withdraw ${amount} ${asset}`,
-      }});
+      } as any)});
     });
 
     return new StatusOKDto();
@@ -279,17 +299,21 @@ export class PaymentsService {
     }
 
     // record transaction BANK_TO_WALLET
-    await this.prisma.transaction.create({ data: {
+    await this.prisma.transaction.create({ data: ({
       kind: 'BANK_TO_WALLET' as any,
       status: 'SUCCESS' as any,
       amount: amount.toString(),
       asset: 'ESOM',
+      amount_in: amount.toString(),
+      asset_in: 'SOM',
+      amount_out: amount.toString(),
+      asset_out: 'ESOM',
       tx_hash: ethTransaction.txHash,
       bank_op_id: bricsTransaction,
       sender_customer_id: customer.customer_id,
       receiver_wallet_address: customer.address,
       comment: 'Fiat->Crypto',
-    }});
+    } as any)});
 
     // decrement SOM cached balance by amount
     await this.prisma.userAssetBalance.upsert({
@@ -339,16 +363,20 @@ export class PaymentsService {
     }
 
     // record transaction WALLET_TO_BANK (after we know bank_op_id)
-    await this.prisma.transaction.create({ data: {
+    await this.prisma.transaction.create({ data: ({
       kind: 'WALLET_TO_BANK' as any,
       status: 'SUCCESS' as any,
       amount: amount.toString(),
       asset: 'ESOM',
+      amount_in: amount.toString(),
+      asset_in: 'ESOM',
+      amount_out: amount.toString(),
+      asset_out: 'SOM',
       tx_hash: ethTransaction.txHash,
       bank_op_id: bricsTransaction,
       sender_customer_id: customer.customer_id,
       comment: 'Crypto->Fiat',
-    }});
+    } as any)});
 
     // increment SOM cached balance by amount (minus platform fee already handled by bank operation)
     await this.prisma.userAssetBalance.upsert({
@@ -425,16 +453,20 @@ export class PaymentsService {
     }
 
     // record transaction WALLET_TO_WALLET
-    await this.prisma.transaction.create({ data: {
+    await this.prisma.transaction.create({ data: ({
       kind: 'WALLET_TO_WALLET' as any,
       status: 'SUCCESS' as any,
       amount: transferDto.amount.toString(),
       asset: 'ESOM',
+      amount_in: transferDto.amount.toString(),
+      asset_in: 'ESOM',
+      amount_out: transferDto.amount.toString(),
+      asset_out: 'ESOM',
       tx_hash: ethTransaction.txHash,
       sender_customer_id: customer.customer_id,
       receiver_customer_id: recipient.customer_id,
       comment: 'ESOM transfer',
-    }});
+    } as any)});
 
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id);
     if (recipient?.customer_id && recipient.customer_id !== customer.customer_id) {
@@ -471,16 +503,20 @@ export class PaymentsService {
     }
 
     // record transaction BANK_TO_BANK
-    await this.prisma.transaction.create({ data: {
+    await this.prisma.transaction.create({ data: ({
       kind: 'BANK_TO_BANK' as any,
       status: 'SUCCESS' as any,
       amount: transferDto.amount.toString(),
       asset: 'SOM',
+      amount_in: transferDto.amount.toString(),
+      asset_in: 'SOM',
+      amount_out: transferDto.amount.toString(),
+      asset_out: 'SOM',
       bank_op_id: bricsTransaction,
       sender_customer_id: customer.customer_id,
       receiver_customer_id: bricsRecipient.CustomerID,
       comment: 'SOM transfer',
-    }});
+    } as any)});
 
     // adjust SOM cache balances: decrement sender, increment receiver
     await this.prisma.userAssetBalance.upsert({
