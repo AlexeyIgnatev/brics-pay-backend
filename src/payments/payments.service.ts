@@ -193,6 +193,13 @@ export class PaymentsService {
       comment: 'Fiat->Crypto',
     }});
 
+    // decrement SOM cached balance by amount
+    await this.prisma.userAssetBalance.upsert({
+      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
+      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-amount).toString() },
+      update: { balance: { decrement: amount.toString() } },
+    });
+
     return new StatusOKDto();
   }
 
@@ -244,6 +251,13 @@ export class PaymentsService {
       sender_customer_id: customer.customer_id,
       comment: 'Crypto->Fiat',
     }});
+
+    // increment SOM cached balance by amount (minus platform fee already handled by bank operation)
+    await this.prisma.userAssetBalance.upsert({
+      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
+      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: amount.toString() },
+      update: { balance: { increment: amount.toString() } },
+    });
 
     return new StatusOKDto();
   }
@@ -370,6 +384,17 @@ export class PaymentsService {
       comment: 'SOM transfer',
     }});
 
+    // adjust SOM cache balances: decrement sender, increment receiver
+    await this.prisma.userAssetBalance.upsert({
+      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
+      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-transferDto.amount).toString() },
+      update: { balance: { decrement: transferDto.amount.toString() } },
+    });
+    await this.prisma.userAssetBalance.upsert({
+      where: { customer_id_asset: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset } },
+      create: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset, balance: transferDto.amount.toString() },
+      update: { balance: { increment: transferDto.amount.toString() } },
+    });
 
     return new StatusOKDto();
   }

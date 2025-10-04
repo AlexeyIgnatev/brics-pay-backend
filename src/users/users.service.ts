@@ -70,6 +70,14 @@ export class UsersService {
       }
     }
 
+    // Refresh SOM balance cache on profile fetch
+    const somBalance = await this.bricsService.getSomBalance();
+    await this.prisma.userAssetBalance.upsert({
+      where: { customer_id_asset: { customer_id: customerInfo.CustomerID, asset: 'SOM' as Asset } },
+      create: { customer_id: customerInfo.CustomerID, asset: 'SOM' as Asset, balance: somBalance.toString() },
+      update: { balance: somBalance.toString() },
+    });
+
     return {
       customer_id: customerInfo.CustomerID,
       first_name,
@@ -85,11 +93,11 @@ export class UsersService {
       where: { customer_id: userInfo.customer_id },
     });
 
-    const [somBalance, esomBalance, settings, pricesUsd] = await Promise.all([
-      this.bricsService.getSomBalance(),
+    const [esomBalance, settings, pricesUsd, somRec] = await Promise.all([
       this.ethereumService.getEsomBalance(user.address),
       this.settingsService.get(),
       this.exchangeService.getUsdPrices(['BTC' as Asset, 'ETH' as Asset, 'USDT_TRC20' as Asset]),
+      this.prisma.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id: user.customer_id, asset: 'SOM' as Asset } } }),
     ]);
 
     const esomPerUsd = Number(settings.esom_per_usd);
@@ -123,7 +131,7 @@ export class UsersService {
       {
         currency: Currency.SOM,
         address: userInfo.phone,
-        balance: somBalance,
+        balance: Number(somRec?.balance ?? 0),
         buy_rate: 1.0,
         sell_rate: 1.0,
       },
