@@ -11,19 +11,6 @@ export class BalanceRescanService {
     private readonly fetcher: BalanceFetchService,
   ) {}
 
-  // For backward compatibility: now just delegates to a single source of truth
-  async rescanUserEsom(customer_id: number, _address?: string) {
-    try {
-      await this.fetcher.refreshAllBalancesForUser(customer_id);
-    } catch (e) {
-      this.logger.error(`Rescan failed for user ${customer_id}: ${e}`);
-    }
-  }
-
-  async triggerForUsers(senderId?: number | null, receiverId?: number | null) {
-    if (senderId) await this.rescanUserEsom(senderId);
-    if (receiverId && receiverId !== senderId) await this.rescanUserEsom(receiverId);
-  }
 
   @Cron(CronExpression.EVERY_DAY_AT_1AM)
   async dailyRescan() {
