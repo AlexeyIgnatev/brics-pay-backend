@@ -63,6 +63,8 @@ enum TransactionKind {
   BANK_TO_WALLET
   WALLET_TO_BANK
   WALLET_TO_WALLET
+  CONVERSION
+  WITHDRAW_CRYPTO
 }
 
 enum TransactionStatus {
@@ -126,30 +128,41 @@ model UserTrade {
 
 
 model Transaction {
-  id                Int               @id @default(autoincrement())
-  kind              TransactionKind
-  status            TransactionStatus @default(PENDING)
+  id                   Int               @id @default(autoincrement())
+  kind                 TransactionKind
+  status               TransactionStatus @default(PENDING)
 
-  som_amount        Decimal           @db.Decimal(38, 18)
-  asset             Asset?
+  // monetary values stored in Decimal
+  amount               Decimal           @db.Decimal(38, 18) // absolute amount in "asset" units
+  asset                Asset             // which asset this amount refers to
+  som_amount           Decimal           @db.Decimal(38, 18) // normalized value in SOM-equivalent at operation time
+  amount_from          Decimal?          @db.Decimal(38, 18) // for conversions: source amount
+  asset_from           Asset?            // for conversions: source asset
+  fee_amount           Decimal?          @db.Decimal(38, 18) // optional fee in same asset units
+  price_usd            Decimal?          @db.Decimal(38, 18) // unit price in USD when applicable
+  notional_usd         Decimal?          @db.Decimal(38, 18) // optional notional in USD for conversions/trades
 
-  tx_hash           String?
-  bank_op_id        Int?
+  // identifiers for on-chain or bank
+  tx_hash              String?
+  bank_op_id           Int?
 
-  sender_customer_id Int?
+  // Participants: customers and/or external addresses
+  sender_customer_id   Int?
   receiver_customer_id Int?
   sender_wallet_address  String?
   receiver_wallet_address String?
+  external_address     String?           // for withdrawals to external crypto addresses
 
-  comment           String?
-  createdAt         DateTime          @default(now())
+  comment              String?
+  createdAt            DateTime          @default(now())
 
-  sender_customer   Customer?         @relation("tx_sender", fields: [sender_customer_id], references: [customer_id])
-  receiver_customer Customer?         @relation("tx_receiver", fields: [receiver_customer_id], references: [customer_id])
+  sender_customer      Customer?         @relation("tx_sender", fields: [sender_customer_id], references: [customer_id])
+  receiver_customer    Customer?         @relation("tx_receiver", fields: [receiver_customer_id], references: [customer_id])
 
   @@index([kind])
   @@index([status])
   @@index([createdAt])
+  @@index([asset])
   @@index([sender_customer_id])
   @@index([receiver_customer_id])
   @@map("transactions")
