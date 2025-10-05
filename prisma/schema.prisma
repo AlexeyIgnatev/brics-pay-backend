@@ -5,42 +5,39 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum AdminRole {
   SUPER_ADMIN
 }
 
-
 model Customer {
-    customer_id Int     @id
-    address     String
-    private_key String
+  customer_id Int    @id
+  address     String
+  private_key String
 
-    first_name  String?
-    middle_name String?
-    last_name   String?
-    phone       String?
-    email       String?
-    status      UserStatus @default(ACTIVE)
-    createdAt   DateTime   @default(now())
-    updatedAt   DateTime @updatedAt
+  first_name  String?
+  middle_name String?
+  last_name   String?
+  phone       String?
+  email       String?
+  status      UserStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-    balances    UserAssetBalance[]
-    trades      UserTrade[]
-    withdrawals WithdrawRequest[]
-    
-    // Back-relations for transactions
-    sender_transactions   Transaction[] @relation("tx_sender")
-    receiver_transactions Transaction[] @relation("tx_receiver")
+  balances    UserAssetBalance[]
+  withdrawals WithdrawRequest[]
 
-    @@map("customers")
+  sender_transactions   Transaction[] @relation("tx_sender")
+  receiver_transactions Transaction[] @relation("tx_receiver")
+
+  @@map("customers")
 }
 
 enum Asset {
@@ -75,115 +72,106 @@ enum TransactionStatus {
 }
 
 model Settings {
-  id                              Int      @id @default(1)
-  esom_per_usd                    Decimal  @db.Decimal(38, 18)
-  esom_som_conversion_fee_pct     Decimal  @db.Decimal(5, 2)
+  id                          Int     @id @default(1)
+  esom_per_usd                Decimal @db.Decimal(38, 18)
+  esom_som_conversion_fee_pct Decimal @db.Decimal(5, 2)
 
-  btc_trade_fee_pct               Decimal  @db.Decimal(5, 2)
-  eth_trade_fee_pct               Decimal  @db.Decimal(5, 2)
-  usdt_trade_fee_pct              Decimal  @db.Decimal(5, 2)
+  btc_trade_fee_pct  Decimal @db.Decimal(5, 2)
+  eth_trade_fee_pct  Decimal @db.Decimal(5, 2)
+  usdt_trade_fee_pct Decimal @db.Decimal(5, 2)
 
-  btc_withdraw_fee_fixed          Decimal  @db.Decimal(38, 18)
-  eth_withdraw_fee_fixed          Decimal  @db.Decimal(38, 18)
-  usdt_withdraw_fee_fixed         Decimal  @db.Decimal(38, 18)
+  btc_withdraw_fee_fixed  Decimal @db.Decimal(38, 18)
+  eth_withdraw_fee_fixed  Decimal @db.Decimal(38, 18)
+  usdt_withdraw_fee_fixed Decimal @db.Decimal(38, 18)
 
-  min_withdraw_btc                Decimal  @db.Decimal(38, 18)
-  min_withdraw_eth                Decimal  @db.Decimal(38, 18)
-  min_withdraw_usdt_trc20         Decimal  @db.Decimal(38, 18)
+  min_withdraw_btc        Decimal @db.Decimal(38, 18)
+  min_withdraw_eth        Decimal @db.Decimal(38, 18)
+  min_withdraw_usdt_trc20 Decimal @db.Decimal(38, 18)
 
-  updatedAt                       DateTime @updatedAt
+  updatedAt DateTime @updatedAt
 
   @@map("settings")
 }
 
 model UserAssetBalance {
-  id           Int      @id @default(autoincrement())
-  customer_id  Int
-  asset        Asset
-  balance      Decimal  @db.Decimal(38, 18) @default(0)
-  updatedAt    DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  customer_id Int
+  asset       Asset
+  balance     Decimal  @default(0) @db.Decimal(38, 18)
+  updatedAt   DateTime @updatedAt
 
-  customer     Customer @relation(fields: [customer_id], references: [customer_id])
+  customer Customer @relation(fields: [customer_id], references: [customer_id])
 
   @@unique([customer_id, asset])
   @@map("user_asset_balances")
 }
 
-// Deprecated: UserTrade removed in favor of unified Transaction model
-
-
 model Transaction {
-  id                   Int               @id @default(autoincrement())
-  kind                 TransactionKind
-  status               TransactionStatus @default(PENDING)
+  id     Int               @id @default(autoincrement())
+  kind   TransactionKind
+  status TransactionStatus @default(PENDING)
 
-  // monetary values stored in Decimal
-  // New unified representation: amount_in/asset_in is what user gives, amount_out/asset_out is what user receives
-  amount_in            Decimal           @db.Decimal(38, 18)
-  asset_in             Asset
-  amount_out           Decimal           @db.Decimal(38, 18)
-  asset_out            Asset
+  amount_in  Decimal @db.Decimal(38, 18)
+  asset_in   Asset
+  amount_out Decimal @db.Decimal(38, 18)
+  asset_out  Asset
 
-  fee_amount           Decimal?          @db.Decimal(38, 18) // optional fee in same asset units
-  price_usd            Decimal?          @db.Decimal(38, 18) // unit price in USD when applicable
-  notional_usd         Decimal?          @db.Decimal(38, 18) // optional notional in USD for conversions/trades
+  fee_amount   Decimal? @db.Decimal(38, 18) // optional fee in same asset units
+  price_usd    Decimal? @db.Decimal(38, 18) // unit price in USD when applicable
+  notional_usd Decimal? @db.Decimal(38, 18) // optional notional in USD for conversions/trades
 
-  // identifiers for on-chain or bank
-  tx_hash              String?
-  bank_op_id           Int?
+  tx_hash    String?
+  bank_op_id Int?
 
-  // Participants: customers and/or external addresses
-  sender_customer_id   Int?
-  receiver_customer_id Int?
-  sender_wallet_address  String?
+  sender_customer_id      Int?
+  receiver_customer_id    Int?
+  sender_wallet_address   String?
   receiver_wallet_address String?
-  external_address     String?           // for withdrawals to external crypto addresses
+  external_address        String?
 
-  comment              String?
-  createdAt            DateTime          @default(now())
+  comment   String?
+  createdAt DateTime @default(now())
 
-  sender_customer      Customer?         @relation("tx_sender", fields: [sender_customer_id], references: [customer_id])
-  receiver_customer    Customer?         @relation("tx_receiver", fields: [receiver_customer_id], references: [customer_id])
+  sender_customer   Customer? @relation("tx_sender", fields: [sender_customer_id], references: [customer_id])
+  receiver_customer Customer? @relation("tx_receiver", fields: [receiver_customer_id], references: [customer_id])
 
   @@index([kind])
   @@index([status])
   @@index([createdAt])
-  @@index([asset])
   @@index([sender_customer_id])
   @@index([receiver_customer_id])
   @@map("transactions")
 }
 
 model WithdrawRequest {
-  id           Int             @id @default(autoincrement())
-  customer_id  Int
-  asset        Asset
-  address      String
-  amount       Decimal         @db.Decimal(38, 18)
-  fee          Decimal         @db.Decimal(38, 18)
-  txid         String?
-  status       WithdrawStatus  @default(PENDING)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  id          Int            @id @default(autoincrement())
+  customer_id Int
+  asset       Asset
+  address     String
+  amount      Decimal        @db.Decimal(38, 18)
+  fee         Decimal        @db.Decimal(38, 18)
+  txid        String?
+  status      WithdrawStatus @default(PENDING)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
-  customer     Customer        @relation(fields: [customer_id], references: [customer_id])
+  customer Customer @relation(fields: [customer_id], references: [customer_id])
 
   @@map("withdraw_requests")
 }
 
 model Admin {
-  id            Int        @id @default(autoincrement())
-  email         String     @unique
+  id            Int       @id @default(autoincrement())
+  email         String    @unique
   password_hash String
   first_name    String
   last_name     String
-  role          AdminRole  @default(SUPER_ADMIN)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  role          AdminRole @default(SUPER_ADMIN)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@map("admins")
 }
-
 
 enum UserStatus {
   ACTIVE

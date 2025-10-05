@@ -86,7 +86,6 @@ export class PaymentsService {
     }));
   }
 
-
   async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {
     const user = await this.prisma.customer.findUniqueOrThrow({ where: { customer_id } });
     const s = await this.settingsService.get();
