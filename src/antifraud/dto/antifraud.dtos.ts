@@ -29,8 +29,4 @@ export class UpdateRuleDto {
   @IsNumberString()
   percent_threshold?: string | null;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  description?: string | null;
 }

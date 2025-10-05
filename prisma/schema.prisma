@@ -98,7 +98,6 @@ model AntiFraudRule {
   threshold_som  Decimal?         @db.Decimal(38, 18)
   min_count      Int?
   percent_threshold Decimal?      @db.Decimal(5, 2)
-  description    String?
   updatedAt      DateTime         @updatedAt
 
   @@map("antifraud_rules")

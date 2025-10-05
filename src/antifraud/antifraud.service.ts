@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+/* eslint-disable max-classes-per-file */
+
 import { Asset, AntiFraudRuleKey, PrismaClient, TransactionKind } from '@prisma/client';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
@@ -13,6 +15,50 @@ export interface AntiFraudContext {
 
 @Injectable()
 export class AntiFraudService {
+  // CRUD/read helpers for controller
+  async listRules() { return this.prisma.antiFraudRule.findMany({ orderBy: { key: 'asc' } }); }
+  async updateRule(key: AntiFraudRuleKey, data: any) { return this.prisma.antiFraudRule.update({ where: { key }, data }); }
+  async listOpenCases() { return this.prisma.antiFraudCase.findMany({ where: { status: 'OPEN' as any }, include: { transaction: true } }); }
+  async adminApprove(id: number) {
+    const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
+    if (!c) return null;
+    const t = c.transaction;
+    let bankId: number | null = t.bank_op_id ?? null;
+    if (t.kind === 'BANK_TO_BANK' && t.status === 'PENDING' && !t.bank_op_id) {
+      // БРИКС операция выполняется в контроллере антифрода ранее, но оставим на сервисе для консистентности
+      // Здесь нет доступа к BricsService, поэтому approve из контроллера уже покрыт (или можно инжектить BricsService сюда).
+    }
+    await this.prisma.$transaction([
+      this.prisma.transaction.update({ where: { id: c.transaction_id }, data: { status: 'SUCCESS' as any, bank_op_id: bankId ?? undefined } }),
+      this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' as any } }),
+    ]);
+    if (t.kind === 'BANK_TO_BANK') {
+      await this.prisma.userAssetBalance.upsert({
+        where: { customer_id_asset: { customer_id: t.receiver_customer_id!, asset: 'SOM' as Asset } },
+        create: { customer_id: t.receiver_customer_id!, asset: 'SOM' as Asset, balance: t.amount_out as any },
+        update: { balance: { increment: t.amount_out as any } },
+      });
+    }
+    return { ok: true };
+  }
+  async adminReject(id: number) {
+    const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
+    if (!c) return null;
+    const t = c.transaction;
+    if (t.kind === 'BANK_TO_BANK') {
+      await this.prisma.userAssetBalance.upsert({
+        where: { customer_id_asset: { customer_id: t.sender_customer_id!, asset: 'SOM' as Asset } },
+        create: { customer_id: t.sender_customer_id!, asset: 'SOM' as Asset, balance: t.amount_out as any },
+        update: { balance: { increment: t.amount_out as any } },
+      });
+    }
+    await this.prisma.$transaction([
+      this.prisma.transaction.update({ where: { id: c.transaction_id }, data: { status: 'REJECTED' as any } }),
+      this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'REJECTED' as any } }),
+    ]);
+    return { ok: true };
+  }
+
   private readonly logger = new Logger(AntiFraudService.name);
 
   constructor(
@@ -38,14 +84,14 @@ export class AntiFraudService {
         update: data,
       });
     };
-    await upsert('FIAT_ANY_GE_1M', { threshold_som: '1000000', description: 'Любая операция с фиатом >= 1 000 000 сом' });
-    await upsert('ONE_TIME_GE_8M', { threshold_som: '8000000', description: 'Разовая сделка >= 8 000 000 сом' });
-    await upsert('FREQUENT_OPS_3_30D_EACH_GE_100K', { period_days: 30, min_count: 3, threshold_som: '100000', description: '>=3 операций за 30 дней, каждая >= 100k' });
-    await upsert('WITHDRAW_AFTER_LARGE_INFLOW', { period_days: 7, percent_threshold: '50', threshold_som: '1000000', description: 'Вывод >=50% от поступления >=1млн в течение 7 дней' });
-    await upsert('SPLITTING_TOTAL_14D_GE_1M', { period_days: 14, threshold_som: '1000000', description: 'Дробление: суммарно >=1 млн за 14 дней' });
-    await upsert('THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M', { period_days: 30, min_count: 3, threshold_som: '1000000', description: '>=3 внесения третьими лицами за 30 дней, общая сумма >=1млн' });
-    await upsert('AFTER_INACTIVITY_6M', { period_days: 180, description: 'Активность после 6 месяцев' });
-    await upsert('MANY_SENDERS_TO_ONE_10_PER_MONTH', { period_days: 30, min_count: 10, description: '>=10 переводов от разных физлиц на один счет за месяц' });
+    await upsert('FIAT_ANY_GE_1M', { threshold_som: '1000000' });
+    await upsert('ONE_TIME_GE_8M', { threshold_som: '8000000' });
+    await upsert('FREQUENT_OPS_3_30D_EACH_GE_100K', { period_days: 30, min_count: 3, threshold_som: '100000' });
+    await upsert('WITHDRAW_AFTER_LARGE_INFLOW', { period_days: 7, percent_threshold: '50', threshold_som: '1000000' });
+    await upsert('SPLITTING_TOTAL_14D_GE_1M', { period_days: 14, threshold_som: '1000000' });
+    await upsert('THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M', { period_days: 30, min_count: 3, threshold_som: '1000000' });
+    await upsert('AFTER_INACTIVITY_6M', { period_days: 180 });
+    await upsert('MANY_SENDERS_TO_ONE_10_PER_MONTH', { period_days: 30, min_count: 10 });
   }
 
   // returns triggered rule key if any
