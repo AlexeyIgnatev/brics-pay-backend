@@ -28,6 +28,112 @@ export class AntiFraudService {
     return this.prisma.antiFraudCase.findMany({ where: { status: 'OPEN' as any }, include: { transaction: true } });
   }
 
+
+  async listCases(query: any): Promise<{ total: number; offset: number; limit: number; items: any[] }> {
+    const whereCase: any = {};
+    if (query.case_status) whereCase.status = query.case_status;
+
+    const whereTx: any = {};
+    if (query.kind?.length) whereTx.kind = { in: query.kind };
+    if (query.status?.length) whereTx.status = { in: query.status };
+    if (query.asset?.length) whereTx.OR = [{ asset_out: { in: query.asset } }, { asset_in: { in: query.asset } }];
+    if (query.tx_hash) whereTx.tx_hash = { contains: query.tx_hash };
+    if (query.id) whereTx.bank_op_id = query.id;
+    if (query.amount_min != null || query.amount_max != null) {
+      whereTx.amount_out = {};
+      if (query.amount_min != null) whereTx.amount_out.gte = query.amount_min.toString();
+      if (query.amount_max != null) whereTx.amount_out.lte = query.amount_max.toString();
+    }
+    if (query.date_from || query.date_to) {
+      whereTx.createdAt = {};
+      if (query.date_from) whereTx.createdAt.gte = new Date(query.date_from);
+      if (query.date_to) whereTx.createdAt.lte = new Date(query.date_to);
+    }
+
+    if (query.sender) {
+      whereTx.OR = whereTx.OR || [];
+      whereTx.OR.push(
+        { sender_wallet_address: { contains: query.sender, mode: 'insensitive' } },
+        { sender_customer: { OR: [
+          { first_name: { contains: query.sender, mode: 'insensitive' } },
+          { middle_name: { contains: query.sender, mode: 'insensitive' } },
+          { last_name: { contains: query.sender, mode: 'insensitive' } },
+          { phone: { contains: query.sender, mode: 'insensitive' } },
+          { email: { contains: query.sender, mode: 'insensitive' } },
+        ] } }
+      );
+    }
+    if (query.receiver) {
+      whereTx.OR = whereTx.OR || [];
+      whereTx.OR.push(
+        { receiver_wallet_address: { contains: query.receiver, mode: 'insensitive' } },
+        { receiver_customer: { OR: [
+          { first_name: { contains: query.receiver, mode: 'insensitive' } },
+          { middle_name: { contains: query.receiver, mode: 'insensitive' } },
+          { last_name: { contains: query.receiver, mode: 'insensitive' } },
+          { phone: { contains: query.receiver, mode: 'insensitive' } },
+          { email: { contains: query.receiver, mode: 'insensitive' } },
+        ] } }
+      );
+    }
+
+    const sortBy = (query.sort_by === 'amount' ? 'amount_out' : query.sort_by) ?? 'createdAt';
+    const sortDir = query.sort_dir ?? 'desc';
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.antiFraudCase.count({ where: { ...whereCase, transaction: whereTx } }),
+      this.prisma.antiFraudCase.findMany({
+        where: { ...whereCase, transaction: whereTx },
+        orderBy: { createdAt: 'desc' },
+        skip: query.offset ?? 0,
+        take: query.limit ?? 20,
+        include: { transaction: { include: { sender_customer: true, receiver_customer: true } } },
+      })
+    ]);
+
+    const caseItems = items.map((c: any) => ({
+      id: c.id,
+      status: c.status,
+      rule_key: c.rule_key,
+      reason: c.reason,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      transaction: {
+        id: c.transaction.id,
+        kind: c.transaction.kind,
+        status: c.transaction.status,
+        amount: Number(c.transaction.amount_out),
+        asset: c.transaction.asset_out,
+        tx_hash: c.transaction.tx_hash ?? undefined,
+        bank_op_id: c.transaction.bank_op_id ?? undefined,
+        sender_customer_id: c.transaction.sender_customer_id ?? undefined,
+        receiver_customer_id: c.transaction.receiver_customer_id ?? undefined,
+        sender_wallet_address: c.transaction.sender_wallet_address ?? undefined,
+        receiver_wallet_address: c.transaction.receiver_wallet_address ?? undefined,
+        comment: c.transaction.comment ?? undefined,
+        createdAt: c.transaction.createdAt,
+        sender_customer: c.transaction.sender_customer ? {
+          customer_id: c.transaction.sender_customer.customer_id,
+          first_name: c.transaction.sender_customer.first_name ?? undefined,
+          middle_name: c.transaction.sender_customer.middle_name ?? undefined,
+          last_name: c.transaction.sender_customer.last_name ?? undefined,
+          phone: c.transaction.sender_customer.phone ?? undefined,
+          email: c.transaction.sender_customer.email ?? undefined,
+        } : undefined,
+        receiver_customer: c.transaction.receiver_customer ? {
+          customer_id: c.transaction.receiver_customer.customer_id,
+          first_name: c.transaction.receiver_customer.first_name ?? undefined,
+          middle_name: c.transaction.receiver_customer.middle_name ?? undefined,
+          last_name: c.transaction.receiver_customer.last_name ?? undefined,
+          phone: c.transaction.receiver_customer.phone ?? undefined,
+          email: c.transaction.receiver_customer.email ?? undefined,
+        } : undefined,
+      }
+    }));
+
+    return { total, offset: query.offset ?? 0, limit: query.limit ?? 20, items: caseItems };
+  }
+
   async adminApprove(id: number) {
     const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
     if (!c) return null;

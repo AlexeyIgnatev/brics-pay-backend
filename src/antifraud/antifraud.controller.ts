@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
-import { UpdateRuleDto, AntiFraudRuleDto, AntiFraudCaseDto, SimpleOkDto } from './dto/antifraud.dtos';
+import { UpdateRuleDto, AntiFraudRuleDto, SimpleOkDto } from './dto/antifraud.dtos';
+import { AntifraudCasesListDto, AntifraudCasesListResponseDto } from './dto/antifraud-cases-list.dto';
 import { AntiFraudService } from './antifraud.service';
 
 @ApiTags('Антифрод')
@@ -29,10 +30,10 @@ export class AntiFraudController {
   }
 
   @Get('cases')
-  @ApiOperation({ summary: 'Список открытых кейсов', description: 'Кейсы, созданные антифродом для вручную принятия решения администратором' })
-  @ApiOkResponse({ type: [AntiFraudCaseDto] })
-  async cases() {
-    return this.antiFraud.listOpenCases();
+  @ApiOperation({ summary: 'Список кейсов', description: 'Фильтрация/сортировка/пагинация идентичны /transactions/list' })
+  @ApiOkResponse({ type: AntifraudCasesListResponseDto })
+  async cases(@Query() query: AntifraudCasesListDto): Promise<AntifraudCasesListResponseDto> {
+    return this.antiFraud.listCases(query);
   }
 
   @Patch('cases/:id/approve')
