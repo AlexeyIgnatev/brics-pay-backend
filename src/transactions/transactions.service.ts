@@ -1,11 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Asset, Prisma, PrismaClient } from '@prisma/client';
 import { TransactionsListDto, TransactionsListResponseDto } from './dto/transactions-list.dto';
-import { TransactionsStatsTodayDto } from './dto/transactions-stats.dto';
+import { TransactionsStatsQueryDto, TransactionsStatsResponseDto, TransactionsStatsSeriesPointDto, TransactionsStatsSummaryDto, TransactionsStatsTodayDto } from './dto/transactions-stats.dto';
+import { SettingsService } from '../config/settings/settings.service';
+import { BybitExchangeService } from '../config/exchange/bybit.service';
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly settings: SettingsService,
+    private readonly exchange: BybitExchangeService,
+  ) {}
 
   async list(query: TransactionsListDto): Promise<TransactionsListResponseDto> {
     const where: Prisma.TransactionWhereInput = {};
@@ -76,6 +82,110 @@ export class TransactionsService {
     ]);
 
     return { total, items, offset: query.offset ?? 0, limit: query.limit ?? 20 } as any;
+  }
+
+  async stats(query: TransactionsStatsQueryDto): Promise<TransactionsStatsResponseDto> {
+    const where: Prisma.TransactionWhereInput = {};
+    if (query.kind?.length) where.kind = { in: query.kind as any };
+    if (query.status?.length) where.status = { in: query.status as any };
+    if (query.asset?.length) where.OR = [
+      { asset_out: { in: query.asset as any } },
+      { asset_in: { in: query.asset as any } },
+    ];
+    if (query.date_from || query.date_to) {
+      where.createdAt = {} as any;
+      if (query.date_from) (where.createdAt as any).gte = new Date(query.date_from);
+      if (query.date_to) (where.createdAt as any).lte = new Date(query.date_to);
+    }
+
+    const txs = await this.prisma.transaction.findMany({
+      where,
+      select: { id: true, createdAt: true, amount_out: true, asset_out: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // prices for crypto now
+    const prices = await this.exchange.getUsdPrices(['BTC', 'ETH', 'USDT_TRC20'] as unknown as Asset[]);
+    const esomPerUsd = Number((await this.settings.get()).esom_per_usd);
+    const toSom = (asset: Asset, amountStr: any): number => {
+      const amount = Number(amountStr || 0);
+      if (!amount) return 0;
+      if (asset === 'SOM' || asset === 'ESOM') return amount;
+      const usd = amount * Number(prices[asset] ?? 0);
+      return usd * esomPerUsd;
+    };
+
+    // group helper
+    const keyFor = (d: Date): string => {
+      const dt = new Date(d);
+      if (query.group_by === 'month') {
+        dt.setDate(1); dt.setHours(0,0,0,0);
+      } else if (query.group_by === 'week') {
+        const day = dt.getDay(); // 0=Sun
+        const diff = (day + 6) % 7; // Monday as start
+        dt.setDate(dt.getDate() - diff); dt.setHours(0,0,0,0);
+      } else { // day
+        dt.setHours(0,0,0,0);
+      }
+      return dt.toISOString();
+    };
+
+    const seriesMap = new Map<string, { sum: number; count: number }>();
+    const perCurrencySum = new Map<string, number>();
+    const perCurrencyCount = new Map<string, number>();
+
+    let totalSumSom = 0;
+    for (const t of txs) {
+      const som = toSom(t.asset_out as Asset, t.amount_out as any);
+      totalSumSom += som;
+      const k = keyFor(t.createdAt);
+      const cur = seriesMap.get(k) || { sum: 0, count: 0 };
+      cur.sum += som;
+      cur.count += 1;
+      seriesMap.set(k, cur);
+
+      const a = t.asset_out as string;
+      perCurrencySum.set(a, (perCurrencySum.get(a) || 0) + som);
+      perCurrencyCount.set(a, (perCurrencyCount.get(a) || 0) + 1);
+    }
+
+    const series: TransactionsStatsSeriesPointDto[] = Array.from(seriesMap.entries())
+      .sort((a,b) => a[0].localeCompare(b[0]))
+      .map(([date, v]) => ({ date, value: query.metric === 'count' ? v.count : v.sum }));
+
+    const totalCount = txs.length;
+    const topBySum = Array.from(perCurrencySum.entries()).sort((a,b) => b[1]-a[1])[0]?.[0];
+    const topByCount = Array.from(perCurrencyCount.entries()).sort((a,b) => b[1]-a[1])[0]?.[0];
+
+    // most active day by count
+    const dayCounts = new Map<string, number>();
+    for (const t of txs) {
+      const dayKey = keyFor(t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt));
+      dayCounts.set(dayKey, (dayCounts.get(dayKey) || 0) + 1);
+    }
+    const mostActiveDay = Array.from(dayCounts.entries()).sort((a,b) => b[1]-a[1])[0]?.[0];
+
+    const summary: TransactionsStatsSummaryDto = {
+      total_sum_som: Math.round(totalSumSom),
+      total_count: totalCount,
+      top_currency_by_sum: topBySum,
+      top_currency_by_count: topByCount,
+      most_active_day: mostActiveDay,
+      average_check_som: totalCount ? Math.round(totalSumSom / totalCount) : 0,
+    };
+
+    // table data reuse list()
+    const table = await this.list({
+      kind: query.kind,
+      status: query.status,
+      asset: query.asset,
+      date_from: query.date_from,
+      date_to: query.date_to,
+      offset: query.offset,
+      limit: query.limit,
+    } as any);
+
+    return { series, summary, table };
   }
 
   async statsToday(): Promise<TransactionsStatsTodayDto> {

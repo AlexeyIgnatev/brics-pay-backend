@@ -4,7 +4,7 @@ import { TransactionsService } from './transactions.service';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 import { TransactionsListDto } from './dto/transactions-list.dto';
 import { TransactionsListResponseDto } from './dto/transactions-list.dto';
-import { TransactionsStatsTodayDto } from './dto/transactions-stats.dto';
+import { TransactionsStatsQueryDto, TransactionsStatsResponseDto, TransactionsStatsTodayDto } from './dto/transactions-stats.dto';
 
 @ApiTags('Транзакции пользователей')
 @ApiBearerAuth('Bearer')
@@ -18,6 +18,13 @@ export class TransactionsController {
   @ApiOkResponse({ type: TransactionsListResponseDto })
   async list(@Query() query: TransactionsListDto): Promise<TransactionsListResponseDto> {
     return this.transactionsService.list(query);
+  }
+
+  @Get('stats')
+  @ApiOperation({ summary: 'Статистика транзакций с фильтрами/группировкой' })
+  @ApiOkResponse({ type: TransactionsStatsResponseDto })
+  async stats(@Query() query: TransactionsStatsQueryDto): Promise<TransactionsStatsResponseDto> {
+    return this.transactionsService.stats(query);
   }
 
   @Get('stats/today')
