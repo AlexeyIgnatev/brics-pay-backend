@@ -4,12 +4,21 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Asset, AntiFraudRuleKey, PrismaClient, TransactionKind } from '@prisma/client';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
+import { BricsService } from '../config/brics/brics.service';
+import { EthereumService } from '../config/ethereum/ethereum.service';
 
 export interface AntiFraudContext {
   kind: TransactionKind;
   amount: number;
   asset: Asset;
   sender_customer_id?: number;
+export class HeldByAntifraudError extends Error {
+  constructor() {
+    super('Transaction has been held by anti-fraud');
+    this.name = 'HeldByAntifraudError';
+  }
+}
+
   receiver_customer_id?: number;
 }
 
@@ -65,6 +74,8 @@ export class AntiFraudService {
     private readonly prisma: PrismaClient,
     private readonly settings: SettingsService,
     private readonly exchange: BybitExchangeService,
+    private readonly brics: BricsService,
+    private readonly ethereum: EthereumService,
   ) {}
 
   private async toSom(asset: Asset, amount: number): Promise<number> {
