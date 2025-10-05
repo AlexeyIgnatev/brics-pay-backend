@@ -11,7 +11,7 @@ import { AntiFraudService } from './antifraud.service';
 @UseGuards(AdminAuthGuard)
 @Controller('antifraud')
 export class AntiFraudController {
-  constructor(private readonly antiFraud: AntiFraudService, private readonly brics: BricsService) {}
+  constructor(private readonly antiFraud: AntiFraudService) {}
 
   @Get('rules')
   @ApiOperation({ summary: 'Список правил' })

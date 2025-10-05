@@ -71,8 +71,6 @@ enum TransactionStatus {
   FAILED
 }
 
-// --- Anti-fraud ---
-
 enum AntiFraudRuleKey {
   FIAT_ANY_GE_1M
   ONE_TIME_GE_8M
@@ -91,14 +89,14 @@ enum AntiFraudCaseStatus {
 }
 
 model AntiFraudRule {
-  id             Int              @id @default(autoincrement())
-  key            AntiFraudRuleKey @unique
-  enabled        Boolean          @default(true)
-  period_days    Int?
-  threshold_som  Decimal?         @db.Decimal(38, 18)
-  min_count      Int?
-  percent_threshold Decimal?      @db.Decimal(5, 2)
-  updatedAt      DateTime         @updatedAt
+  id                Int              @id @default(autoincrement())
+  key               AntiFraudRuleKey @unique
+  enabled           Boolean          @default(true)
+  period_days       Int?
+  threshold_som     Decimal?         @db.Decimal(38, 18)
+  min_count         Int?
+  percent_threshold Decimal?         @db.Decimal(5, 2)
+  updatedAt         DateTime         @updatedAt
 
   @@map("antifraud_rules")
 }
@@ -116,7 +114,6 @@ model AntiFraudCase {
 
   @@map("antifraud_cases")
 }
-
 
 model Settings {
   id                          Int     @id @default(1)
@@ -179,8 +176,9 @@ model Transaction {
   comment   String?
   createdAt DateTime @default(now())
 
-  sender_customer   Customer? @relation("tx_sender", fields: [sender_customer_id], references: [customer_id])
-  receiver_customer Customer? @relation("tx_receiver", fields: [receiver_customer_id], references: [customer_id])
+  sender_customer   Customer?      @relation("tx_sender", fields: [sender_customer_id], references: [customer_id])
+  receiver_customer Customer?      @relation("tx_receiver", fields: [receiver_customer_id], references: [customer_id])
+  anti_fraud_case   AntiFraudCase?
 
   @@index([kind])
   @@index([status])
