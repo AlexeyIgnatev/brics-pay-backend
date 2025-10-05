@@ -1,15 +1,16 @@
 import { Body, Controller, Get, Param, Patch, Put, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { PrismaClient } from '@prisma/client';
+import { Asset, PrismaClient } from '@prisma/client';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 import { UpdateRuleDto } from './dto/antifraud.dtos';
+import { BricsService } from '../config/brics/brics.service';
 
 @ApiTags('Антифрод')
 @ApiBearerAuth('Bearer')
 @UseGuards(AdminAuthGuard)
 @Controller('antifraud')
 export class AntiFraudController {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient, private readonly brics: BricsService) {}
 
   @Get('rules')
   @ApiOperation({ summary: 'Список правил' })
@@ -34,10 +35,24 @@ export class AntiFraudController {
   async approve(@Param('id') id: string) {
     const c = await this.prisma.antiFraudCase.findUnique({ where: { id: Number(id) }, include: { transaction: true } });
     if (!c) return null;
+    const t = c.transaction;
+    // выполнить реальный перевод через БРИКС, если это банковская операция
+    let bankId: number | null = t.bank_op_id ?? null;
+    if (t.kind === 'BANK_TO_BANK' && t.status === 'PENDING' && !t.bank_op_id) {
+      bankId = await this.brics.createTransferFiatToFiat(Number(t.amount_out), (t.sender_customer_id as any).toString(), (t.receiver_customer_id as any).toString());
+    }
     await this.prisma.$transaction([
-      this.prisma.transaction.update({ where: { id: c.transaction_id }, data: { status: 'SUCCESS' as any } }),
+      this.prisma.transaction.update({ where: { id: c.transaction_id }, data: { status: 'SUCCESS' as any, bank_op_id: bankId ?? undefined } }),
       this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' as any } }),
     ]);
+    // начислить получателю, если банковская операция (кэш баланс)
+    if (t.kind === 'BANK_TO_BANK') {
+      await this.prisma.userAssetBalance.upsert({
+        where: { customer_id_asset: { customer_id: t.receiver_customer_id!, asset: 'SOM' as Asset } },
+        create: { customer_id: t.receiver_customer_id!, asset: 'SOM' as Asset, balance: t.amount_out as any },
+        update: { balance: { increment: t.amount_out as any } },
+      });
+    }
     return { ok: true };
   }
 
@@ -46,7 +61,15 @@ export class AntiFraudController {
   async reject(@Param('id') id: string) {
     const c = await this.prisma.antiFraudCase.findUnique({ where: { id: Number(id) }, include: { transaction: true } });
     if (!c) return null;
-    // NOTE: Возврат средств должен производиться в рамках вашей бизнес-логики балансов. Здесь только маркируем.
+    const t = c.transaction;
+    // откатить списание у отправителя
+    if (t.kind === 'BANK_TO_BANK') {
+      await this.prisma.userAssetBalance.upsert({
+        where: { customer_id_asset: { customer_id: t.sender_customer_id!, asset: 'SOM' as Asset } },
+        create: { customer_id: t.sender_customer_id!, asset: 'SOM' as Asset, balance: t.amount_out as any },
+        update: { balance: { increment: t.amount_out as any } },
+      });
+    }
     await this.prisma.$transaction([
       this.prisma.transaction.update({ where: { id: c.transaction_id }, data: { status: 'REJECTED' as any } }),
       this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'REJECTED' as any } }),
