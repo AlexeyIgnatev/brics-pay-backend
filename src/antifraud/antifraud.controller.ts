@@ -32,13 +32,13 @@ export class AntiFraudController {
   }
 
   @Patch('cases/:id/approve')
-  @ApiOperation({ summary: 'Одобрить транзакцию (завершить) и закрыть случай' })
+  @ApiOperation({ summary: 'Одобрить транзакцию (для будущих идентичных операций) и закрыть случай' })
   async approve(@Param('id') id: string) {
     return this.antiFraud.adminApprove(Number(id));
   }
 
   @Patch('cases/:id/reject')
-  @ApiOperation({ summary: 'Отклонить транзакцию и закрыть случай; откатить списание' })
+  @ApiOperation({ summary: 'Отклонить транзакцию и закрыть случай (без финансовых операций)' })
   async reject(@Param('id') id: string) {
     return this.antiFraud.adminReject(Number(id));
   }

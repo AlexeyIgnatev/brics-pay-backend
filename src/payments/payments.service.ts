@@ -105,15 +105,25 @@ export class PaymentsService {
     };
 
     if (from === 'ESOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
+      const allowed = await this.antiFraud.shouldAllowTransaction({
+        kind: 'CONVERSION' as any,
+        amount_in: amountFrom,
+        asset_in: 'ESOM',
+        asset_out: to,
+        sender_customer_id: customer_id,
+        comment: `Convert ESOM->${to}`,
+      });
+      if (!allowed) throw new Error('Rejected by anti-fraud');
+
       const usdtAmount = amountFrom / esomPerUsd;
       const order = to === 'USDT_TRC20'
         ? { asset: to, amount_asset: usdtAmount.toString(), price_usd: '1', notional_usdt: usdtAmount.toString() }
         : await this.exchangeService.marketBuy(to, usdtAmount.toString());
       await this.ethereumService.transferToFiat(amountFrom, user.private_key);
       await addBalance(to, Number(order.amount_asset));
-      const tx1 = await this.prisma.transaction.create({ data: ({
+      await this.prisma.transaction.create({ data: ({
         kind: 'CONVERSION' as any,
-        status: 'PENDING' as any,
+        status: 'SUCCESS' as any,
         amount_in: amountFrom.toString(),
         asset_in: 'ESOM',
         amount_out: order.amount_asset,
@@ -121,16 +131,23 @@ export class PaymentsService {
         price_usd: order.price_usd,
         notional_usd: order.notional_usdt,
         sender_customer_id: customer_id,
-        comment: `Convert ESOM->${to} (pending antifraud)`,
+        comment: `Convert ESOM->${to}`,
       } as any)});
-      const trig1 = await this.antiFraud.checkAndOpenCaseIfTriggered(tx1.id, { kind: 'CONVERSION' as any, amount: amountFrom, asset: 'ESOM', sender_customer_id: customer_id });
-      if (trig1) throw new Error('Transaction has been held by anti-fraud');
-      await this.prisma.transaction.update({ where: { id: tx1.id }, data: { status: 'SUCCESS' as any, comment: `Convert ESOM->${to}` } });
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
       return new StatusOKDto();
     }
 
     if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'ESOM') {
+      const allowed = await this.antiFraud.shouldAllowTransaction({
+        kind: 'CONVERSION' as any,
+        amount_in: amountFrom,
+        asset_in: from,
+        asset_out: 'ESOM',
+        sender_customer_id: customer_id,
+        comment: `Convert ${from}->ESOM`,
+      });
+      if (!allowed) throw new Error('Rejected by anti-fraud');
+
       let notionalUsdt = 0;
       if (from === 'USDT_TRC20') {
         notionalUsdt = amountFrom;
@@ -141,9 +158,9 @@ export class PaymentsService {
       const esomAmount = notionalUsdt * esomPerUsd;
       await this.ethereumService.transferFromFiat(user.address, esomAmount);
       await addBalance(from, -amountFrom);
-      const tx2 = await this.prisma.transaction.create({ data: ({
+      await this.prisma.transaction.create({ data: ({
         kind: 'CONVERSION' as any,
-        status: 'PENDING' as any,
+        status: 'SUCCESS' as any,
         amount_in: amountFrom.toString(),
         asset_in: from,
         amount_out: esomAmount.toString(),
@@ -151,11 +168,8 @@ export class PaymentsService {
         price_usd: '1',
         notional_usd: notionalUsdt.toString(),
         sender_customer_id: customer_id,
-        comment: `Convert ${from}->ESOM (pending antifraud)`,
+        comment: `Convert ${from}->ESOM`,
       } as any)});
-      const trig2 = await this.antiFraud.checkAndOpenCaseIfTriggered(tx2.id, { kind: 'CONVERSION' as any, amount: esomAmount, asset: 'ESOM', sender_customer_id: customer_id });
-      if (trig2) throw new Error('Transaction has been held by anti-fraud');
-      await this.prisma.transaction.update({ where: { id: tx2.id }, data: { status: 'SUCCESS' as any, comment: `Convert ${from}->ESOM` } });
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
       return new StatusOKDto();
     }
@@ -169,11 +183,20 @@ export class PaymentsService {
         usdtIntermediate = Number(sell.notional_usdt);
       }
       if (to === 'USDT_TRC20') {
+        const allowed = await this.antiFraud.shouldAllowTransaction({
+          kind: 'CONVERSION' as any,
+          amount_in: amountFrom,
+          asset_in: from,
+          asset_out: 'USDT_TRC20',
+          sender_customer_id: customer_id,
+          comment: `Convert ${from}->USDT_TRC20`,
+        });
+        if (!allowed) throw new Error('Rejected by anti-fraud');
         await addBalance(from, -amountFrom);
         await addBalance('USDT_TRC20', usdtIntermediate);
-        const tx3 = await this.prisma.transaction.create({ data: ({
+        await this.prisma.transaction.create({ data: ({
           kind: 'CONVERSION' as any,
-          status: 'PENDING' as any,
+          status: 'SUCCESS' as any,
           amount_in: amountFrom.toString(),
           asset_in: from,
           amount_out: usdtIntermediate.toString(),
@@ -181,20 +204,26 @@ export class PaymentsService {
           price_usd: '1',
           notional_usd: usdtIntermediate.toString(),
           sender_customer_id: customer_id,
-          comment: `Convert ${from}->USDT_TRC20 (pending antifraud)`,
+          comment: `Convert ${from}->USDT_TRC20`,
         } as any)});
-        const trig3 = await this.antiFraud.checkAndOpenCaseIfTriggered(tx3.id, { kind: 'CONVERSION' as any, amount: usdtIntermediate, asset: 'USDT_TRC20', sender_customer_id: customer_id });
-        if (trig3) throw new Error('Transaction has been held by anti-fraud');
-        await this.prisma.transaction.update({ where: { id: tx3.id }, data: { status: 'SUCCESS' as any, comment: `Convert ${from}->USDT_TRC20` } });
         await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
         return new StatusOKDto();
       }
+      const allowed = await this.antiFraud.shouldAllowTransaction({
+        kind: 'CONVERSION' as any,
+        amount_in: amountFrom,
+        asset_in: from,
+        asset_out: to,
+        sender_customer_id: customer_id,
+        comment: `Convert ${from}->${to}`,
+      });
+      if (!allowed) throw new Error('Rejected by anti-fraud');
       const buy = await this.exchangeService.marketBuy(to, usdtIntermediate.toString());
       await addBalance(from, -amountFrom);
       await addBalance(to, Number(buy.amount_asset));
-      const tx4 = await this.prisma.transaction.create({ data: ({
+      await this.prisma.transaction.create({ data: ({
         kind: 'CONVERSION' as any,
-        status: 'PENDING' as any,
+        status: 'SUCCESS' as any,
         amount_in: amountFrom.toString(),
         asset_in: from,
         amount_out: buy.amount_asset,
@@ -202,11 +231,8 @@ export class PaymentsService {
         price_usd: buy.price_usd,
         notional_usd: buy.notional_usdt,
         sender_customer_id: customer_id,
-        comment: `Convert ${from}->${to} (pending antifraud)`,
+        comment: `Convert ${from}->${to}`,
       } as any)});
-      const trig4 = await this.antiFraud.checkAndOpenCaseIfTriggered(tx4.id, { kind: 'CONVERSION' as any, amount: Number(buy.amount_asset), asset: to, sender_customer_id: customer_id });
-      if (trig4) throw new Error('Transaction has been held by anti-fraud');
-      await this.prisma.transaction.update({ where: { id: tx4.id }, data: { status: 'SUCCESS' as any, comment: `Convert ${from}->${to}` } });
       return new StatusOKDto();
     }
 
@@ -235,19 +261,29 @@ export class PaymentsService {
 
     const total = amount + feeFixed;
 
+    const allowed = await this.antiFraud.shouldAllowTransaction({
+      kind: 'WITHDRAW_CRYPTO' as any,
+      amount_in: amount,
+      asset_in: asset,
+      asset_out: asset,
+      sender_customer_id: customer_id,
+      external_address: address,
+      comment: `Withdraw ${amount} ${asset}`,
+    });
+    if (!allowed) throw new Error('Rejected by anti-fraud');
+
     await this.prisma.$transaction(async (tx) => {
       const bal = await tx.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id, asset } } });
       const current = Number(bal?.balance ?? 0);
       if (current < total) throw new Error('Insufficient balance including fee');
       await tx.userAssetBalance.update({ where: { customer_id_asset: { customer_id, asset } }, data: { balance: { decrement: total.toString() } } });
-        const w = await tx.withdrawRequest.create({ data: { customer_id, asset, address, amount: amount.toString(), fee: feeFixed.toString(), status: 'PENDING' } });
+      const w = await tx.withdrawRequest.create({ data: { customer_id, asset, address, amount: amount.toString(), fee: feeFixed.toString(), status: 'PENDING' } });
       const { txid } = await this.exchangeService.withdraw(asset, address, amount.toString());
       await tx.withdrawRequest.update({ where: { id: w.id }, data: { status: 'SUBMITTED', txid } });
       await tx.transaction.create({ data: ({
         kind: 'WITHDRAW_CRYPTO' as any,
         status: 'SUCCESS' as any,
         amount: amount.toString(),
-
         asset,
         amount_in: amount.toString(),
         asset_in: asset,
@@ -277,6 +313,18 @@ export class PaymentsService {
       throw new Error('Customer not found');
     }
 
+    const allowed = await this.antiFraud.shouldAllowTransaction({
+      kind: 'BANK_TO_WALLET' as any,
+      amount_in: amount,
+      asset_in: 'SOM',
+      asset_out: 'ESOM',
+      sender_customer_id: customer.customer_id,
+      receiver_customer_id: customer.customer_id,
+      receiver_wallet_address: customer.address,
+      comment: 'Fiat->Crypto',
+    });
+    if (!allowed) throw new Error('Rejected by anti-fraud');
+
     const bricsTransaction = await this.bricsService.createTransactionFiatToCrypto(
       amount,
       customer.customer_id.toString(),
@@ -291,10 +339,9 @@ export class PaymentsService {
       throw new Error('Ethereum transaction failed');
     }
 
-    // record transaction BANK_TO_WALLET (PENDING + antifraud)
-    const tx5 = await this.prisma.transaction.create({ data: ({
+    await this.prisma.transaction.create({ data: ({
       kind: 'BANK_TO_WALLET' as any,
-      status: 'PENDING' as any,
+      status: 'SUCCESS' as any,
       amount: amount.toString(),
       asset: 'ESOM',
       amount_in: amount.toString(),
@@ -305,11 +352,8 @@ export class PaymentsService {
       bank_op_id: bricsTransaction,
       sender_customer_id: customer.customer_id,
       receiver_wallet_address: customer.address,
-      comment: 'Fiat->Crypto (pending antifraud)',
+      comment: 'Fiat->Crypto',
     } as any)});
-    const trig5 = await this.antiFraud.checkAndOpenCaseIfTriggered(tx5.id, { kind: 'BANK_TO_WALLET' as any, amount, asset: 'ESOM', sender_customer_id: customer.customer_id, receiver_customer_id: customer.customer_id });
-    if (trig5) throw new Error('Transaction has been held by anti-fraud');
-    await this.prisma.transaction.update({ where: { id: tx5.id }, data: { status: 'SUCCESS' as any, comment: 'Fiat->Crypto' } });
 
     // decrement SOM cached balance by amount
     await this.prisma.userAssetBalance.upsert({
@@ -333,6 +377,16 @@ export class PaymentsService {
     if (!customer) {
       throw new Error('Customer not found');
     }
+
+    const allowed = await this.antiFraud.shouldAllowTransaction({
+      kind: 'WALLET_TO_BANK' as any,
+      amount_in: amount,
+      asset_in: 'ESOM',
+      asset_out: 'SOM',
+      sender_customer_id: customer.customer_id,
+      comment: 'Crypto->Fiat',
+    });
+    if (!allowed) throw new Error('Rejected by anti-fraud');
 
     const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id);
@@ -358,10 +412,9 @@ export class PaymentsService {
       throw new Error('Brics transaction failed');
     }
 
-    // record transaction WALLET_TO_BANK (PENDING + antifraud)
-    const tx6 = await this.prisma.transaction.create({ data: ({
+    await this.prisma.transaction.create({ data: ({
       kind: 'WALLET_TO_BANK' as any,
-      status: 'PENDING' as any,
+      status: 'SUCCESS' as any,
       amount: amount.toString(),
       asset: 'ESOM',
       amount_in: amount.toString(),
@@ -371,11 +424,8 @@ export class PaymentsService {
       tx_hash: ethTransaction.txHash,
       bank_op_id: bricsTransaction,
       sender_customer_id: customer.customer_id,
-      comment: 'Crypto->Fiat (pending antifraud)',
+      comment: 'Crypto->Fiat',
     } as any)});
-    const trig6 = await this.antiFraud.checkAndOpenCaseIfTriggered(tx6.id, { kind: 'WALLET_TO_BANK' as any, amount, asset: 'ESOM', sender_customer_id: customer.customer_id });
-    if (trig6) throw new Error('Transaction has been held by anti-fraud');
-    await this.prisma.transaction.update({ where: { id: tx6.id }, data: { status: 'SUCCESS' as any, comment: 'Crypto->Fiat' } });
 
     // increment SOM cached balance by amount (minus platform fee already handled by bank operation)
     await this.prisma.userAssetBalance.upsert({
@@ -428,6 +478,18 @@ export class PaymentsService {
       throw new Error('Recipient not found');
     }
 
+    // антифрод-предчек: отменяем операцию без побочных эффектов, если сработал
+    const allowed = await this.antiFraud.shouldAllowTransaction({
+      kind: 'WALLET_TO_WALLET' as any,
+      amount_in: transferDto.amount,
+      asset_in: 'ESOM',
+      asset_out: 'ESOM',
+      sender_customer_id: customer.customer_id,
+      receiver_customer_id: bricsRecipient.CustomerID,
+      comment: 'ESOM transfer',
+    });
+    if (!allowed) throw new Error('Rejected by anti-fraud');
+
     let recipient = await this.prisma.customer.findUnique({
       where: { customer_id: bricsRecipient.CustomerID },
     });
@@ -451,10 +513,9 @@ export class PaymentsService {
       throw new Error('Ethereum transaction failed');
     }
 
-    // create PENDING and hold funds (ESOM) is reflected by chain transfer already; mark pending before anti-fraud check
-    const tx = await this.prisma.transaction.create({ data: ({
+    await this.prisma.transaction.create({ data: ({
       kind: 'WALLET_TO_WALLET' as any,
-      status: 'PENDING' as any,
+      status: 'SUCCESS' as any,
       amount: transferDto.amount.toString(),
       asset: 'ESOM',
       amount_in: transferDto.amount.toString(),
@@ -464,23 +525,8 @@ export class PaymentsService {
       tx_hash: ethTransaction.txHash,
       sender_customer_id: customer.customer_id,
       receiver_customer_id: recipient.customer_id,
-      comment: 'ESOM transfer (pending antifraud)',
+      comment: 'ESOM transfer',
     } as any)});
-
-    const triggered = await this.antiFraud.checkAndOpenCaseIfTriggered(tx.id, {
-      kind: 'WALLET_TO_WALLET' as any,
-      amount: transferDto.amount,
-      asset: 'ESOM',
-      sender_customer_id: customer.customer_id,
-      receiver_customer_id: recipient.customer_id,
-    });
-
-    if (triggered) {
-      throw new Error('Transaction has been held by anti-fraud');
-    }
-
-    // finalize SUCCESS if no antifraud
-    await this.prisma.transaction.update({ where: { id: tx.id }, data: { status: 'SUCCESS' as any, comment: 'ESOM transfer' } });
 
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id);
     if (recipient?.customer_id && recipient.customer_id !== customer.customer_id) {
@@ -507,41 +553,18 @@ export class PaymentsService {
       throw new Error('Recipient not found');
     }
 
-    // создаем транзакцию в статусе PENDING, удерживаем сумму у отправителя, но не зачисляем получателю
-    const tx = await this.prisma.transaction.create({ data: ({
+    // предчек антифрода
+    const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: 'BANK_TO_BANK' as any,
-      status: 'PENDING' as any,
-      amount: transferDto.amount.toString(),
-      asset: 'SOM',
-      amount_in: transferDto.amount.toString(),
+      amount_in: transferDto.amount,
       asset_in: 'SOM',
-      amount_out: transferDto.amount.toString(),
       asset_out: 'SOM',
       sender_customer_id: customer.customer_id,
       receiver_customer_id: bricsRecipient.CustomerID,
-      comment: 'SOM transfer (pending antifraud)',
-    } as any)});
-
-    // списываем со счета отправителя (кэш баланс), получателю пока не начисляем
-    await this.prisma.userAssetBalance.upsert({
-      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
-      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-transferDto.amount).toString() },
-      update: { balance: { decrement: transferDto.amount.toString() } },
+      comment: 'SOM transfer',
     });
+    if (!allowed) throw new Error('Rejected by anti-fraud');
 
-    // антифрод проверка
-    const triggered = await this.antiFraud.checkAndOpenCaseIfTriggered(tx.id, {
-      kind: 'BANK_TO_BANK' as any,
-      amount: transferDto.amount,
-      asset: 'SOM',
-      sender_customer_id: customer.customer_id,
-      receiver_customer_id: bricsRecipient.CustomerID,
-    });
-    if (triggered) {
-      throw new Error('Transaction has been held by anti-fraud');
-    }
-
-    // антифрод не сработал — выполняем реальный перевод и завершаем транзакцию
     const bricsTransaction = await this.bricsService.createTransferFiatToFiat(
       transferDto.amount,
       customer.customer_id.toString(),
@@ -550,7 +573,27 @@ export class PaymentsService {
     if (!bricsTransaction) {
       throw new Error('Brics transaction failed');
     }
-    await this.prisma.transaction.update({ where: { id: tx.id }, data: { status: 'SUCCESS' as any, bank_op_id: bricsTransaction, comment: 'SOM transfer' } });
+    await this.prisma.transaction.create({ data: ({
+      kind: 'BANK_TO_BANK' as any,
+      status: 'SUCCESS' as any,
+      amount: transferDto.amount.toString(),
+      asset: 'SOM',
+      amount_in: transferDto.amount.toString(),
+      asset_in: 'SOM',
+      amount_out: transferDto.amount.toString(),
+      asset_out: 'SOM',
+      bank_op_id: bricsTransaction,
+      sender_customer_id: customer.customer_id,
+      receiver_customer_id: bricsRecipient.CustomerID,
+      comment: 'SOM transfer',
+    } as any)});
+
+    // Начисляем получателю кеш-баланс СОМ и списываем у отправителя
+    await this.prisma.userAssetBalance.upsert({
+      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
+      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-transferDto.amount).toString() },
+      update: { balance: { decrement: transferDto.amount.toString() } },
+    });
     await this.prisma.userAssetBalance.upsert({
       where: { customer_id_asset: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset } },
       create: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset, balance: transferDto.amount.toString() },

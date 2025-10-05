@@ -4,22 +4,21 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Asset, AntiFraudRuleKey, PrismaClient, TransactionKind } from '@prisma/client';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
-import { BricsService } from '../config/brics/brics.service';
-import { EthereumService } from '../config/ethereum/ethereum.service';
+
 
 export interface AntiFraudContext {
   kind: TransactionKind;
   amount: number;
   asset: Asset;
   sender_customer_id?: number;
+  receiver_customer_id?: number;
+}
+
 export class HeldByAntifraudError extends Error {
   constructor() {
     super('Transaction has been held by anti-fraud');
     this.name = 'HeldByAntifraudError';
   }
-}
-
-  receiver_customer_id?: number;
 }
 
 @Injectable()
@@ -31,40 +30,15 @@ export class AntiFraudService {
   async adminApprove(id: number) {
     const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
     if (!c) return null;
-    const t = c.transaction;
-    let bankId: number | null = t.bank_op_id ?? null;
-    if (t.kind === 'BANK_TO_BANK' && t.status === 'PENDING' && !t.bank_op_id) {
-      // БРИКС операция выполняется в контроллере антифрода ранее, но оставим на сервисе для консистентности
-      // Здесь нет доступа к BricsService, поэтому approve из контроллера уже покрыт (или можно инжектить BricsService сюда).
-    }
-    await this.prisma.$transaction([
-      this.prisma.transaction.update({ where: { id: c.transaction_id }, data: { status: 'SUCCESS' as any, bank_op_id: bankId ?? undefined } }),
-      this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' as any } }),
-    ]);
-    if (t.kind === 'BANK_TO_BANK') {
-      await this.prisma.userAssetBalance.upsert({
-        where: { customer_id_asset: { customer_id: t.receiver_customer_id!, asset: 'SOM' as Asset } },
-        create: { customer_id: t.receiver_customer_id!, asset: 'SOM' as Asset, balance: t.amount_out as any },
-        update: { balance: { increment: t.amount_out as any } },
-      });
-    }
+    // Банковский стиль: никакие операции не выполняем, транзакция остаётся REJECTED.
+    await this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' as any } });
     return { ok: true };
   }
   async adminReject(id: number) {
     const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
     if (!c) return null;
-    const t = c.transaction;
-    if (t.kind === 'BANK_TO_BANK') {
-      await this.prisma.userAssetBalance.upsert({
-        where: { customer_id_asset: { customer_id: t.sender_customer_id!, asset: 'SOM' as Asset } },
-        create: { customer_id: t.sender_customer_id!, asset: 'SOM' as Asset, balance: t.amount_out as any },
-        update: { balance: { increment: t.amount_out as any } },
-      });
-    }
-    await this.prisma.$transaction([
-      this.prisma.transaction.update({ where: { id: c.transaction_id }, data: { status: 'REJECTED' as any } }),
-      this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'REJECTED' as any } }),
-    ]);
+    // Ничего не откатываем: транзакция уже REJECTED, просто фиксируем решение кейса
+    await this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'REJECTED' as any } });
     return { ok: true };
   }
 
@@ -74,8 +48,6 @@ export class AntiFraudService {
     private readonly prisma: PrismaClient,
     private readonly settings: SettingsService,
     private readonly exchange: BybitExchangeService,
-    private readonly brics: BricsService,
-    private readonly ethereum: EthereumService,
   ) {}
 
   private async toSom(asset: Asset, amount: number): Promise<number> {
@@ -138,6 +110,110 @@ export class AntiFraudService {
             }
           });
           if (count >= (r.min_count || 3)) return this.openCase(txId, r.key, `>=${r.min_count} ops each >=${r.threshold_som}`);
+  // Evaluate without creating a case; returns triggered rule key or null
+  async evaluateTriggered(ctx: AntiFraudContext): Promise<AntiFraudRuleKey | null> {
+    await this.ensureDefaults();
+    const rules = await this.prisma.antiFraudRule.findMany({ where: { enabled: true } });
+    const amountSom = await this.toSom(ctx.asset, ctx.amount);
+
+    const now = new Date();
+    const sinceDays = async (days: number) => { const d = new Date(now); d.setDate(d.getDate() - days); return d; };
+
+    for (const r of rules) {
+      switch (r.key) {
+        case 'FIAT_ANY_GE_1M':
+          if ((ctx.asset === 'SOM' || ctx.asset === 'ESOM') && amountSom >= Number(r.threshold_som || 0)) return r.key;
+          break;
+        case 'ONE_TIME_GE_8M':
+          if (amountSom >= Number(r.threshold_som || 0)) return r.key;
+          break;
+        case 'FREQUENT_OPS_3_30D_EACH_GE_100K': {
+          const from = await sinceDays(r.period_days || 30);
+          const count = await this.prisma.transaction.count({
+            where: { sender_customer_id: ctx.sender_customer_id, createdAt: { gte: from }, amount_out: { gte: (r.threshold_som || '0') as any } },
+          });
+          if (count >= (r.min_count || 3)) return r.key;
+          break;
+        }
+        case 'WITHDRAW_AFTER_LARGE_INFLOW': {
+          const from = await sinceDays(r.period_days || 7);
+          const inflow = await this.prisma.transaction.aggregate({
+            _sum: { amount_out: true },
+            where: { receiver_customer_id: ctx.sender_customer_id, createdAt: { gte: from }, amount_out: { gte: (r.threshold_som || '0') as any } },
+          });
+          const inflowSom = Number(inflow._sum.amount_out || 0);
+          if (inflowSom > 0 && amountSom >= (inflowSom * Number(r.percent_threshold || 0)) / 100) return r.key;
+          break;
+        }
+        case 'SPLITTING_TOTAL_14D_GE_1M': {
+          const from = await sinceDays(r.period_days || 14);
+          const agg = await this.prisma.transaction.aggregate({ _sum: { amount_out: true }, where: { sender_customer_id: ctx.sender_customer_id, createdAt: { gte: from } } });
+          const total = Number(agg._sum.amount_out || 0);
+          if (total >= Number(r.threshold_som || 0)) return r.key;
+          break;
+        }
+        case 'THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M': {
+          const from = await sinceDays(r.period_days || 30);
+          const deposits = await this.prisma.transaction.groupBy({ by: ['sender_customer_id'], where: { receiver_customer_id: ctx.receiver_customer_id, createdAt: { gte: from } }, _sum: { amount_out: true } });
+          const uniqueSenders = deposits.filter(d => Number(d._sum.amount_out || 0) > 0).length;
+          const total = deposits.reduce((s,d) => s + Number(d._sum.amount_out || 0), 0);
+          if (uniqueSenders >= (r.min_count || 3) && total >= Number(r.threshold_som || 0)) return r.key;
+          break;
+        }
+        case 'AFTER_INACTIVITY_6M': {
+          const from = await sinceDays(r.period_days || 180);
+          const last = await this.prisma.transaction.findFirst({ where: { sender_customer_id: ctx.sender_customer_id }, orderBy: { createdAt: 'desc' } });
+          if (!last || last.createdAt < from) return r.key;
+          break;
+        }
+        case 'MANY_SENDERS_TO_ONE_10_PER_MONTH': {
+          const from = await sinceDays(r.period_days || 30);
+          const senders = await this.prisma.transaction.groupBy({ by: ['sender_customer_id'], where: { receiver_customer_id: ctx.receiver_customer_id, createdAt: { gte: from } }, _count: { sender_customer_id: true } });
+          if (senders.length >= (r.min_count || 10)) return r.key;
+          break;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Check if there exists an approved antifraud case for an identical transaction
+  async hasApprovedIdentical(plan: { kind: TransactionKind; sender_customer_id?: number; receiver_customer_id?: number; asset_in: Asset; amount_in: number; asset_out: Asset; receiver_wallet_address?: string | null; external_address?: string | null; }): Promise<boolean> {
+    const whereTx: any = { kind: plan.kind, sender_customer_id: plan.sender_customer_id, asset_in: plan.asset_in, amount_in: plan.amount_in.toString(), asset_out: plan.asset_out };
+    if (plan.receiver_customer_id) whereTx.receiver_customer_id = plan.receiver_customer_id;
+    if (plan.receiver_wallet_address) whereTx.receiver_wallet_address = plan.receiver_wallet_address;
+    if (plan.external_address) whereTx.external_address = plan.external_address;
+    const prev = await this.prisma.transaction.findFirst({ where: whereTx, orderBy: { createdAt: 'desc' } });
+    if (!prev) return false;
+    const caseApproved = await this.prisma.antiFraudCase.findFirst({ where: { transaction_id: prev.id, status: 'APPROVED' as any } });
+    return !!caseApproved;
+  }
+
+  // Main decision method: true -> allow; false -> blocked and recorded
+  async shouldAllowTransaction(plan: { kind: TransactionKind; amount_in: number; asset_in: Asset; amount_out?: number; asset_out: Asset; sender_customer_id?: number; receiver_customer_id?: number; receiver_wallet_address?: string | null; external_address?: string | null; comment?: string; }): Promise<boolean> {
+    const amount = plan.amount_out ?? plan.amount_in;
+    const asset = plan.asset_out ?? plan.asset_in;
+    const key = await this.evaluateTriggered({ kind: plan.kind, amount, asset, sender_customer_id: plan.sender_customer_id, receiver_customer_id: plan.receiver_customer_id });
+    if (!key) return true;
+    const approvedBefore = await this.hasApprovedIdentical({ kind: plan.kind, sender_customer_id: plan.sender_customer_id, receiver_customer_id: plan.receiver_customer_id, asset_in: plan.asset_in, amount_in: plan.amount_in, asset_out: plan.asset_out, receiver_wallet_address: plan.receiver_wallet_address, external_address: plan.external_address });
+    if (approvedBefore) return true;
+    const tx = await this.prisma.transaction.create({ data: ({
+      kind: plan.kind as any,
+      status: 'REJECTED' as any,
+      amount_in: plan.amount_in.toString(),
+      asset_in: plan.asset_in,
+      amount_out: (plan.amount_out ?? plan.amount_in).toString(),
+      asset_out: plan.asset_out,
+      sender_customer_id: plan.sender_customer_id,
+      receiver_customer_id: plan.receiver_customer_id,
+      receiver_wallet_address: plan.receiver_wallet_address ?? undefined,
+      external_address: plan.external_address ?? undefined,
+      comment: plan.comment ?? 'Rejected by anti-fraud',
+    } as any)});
+    await this.openCase(tx.id, key, 'Triggered by antifraud rule');
+    return false;
+  }
+
           break;
         }
         case 'WITHDRAW_AFTER_LARGE_INFLOW': {
