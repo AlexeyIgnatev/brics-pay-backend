@@ -71,6 +71,54 @@ enum TransactionStatus {
   FAILED
 }
 
+// --- Anti-fraud ---
+
+enum AntiFraudRuleKey {
+  FIAT_ANY_GE_1M
+  ONE_TIME_GE_8M
+  FREQUENT_OPS_3_30D_EACH_GE_100K
+  WITHDRAW_AFTER_LARGE_INFLOW
+  SPLITTING_TOTAL_14D_GE_1M
+  THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M
+  AFTER_INACTIVITY_6M
+  MANY_SENDERS_TO_ONE_10_PER_MONTH
+}
+
+enum AntiFraudCaseStatus {
+  OPEN
+  APPROVED
+  REJECTED
+}
+
+model AntiFraudRule {
+  id             Int              @id @default(autoincrement())
+  key            AntiFraudRuleKey @unique
+  enabled        Boolean          @default(true)
+  period_days    Int?
+  threshold_som  Decimal?         @db.Decimal(38, 18)
+  min_count      Int?
+  percent_threshold Decimal?      @db.Decimal(5, 2)
+  description    String?
+  updatedAt      DateTime         @updatedAt
+
+  @@map("antifraud_rules")
+}
+
+model AntiFraudCase {
+  id             Int                 @id @default(autoincrement())
+  transaction_id Int                 @unique
+  rule_key       AntiFraudRuleKey
+  status         AntiFraudCaseStatus @default(OPEN)
+  reason         String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  transaction Transaction @relation(fields: [transaction_id], references: [id])
+
+  @@map("antifraud_cases")
+}
+
+
 model Settings {
   id                          Int     @id @default(1)
   esom_per_usd                Decimal @db.Decimal(38, 18)

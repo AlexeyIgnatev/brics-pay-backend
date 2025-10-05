@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 
 import { ModuleRef } from '@nestjs/core';
 import { Asset, PrismaClient } from '@prisma/client';
+import { AntiFraudService } from '../antifraud/antifraud.service';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { EthereumService } from 'src/config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
@@ -29,6 +30,7 @@ export class PaymentsService {
     private readonly settingsService: SettingsService,
     private readonly exchangeService: BybitExchangeService,
     private readonly balanceFetchService: BalanceFetchService,
+    private readonly antiFraud: AntiFraudService,
   ) {}
 
   async getHistory(body: GetTransactions, customer_id: number): Promise<TransactionDto[]> {
@@ -480,6 +482,41 @@ export class PaymentsService {
       throw new Error('Recipient not found');
     }
 
+    // создаем транзакцию в статусе PENDING, удерживаем сумму у отправителя, но не зачисляем получателю
+    const tx = await this.prisma.transaction.create({ data: ({
+      kind: 'BANK_TO_BANK' as any,
+      status: 'PENDING' as any,
+      amount: transferDto.amount.toString(),
+      asset: 'SOM',
+      amount_in: transferDto.amount.toString(),
+      asset_in: 'SOM',
+      amount_out: transferDto.amount.toString(),
+      asset_out: 'SOM',
+      sender_customer_id: customer.customer_id,
+      receiver_customer_id: bricsRecipient.CustomerID,
+      comment: 'SOM transfer (pending antifraud)',
+    } as any)});
+
+    // списываем со счета отправителя (кэш баланс), получателю пока не начисляем
+    await this.prisma.userAssetBalance.upsert({
+      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
+      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-transferDto.amount).toString() },
+      update: { balance: { decrement: transferDto.amount.toString() } },
+    });
+
+    // антифрод проверка
+    const triggered = await this.antiFraud.checkAndOpenCaseIfTriggered(tx.id, {
+      kind: 'BANK_TO_BANK' as any,
+      amount: transferDto.amount,
+      asset: 'SOM',
+      sender_customer_id: customer.customer_id,
+      receiver_customer_id: bricsRecipient.CustomerID,
+    });
+    if (triggered) {
+      return new StatusOKDto();
+    }
+
+    // антифрод не сработал — выполняем реальный перевод и завершаем транзакцию
     const bricsTransaction = await this.bricsService.createTransferFiatToFiat(
       transferDto.amount,
       customer.customer_id.toString(),
@@ -488,29 +525,7 @@ export class PaymentsService {
     if (!bricsTransaction) {
       throw new Error('Brics transaction failed');
     }
-
-    // record transaction BANK_TO_BANK
-    await this.prisma.transaction.create({ data: ({
-      kind: 'BANK_TO_BANK' as any,
-      status: 'SUCCESS' as any,
-      amount: transferDto.amount.toString(),
-      asset: 'SOM',
-      amount_in: transferDto.amount.toString(),
-      asset_in: 'SOM',
-      amount_out: transferDto.amount.toString(),
-      asset_out: 'SOM',
-      bank_op_id: bricsTransaction,
-      sender_customer_id: customer.customer_id,
-      receiver_customer_id: bricsRecipient.CustomerID,
-      comment: 'SOM transfer',
-    } as any)});
-
-    // adjust SOM cache balances: decrement sender, increment receiver
-    await this.prisma.userAssetBalance.upsert({
-      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
-      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-transferDto.amount).toString() },
-      update: { balance: { decrement: transferDto.amount.toString() } },
-    });
+    await this.prisma.transaction.update({ where: { id: tx.id }, data: { status: 'SUCCESS' as any, bank_op_id: bricsTransaction, comment: 'SOM transfer' } });
     await this.prisma.userAssetBalance.upsert({
       where: { customer_id_asset: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset } },
       create: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset, balance: transferDto.amount.toString() },
