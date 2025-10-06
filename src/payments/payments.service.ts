@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 /* eslint-disable max-classes-per-file */
 
 import { ModuleRef } from '@nestjs/core';
-import { Asset, PrismaClient } from '@prisma/client';
+import { Asset, Prisma, PrismaClient, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
 import { AntiFraudService } from '../antifraud/antifraud.service';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { EthereumService } from 'src/config/ethereum/ethereum.service';
@@ -45,22 +45,22 @@ export class PaymentsService {
       ].filter(Boolean),
     };
 
-    if (body.currency?.length) where.asset_out = { in: body.currency as any };
+    if (body.currency?.length) where.asset_out = { in: body.currency.map(c => c as unknown as Asset) };
     if (body.from_time || body.to_time) {
-      where.createdAt = {} as any;
-      if (body.from_time) (where.createdAt as any).gte = new Date(body.from_time);
-      if (body.to_time) (where.createdAt as any).lte = new Date(body.to_time);
+      where.createdAt = {} as { gte?: Date; lte?: Date };
+      if (body.from_time) (where.createdAt as { gte?: Date }).gte = new Date(body.from_time);
+      if (body.to_time) (where.createdAt as { lte?: Date }).lte = new Date(body.to_time);
     }
 
-    const items = await this.prisma.transaction.findMany({
+    const items: Transaction[] = await this.prisma.transaction.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       skip: body.skip ?? 0,
       take: body.take ?? 50,
     });
 
-    const mapType = (t: any): TransactionType => {
-      switch (t.kind as string) {
+    const mapType = (t: Transaction): TransactionType => {
+      switch (t.kind) {
         case 'BANK_TO_BANK':
           if (t.sender_customer_id === customer_id) return TransactionType.EXPENSE;
           if (t.receiver_customer_id === customer_id) return TransactionType.INCOME;
@@ -81,7 +81,7 @@ export class PaymentsService {
     };
 
     return items.map(t => ({
-      currency: (t.asset_out || 'SOM') as any,
+      currency: (t.asset_out || 'SOM') as unknown as Currency,
       amount: Number(t.amount_out),
       type: mapType(t),
       successful: t.status === 'SUCCESS',
@@ -107,7 +107,7 @@ export class PaymentsService {
 
     if (from === 'ESOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
       const allowed = await this.antiFraud.shouldAllowTransaction({
-        kind: 'CONVERSION' as any,
+        kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
         asset_in: 'ESOM',
         asset_out: to,
@@ -123,9 +123,9 @@ export class PaymentsService {
       await this.ethereumService.transferToFiat(amountFrom, user.private_key);
       await addBalance(to, Number(order.amount_asset));
       await this.prisma.transaction.create({
-        data: ({
-          kind: 'CONVERSION' as any,
-          status: 'SUCCESS' as any,
+        data: {
+          kind: TransactionKind.CONVERSION,
+          status: TransactionStatus.SUCCESS,
           amount_in: amountFrom.toString(),
           asset_in: 'ESOM',
           amount_out: order.amount_asset,
@@ -134,7 +134,7 @@ export class PaymentsService {
           notional_usd: order.notional_usdt,
           sender_customer_id: customer_id,
           comment: `Convert ESOM->${to}`,
-        } as any),
+        }
       });
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
       return new StatusOKDto();
@@ -142,7 +142,7 @@ export class PaymentsService {
 
     if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'ESOM') {
       const allowed = await this.antiFraud.shouldAllowTransaction({
-        kind: 'CONVERSION' as any,
+        kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
         asset_in: from,
         asset_out: 'ESOM',
@@ -162,9 +162,9 @@ export class PaymentsService {
       await this.ethereumService.transferFromFiat(user.address, esomAmount);
       await addBalance(from, -amountFrom);
       await this.prisma.transaction.create({
-        data: ({
-          kind: 'CONVERSION' as any,
-          status: 'SUCCESS' as any,
+        data: {
+          kind: TransactionKind.CONVERSION,
+          status: TransactionStatus.SUCCESS,
           amount_in: amountFrom.toString(),
           asset_in: from,
           amount_out: esomAmount.toString(),
@@ -173,7 +173,7 @@ export class PaymentsService {
           notional_usd: notionalUsdt.toString(),
           sender_customer_id: customer_id,
           comment: `Convert ${from}->ESOM`,
-        } as any),
+        }
       });
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
       return new StatusOKDto();
@@ -189,7 +189,7 @@ export class PaymentsService {
       }
       if (to === 'USDT_TRC20') {
         const allowed = await this.antiFraud.shouldAllowTransaction({
-          kind: 'CONVERSION' as any,
+          kind: TransactionKind.CONVERSION,
           amount_in: amountFrom,
           asset_in: from,
           asset_out: 'USDT_TRC20',
@@ -200,9 +200,9 @@ export class PaymentsService {
         await addBalance(from, -amountFrom);
         await addBalance('USDT_TRC20', usdtIntermediate);
         await this.prisma.transaction.create({
-          data: ({
-            kind: 'CONVERSION' as any,
-            status: 'SUCCESS' as any,
+          data: {
+            kind: TransactionKind.CONVERSION,
+            status: TransactionStatus.SUCCESS,
             amount_in: amountFrom.toString(),
             asset_in: from,
             amount_out: usdtIntermediate.toString(),
@@ -211,13 +211,13 @@ export class PaymentsService {
             notional_usd: usdtIntermediate.toString(),
             sender_customer_id: customer_id,
             comment: `Convert ${from}->USDT_TRC20`,
-          } as any),
+          }
         });
         await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
         return new StatusOKDto();
       }
       const allowed = await this.antiFraud.shouldAllowTransaction({
-        kind: 'CONVERSION' as any,
+        kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
         asset_in: from,
         asset_out: to,
@@ -229,9 +229,9 @@ export class PaymentsService {
       await addBalance(from, -amountFrom);
       await addBalance(to, Number(buy.amount_asset));
       await this.prisma.transaction.create({
-        data: ({
-          kind: 'CONVERSION' as any,
-          status: 'SUCCESS' as any,
+        data: {
+          kind: TransactionKind.CONVERSION,
+          status: TransactionStatus.SUCCESS,
           amount_in: amountFrom.toString(),
           asset_in: from,
           amount_out: buy.amount_asset,
@@ -240,7 +240,7 @@ export class PaymentsService {
           notional_usd: buy.notional_usdt,
           sender_customer_id: customer_id,
           comment: `Convert ${from}->${to}`,
-        } as any),
+        }
       });
       return new StatusOKDto();
     }
@@ -271,7 +271,7 @@ export class PaymentsService {
     const total = amount + feeFixed;
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
-      kind: 'WITHDRAW_CRYPTO' as any,
+      kind: TransactionKind.WITHDRAW_CRYPTO,
       amount_in: amount,
       asset_in: asset,
       asset_out: asset,
@@ -302,11 +302,9 @@ export class PaymentsService {
       const { txid } = await this.exchangeService.withdraw(asset, address, amount.toString());
       await tx.withdrawRequest.update({ where: { id: w.id }, data: { status: 'SUBMITTED', txid } });
       await tx.transaction.create({
-        data: ({
-          kind: 'WITHDRAW_CRYPTO' as any,
-          status: 'SUCCESS' as any,
-          amount: amount.toString(),
-          asset,
+        data: {
+          kind: TransactionKind.WITHDRAW_CRYPTO,
+          status: TransactionStatus.SUCCESS,
           amount_in: amount.toString(),
           asset_in: asset,
           amount_out: amount.toString(),
@@ -316,7 +314,7 @@ export class PaymentsService {
           external_address: address,
           sender_customer_id: customer_id,
           comment: `Withdraw ${amount} ${asset}`,
-        } as any),
+        }
       });
     });
 
@@ -337,7 +335,7 @@ export class PaymentsService {
     }
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
-      kind: 'BANK_TO_WALLET' as any,
+      kind: TransactionKind.BANK_TO_WALLET,
       amount_in: amount,
       asset_in: 'SOM',
       asset_out: 'ESOM',
@@ -363,11 +361,9 @@ export class PaymentsService {
     }
 
     await this.prisma.transaction.create({
-      data: ({
-        kind: 'BANK_TO_WALLET' as any,
-        status: 'SUCCESS' as any,
-        amount: amount.toString(),
-        asset: 'ESOM',
+      data: {
+        kind: TransactionKind.BANK_TO_WALLET,
+        status: TransactionStatus.SUCCESS,
         amount_in: amount.toString(),
         asset_in: 'SOM',
         amount_out: amount.toString(),
@@ -377,7 +373,7 @@ export class PaymentsService {
         sender_customer_id: customer.customer_id,
         receiver_wallet_address: customer.address,
         comment: 'Fiat->Crypto',
-      } as any),
+      }
     });
 
     // decrement SOM cached balance by amount
@@ -404,7 +400,7 @@ export class PaymentsService {
     }
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
-      kind: 'WALLET_TO_BANK' as any,
+      kind: TransactionKind.WALLET_TO_BANK,
       amount_in: amount,
       asset_in: 'ESOM',
       asset_out: 'SOM',
@@ -505,7 +501,7 @@ export class PaymentsService {
 
     // антифрод-предчек: отменяем операцию без побочных эффектов, если сработал
     const allowed = await this.antiFraud.shouldAllowTransaction({
-      kind: 'WALLET_TO_WALLET' as any,
+      kind: TransactionKind.WALLET_TO_WALLET,
       amount_in: transferDto.amount,
       asset_in: 'ESOM',
       asset_out: 'ESOM',
@@ -539,11 +535,9 @@ export class PaymentsService {
     }
 
     await this.prisma.transaction.create({
-      data: ({
-        kind: 'WALLET_TO_WALLET' as any,
-        status: 'SUCCESS' as any,
-        amount: transferDto.amount.toString(),
-        asset: 'ESOM',
+      data: {
+        kind: TransactionKind.WALLET_TO_WALLET,
+        status: TransactionStatus.SUCCESS,
         amount_in: transferDto.amount.toString(),
         asset_in: 'ESOM',
         amount_out: transferDto.amount.toString(),
@@ -552,7 +546,7 @@ export class PaymentsService {
         sender_customer_id: customer.customer_id,
         receiver_customer_id: recipient.customer_id,
         comment: 'ESOM transfer',
-      } as any),
+      }
     });
 
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id);
@@ -582,7 +576,7 @@ export class PaymentsService {
 
     // предчек антифрода
     const allowed = await this.antiFraud.shouldAllowTransaction({
-      kind: 'BANK_TO_BANK' as any,
+      kind: TransactionKind.BANK_TO_BANK,
       amount_in: transferDto.amount,
       asset_in: 'SOM',
       asset_out: 'SOM',
@@ -601,11 +595,9 @@ export class PaymentsService {
       throw new Error('Brics transaction failed');
     }
     await this.prisma.transaction.create({
-      data: ({
-        kind: 'BANK_TO_BANK' as any,
-        status: 'SUCCESS' as any,
-        amount: transferDto.amount.toString(),
-        asset: 'SOM',
+      data: {
+        kind: TransactionKind.BANK_TO_BANK,
+        status: TransactionStatus.SUCCESS,
         amount_in: transferDto.amount.toString(),
         asset_in: 'SOM',
         amount_out: transferDto.amount.toString(),
@@ -614,7 +606,7 @@ export class PaymentsService {
         sender_customer_id: customer.customer_id,
         receiver_customer_id: bricsRecipient.CustomerID,
         comment: 'SOM transfer',
-      } as any),
+      }
     });
 
     // Начисляем получателю кеш-баланс СОМ и списываем у отправителя

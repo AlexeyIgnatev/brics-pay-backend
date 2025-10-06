@@ -147,7 +147,7 @@ export class EthereumService {
       this.logger.log('receipt', receipt);
 
       const ok = (receipt.status === '0x1' || receipt.status === 1 || receipt.status === 1n);
-      return { success: ok, txHash: (receipt as any).transactionHash };
+      return { success: ok, txHash: receipt.transactionHash as string | undefined };
     } catch (error) {
       this.logger.error('Error in transferFromFiat:', error);
       throw error;
@@ -268,7 +268,7 @@ export class EthereumService {
       this.logger.log('receipt', receipt);
 
       const ok = (receipt.status === '0x1' || receipt.status === 1 || receipt.status === 1n);
-      return { success: ok, txHash: (receipt as any).transactionHash };
+      return { success: ok, txHash: receipt.transactionHash as string | undefined };
     } catch (error) {
       this.logger.error('Error in transaction:', error);
       throw error;
