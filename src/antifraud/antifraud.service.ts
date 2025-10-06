@@ -177,7 +177,7 @@ export class AntiFraudService {
       await this.prisma.antiFraudRule.upsert({
         where: { key },
         create: { key, ...data },
-        update: data,
+        update: {},
       });
     };
     await upsert('FIAT_ANY_GE_1M', { threshold_som: '1000000' });
