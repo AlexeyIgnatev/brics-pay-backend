@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Asset, PrismaClient } from '@prisma/client';
-import { UsersListQueryDto, UsersListResponseDto, AdminUpdateUserDto, UsersListItemDto } from './dto/users-list.dto';
+import { UsersListQueryDto, UsersListResponseDto, AdminUpdateUserDto, UsersListItemDto, UserStatusDtoEnum } from './dto/users-list.dto';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 import { PriceCacheService } from './price-cache.service';
 import { BalanceCacheService, UserAssetBalances } from './balance-cache.service';
@@ -92,7 +92,7 @@ export class UserManagementService {
         last_name: c.last_name ?? undefined,
         phone: c.phone ?? undefined,
         email: c.email ?? undefined,
-        status: c.status ?? 'ACTIVE',
+        status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : UserStatusDtoEnum.ACTIVE,
         balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
         som_balance: SOM,
         total_balance: total_salam,
@@ -137,7 +137,7 @@ export class UserManagementService {
       last_name: c.last_name ?? undefined,
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
-      status: c.status ?? 'ACTIVE',
+      status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : UserStatusDtoEnum.ACTIVE,
       balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
       som_balance: SOM,
       total_balance: total_salam,
@@ -145,9 +145,9 @@ export class UserManagementService {
     };
   }
 
-  async getById(id: number): Promise<UsersListItemDto> {
+  async getById(id: number): Promise<UsersListItemDto | null> {
     const c = await this.prisma.customer.findUnique({ where: { customer_id: id }, include: { balances: true } });
-    if (!c) return undefined as any;
+    if (!c) return null;
 
     const settings = await this.prisma.settings.findUnique({ where: { id: 1 } });
     const esomPerUsd = Number(settings?.esom_per_usd || 0);
@@ -179,7 +179,7 @@ export class UserManagementService {
       last_name: c.last_name ?? undefined,
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
-      status: c.status ?? 'ACTIVE',
+      status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : UserStatusDtoEnum.ACTIVE,
       balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
       som_balance: SOM,
       total_balance: total_salam,

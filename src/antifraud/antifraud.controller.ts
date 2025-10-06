@@ -25,8 +25,16 @@ export class AntiFraudController {
     'FIAT_ANY_GE_1M','ONE_TIME_GE_8M','FREQUENT_OPS_3_30D_EACH_GE_100K','WITHDRAW_AFTER_LARGE_INFLOW','SPLITTING_TOTAL_14D_GE_1M','THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M','AFTER_INACTIVITY_6M','MANY_SENDERS_TO_ONE_10_PER_MONTH'
   ] })
   @ApiOkResponse({ type: AntiFraudRuleDto })
-  async updateRule(@Param('key') key: string, @Body() dto: UpdateRuleDto) {
-    return this.antiFraud.updateRule(key as any, dto);
+  async updateRule(@Param('key') key: 
+    | "FIAT_ANY_GE_1M"
+    | "ONE_TIME_GE_8M"
+    | "FREQUENT_OPS_3_30D_EACH_GE_100K"
+    | "WITHDRAW_AFTER_LARGE_INFLOW"
+    | "SPLITTING_TOTAL_14D_GE_1M"
+    | "THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M"
+    | "AFTER_INACTIVITY_6M"
+    | "MANY_SENDERS_TO_ONE_10_PER_MONTH", @Body() dto: UpdateRuleDto) {
+    return this.antiFraud.updateRule(key as any, dto).then(r=>r);
   }
 
   @Get('cases')

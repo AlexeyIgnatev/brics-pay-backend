@@ -142,7 +142,7 @@ export class AntiFraudService {
     const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
     if (!c) return null;
     // Банковский стиль: никакие операции не выполняем, транзакция остаётся REJECTED.
-    await this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' as any } });
+    await this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' } });
     return { ok: true };
   }
 
@@ -150,7 +150,7 @@ export class AntiFraudService {
     const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
     if (!c) return null;
     // Ничего не откатываем: транзакция уже REJECTED, просто фиксируем решение кейса
-    await this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'REJECTED' as any } });
+    await this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'REJECTED' } });
     return { ok: true };
   }
 
@@ -217,7 +217,7 @@ export class AntiFraudService {
             where: {
               sender_customer_id: ctx.sender_customer_id,
               createdAt: { gte: from },
-              amount_out: { gte: (r.threshold_som || '0') as any },
+              amount_out: { gte: (r.threshold_som || '0') },
             },
           });
           if (count >= (r.min_count || 3)) return r.key;
@@ -230,7 +230,7 @@ export class AntiFraudService {
             where: {
               receiver_customer_id: ctx.sender_customer_id,
               createdAt: { gte: from },
-              amount_out: { gte: (r.threshold_som || '0') as any },
+              amount_out: { gte: (r.threshold_som || '0') },
             },
           });
           const inflowSom = Number(inflow._sum.amount_out || 0);
@@ -309,7 +309,7 @@ export class AntiFraudService {
     const caseApproved = await this.prisma.antiFraudCase.findFirst({
       where: {
         transaction_id: prev.id,
-        status: 'APPROVED' as any,
+        status: 'APPROVED',
       },
     });
     return !!caseApproved;
@@ -351,8 +351,8 @@ export class AntiFraudService {
     if (approvedBefore) return true;
     const tx = await this.prisma.transaction.create({
       data: ({
-        kind: plan.kind as any,
-        status: 'REJECTED' as any,
+        kind: plan.kind,
+        status: 'REJECTED',
         amount_in: plan.amount_in.toString(),
         asset_in: plan.asset_in,
         amount_out: (plan.amount_out ?? plan.amount_in).toString(),
@@ -362,7 +362,7 @@ export class AntiFraudService {
         receiver_wallet_address: plan.receiver_wallet_address ?? undefined,
         external_address: plan.external_address ?? undefined,
         comment: plan.comment ?? 'Rejected by anti-fraud',
-      } as any),
+      }),
     });
     await this.openCase(tx.id, key, 'Triggered by antifraud rule');
     return false;

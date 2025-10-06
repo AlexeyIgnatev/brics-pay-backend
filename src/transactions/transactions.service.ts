@@ -67,7 +67,7 @@ export class TransactionsService {
     const sortDir = query.sort_dir ?? 'desc';
     (orderBy as Record<string, 'asc' | 'desc'>)[sortBy] = sortDir;
 
-    const [total, items] = await this.prisma.$transaction([
+    const [total, itemsRaw] = await this.prisma.$transaction([
       this.prisma.transaction.count({ where }),
       this.prisma.transaction.findMany({
         where,
@@ -80,6 +80,39 @@ export class TransactionsService {
         }
       })
     ]);
+
+    
+    const items = itemsRaw.map(t => ({
+      id: t.id,
+      kind: t.kind as unknown as string,
+      status: t.status as unknown as string,
+      amount: Number(t.amount_out),
+      asset: t.asset_out as unknown as string,
+      tx_hash: t.tx_hash ?? undefined,
+      bank_op_id: t.bank_op_id ?? undefined,
+      sender_customer_id: t.sender_customer_id ?? undefined,
+      receiver_customer_id: t.receiver_customer_id ?? undefined,
+      sender_wallet_address: t.sender_wallet_address ?? undefined,
+      receiver_wallet_address: t.receiver_wallet_address ?? undefined,
+      comment: t.comment ?? undefined,
+      createdAt: t.createdAt,
+      sender_customer: t.sender_customer ? {
+        customer_id: t.sender_customer.customer_id,
+        first_name: t.sender_customer.first_name ?? undefined,
+        middle_name: t.sender_customer.middle_name ?? undefined,
+        last_name: t.sender_customer.last_name ?? undefined,
+        phone: t.sender_customer.phone ?? undefined,
+        email: t.sender_customer.email ?? undefined,
+      } : undefined,
+      receiver_customer: t.receiver_customer ? {
+        customer_id: t.receiver_customer.customer_id,
+        first_name: t.receiver_customer.first_name ?? undefined,
+        middle_name: t.receiver_customer.middle_name ?? undefined,
+        last_name: t.receiver_customer.last_name ?? undefined,
+        phone: t.receiver_customer.phone ?? undefined,
+        email: t.receiver_customer.email ?? undefined,
+      } : undefined,
+    }));
 
     return { total, items, offset: query.offset ?? 0, limit: query.limit ?? 20 };
   }
