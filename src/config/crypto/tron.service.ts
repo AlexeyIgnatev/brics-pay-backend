@@ -16,7 +16,7 @@ export class TronService {
     const headers: any = {};
     if (apiKey) headers['TRON-PRO-API-KEY'] = apiKey;
 
-    const TronCtor = (TronWeb as any).TronWeb || (TronWeb as any);
+    const TronCtor = (TronWeb).TronWeb || (TronWeb);
     this.tron = new TronCtor({
       fullHost: fullNode,
       headers,
@@ -30,7 +30,7 @@ export class TronService {
   async getTrc20Balance(address: string, contract: string, decimals = this.decimalsDefault): Promise<number> {
     const ctr = await this.tron.contract().at(contract);
     const res = await ctr.balanceOf(address).call();
-    const raw = typeof res === 'object' && 'toString' in res ? (res as any).toString() : String(res);
+    const raw = typeof res === 'object' && 'toString' in res ? (res).toString() : String(res);
     const denom = 10 ** decimals;
     return Number(raw) / denom;
   }

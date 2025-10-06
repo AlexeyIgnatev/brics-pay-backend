@@ -34,7 +34,7 @@ export class AntiFraudController {
     | "THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M"
     | "AFTER_INACTIVITY_6M"
     | "MANY_SENDERS_TO_ONE_10_PER_MONTH", @Body() dto: UpdateRuleDto) {
-    return this.antiFraud.updateRule(key as any, dto).then(r=>r);
+    return this.antiFraud.updateRule(key, dto).then(r=>r);
   }
 
   @Get('cases')

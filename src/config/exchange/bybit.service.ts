@@ -78,7 +78,7 @@ export class BybitExchangeService implements IExchangeService {
       orderFilter: 'tpslOrder',
       marketUnit: 'quoteCoin',
       qty: usdtAmount,
-    } as any;
+    };
     const { headers, payload } = this.sign(params);
     const { data } = await this.http.post('/v5/order/create', payload, { headers });
     if (data.retCode !== 0) throw new Error(`Bybit order error: ${data.retMsg}`);
