@@ -17,8 +17,7 @@ export class BlockchainConfigController {
   @ApiOperation({ summary: 'Получить текущие настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })
   async getSettings(): Promise<SettingsDto> {
-    const s = await this.settingsService.get();
-    return s as any;
+    return await this.settingsService.get();
   }
 
   @Put('settings')
@@ -27,7 +26,6 @@ export class BlockchainConfigController {
   @ApiOperation({ summary: 'Обновить настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })
   async updateSettings(@Body() dto: SettingsPartialDto): Promise<SettingsDto> {
-    const s = await this.settingsService.update(dto);
-    return s as any;
+    return await this.settingsService.update(dto);
   }
 }

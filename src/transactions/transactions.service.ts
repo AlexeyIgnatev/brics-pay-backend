@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Asset, Prisma, PrismaClient } from '@prisma/client';
+import { Asset, Prisma, PrismaClient, TransactionKind, TransactionStatus } from '@prisma/client';
 import { TransactionsListDto, TransactionsListResponseDto } from './dto/transactions-list.dto';
 import { TransactionsStatsQueryDto, TransactionsStatsResponseDto, TransactionsStatsSeriesPointDto, TransactionsStatsSummaryDto, TransactionsStatsTodayDto } from './dto/transactions-stats.dto';
 import { SettingsService } from '../config/settings/settings.service';
@@ -16,28 +16,28 @@ export class TransactionsService {
   async list(query: TransactionsListDto): Promise<TransactionsListResponseDto> {
     const where: Prisma.TransactionWhereInput = {};
 
-    if (query.kind?.length) where.kind = { in: query.kind as any };
-    if (query.status?.length) where.status = { in: query.status as any };
+    if (query.kind?.length) where.kind = { in: query.kind as TransactionKind[] };
+    if (query.status?.length) where.status = { in: query.status as TransactionStatus[] };
     if (query.asset?.length) where.OR = [
-      { asset_out: { in: query.asset as any } },
-      { asset_in: { in: query.asset as any } },
+      { asset_out: { in: query.asset as Asset[] } },
+      { asset_in: { in: query.asset as Asset[] } },
     ];
     if (query.tx_hash) where.tx_hash = { contains: query.tx_hash };
     if (query.id) where.bank_op_id = query.id;
     if (query.amount_min != null || query.amount_max != null) {
-      where.amount_out = {} as any;
-      if (query.amount_min != null) (where.amount_out as any).gte = query.amount_min.toString();
-      if (query.amount_max != null) (where.amount_out as any).lte = query.amount_max.toString();
+      where.amount_out = {} as { gte?: string; lte?: string };
+      if (query.amount_min != null) (where.amount_out as { gte?: string }).gte = query.amount_min.toString();
+      if (query.amount_max != null) (where.amount_out as { lte?: string }).lte = query.amount_max.toString();
     }
     if (query.date_from || query.date_to) {
-      where.createdAt = {} as any;
-      if (query.date_from) (where.createdAt as any).gte = new Date(query.date_from);
-      if (query.date_to) (where.createdAt as any).lte = new Date(query.date_to);
+      where.createdAt = {} as { gte?: Date; lte?: Date };
+      if (query.date_from) (where.createdAt as { gte?: Date }).gte = new Date(query.date_from);
+      if (query.date_to) (where.createdAt as { lte?: Date }).lte = new Date(query.date_to);
     }
 
     if (query.sender) {
       where.OR = where.OR || [];
-      (where.OR as any[]).push(
+      (where.OR as Prisma.TransactionWhereInput[]).push(
         { sender_wallet_address: { contains: query.sender, mode: 'insensitive' } },
         { sender_customer: { OR: [
           { first_name: { contains: query.sender, mode: 'insensitive' } },
@@ -50,7 +50,7 @@ export class TransactionsService {
     }
     if (query.receiver) {
       where.OR = where.OR || [];
-      (where.OR as any[]).push(
+      (where.OR as Prisma.TransactionWhereInput[]).push(
         { receiver_wallet_address: { contains: query.receiver, mode: 'insensitive' } },
         { receiver_customer: { OR: [
           { first_name: { contains: query.receiver, mode: 'insensitive' } },
@@ -65,7 +65,7 @@ export class TransactionsService {
     const orderBy: Prisma.TransactionOrderByWithRelationInput = {};
     const sortBy = (query.sort_by === 'amount' ? 'amount_out' : query.sort_by) ?? 'createdAt';
     const sortDir = query.sort_dir ?? 'desc';
-    (orderBy as any)[sortBy] = sortDir;
+    (orderBy as Record<string, 'asc' | 'desc'>)[sortBy] = sortDir;
 
     const [total, items] = await this.prisma.$transaction([
       this.prisma.transaction.count({ where }),
@@ -81,21 +81,21 @@ export class TransactionsService {
       })
     ]);
 
-    return { total, items, offset: query.offset ?? 0, limit: query.limit ?? 20 } as any;
+    return { total, items, offset: query.offset ?? 0, limit: query.limit ?? 20 };
   }
 
   async stats(query: TransactionsStatsQueryDto): Promise<TransactionsStatsResponseDto> {
     const where: Prisma.TransactionWhereInput = {};
-    if (query.kind?.length) where.kind = { in: query.kind as any };
-    if (query.status?.length) where.status = { in: query.status as any };
+    if (query.kind?.length) where.kind = { in: query.kind as TransactionKind[] };
+    if (query.status?.length) where.status = { in: query.status as TransactionStatus[] };
     if (query.asset?.length) where.OR = [
-      { asset_out: { in: query.asset as any } },
-      { asset_in: { in: query.asset as any } },
+      { asset_out: { in: query.asset as Asset[] } },
+      { asset_in: { in: query.asset as Asset[] } },
     ];
     if (query.date_from || query.date_to) {
-      where.createdAt = {} as any;
-      if (query.date_from) (where.createdAt as any).gte = new Date(query.date_from);
-      if (query.date_to) (where.createdAt as any).lte = new Date(query.date_to);
+      where.createdAt = {} as { gte?: Date; lte?: Date };
+      if (query.date_from) (where.createdAt as { gte?: Date }).gte = new Date(query.date_from);
+      if (query.date_to) (where.createdAt as { lte?: Date }).lte = new Date(query.date_to);
     }
 
     const txs = await this.prisma.transaction.findMany({
@@ -105,13 +105,13 @@ export class TransactionsService {
     });
 
     // prices for crypto now
-    const prices = await this.exchange.getUsdPrices(['BTC', 'ETH', 'USDT_TRC20'] as unknown as Asset[]);
+    const prices = await this.exchange.getUsdPrices(['BTC', 'ETH', 'USDT_TRC20'] as Asset[]);
     const esomPerUsd = Number((await this.settings.get()).esom_per_usd);
-    const toSom = (asset: Asset, amountStr: any): number => {
-      const amount = Number(amountStr || 0);
-      if (!amount) return 0;
-      if (asset === 'SOM' || asset === 'ESOM') return amount;
-      const usd = amount * Number(prices[asset] ?? 0);
+    const toSom = (asset: Asset, amount: string | number): number => {
+      const amt = Number(amount || 0);
+      if (!amt) return 0;
+      if (asset === 'SOM' || asset === 'ESOM') return amt;
+      const usd = amt * Number(prices[asset] ?? 0);
       return usd * esomPerUsd;
     };
 
@@ -136,7 +136,7 @@ export class TransactionsService {
 
     let totalSumSom = 0;
     for (const t of txs) {
-      const som = toSom(t.asset_out as Asset, t.amount_out as any);
+      const som = toSom(t.asset_out as Asset, t.amount_out as unknown as string);
       totalSumSom += som;
       const k = keyFor(t.createdAt);
       const cur = seriesMap.get(k) || { sum: 0, count: 0 };
@@ -183,7 +183,7 @@ export class TransactionsService {
       date_to: query.date_to,
       offset: query.offset,
       limit: query.limit,
-    } as any);
+    });
 
     return { series, summary, table };
   }
@@ -196,14 +196,14 @@ export class TransactionsService {
     const baseWhere: Prisma.TransactionWhereInput = { createdAt: { gte: start, lte: end } };
 
     const totalSom = await this.prisma.transaction.aggregate({ _sum: { amount_out: true }, where: baseWhere });
-    const bankToBank = await this.prisma.transaction.aggregate({ _sum: { amount_out: true }, where: { ...baseWhere, kind: 'BANK_TO_BANK' as any } });
-    const walletToWallet = await this.prisma.transaction.aggregate({ _sum: { amount_out: true }, where: { ...baseWhere, kind: 'WALLET_TO_WALLET' as any } });
+    const bankToBank = await this.prisma.transaction.aggregate({ _sum: { amount_out: true }, where: { ...baseWhere, kind: 'BANK_TO_BANK' } });
+    const walletToWallet = await this.prisma.transaction.aggregate({ _sum: { amount_out: true }, where: { ...baseWhere, kind: 'WALLET_TO_WALLET' } });
     const usersCount = await this.prisma.customer.count();
 
     return {
-      total_amount_som: (totalSom._sum.amount_out as any) ?? 0,
-      bank_to_bank_som: (bankToBank._sum.amount_out as any) ?? 0,
-      wallet_to_wallet_som: (walletToWallet._sum.amount_out as any) ?? 0,
+      total_amount_som: Number(totalSom._sum.amount_out ?? 0),
+      bank_to_bank_som: Number(bankToBank._sum.amount_out ?? 0),
+      wallet_to_wallet_som: Number(walletToWallet._sum.amount_out ?? 0),
       users_count: usersCount,
       date_from: start.toISOString(),
       date_to: end.toISOString(),

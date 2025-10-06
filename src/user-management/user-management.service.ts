@@ -17,10 +17,10 @@ export class UserManagementService {
   private async getUsdPricesCached(): Promise<Record<string, number>> {
     const keys = ['BTC', 'ETH', 'USDT_TRC20'] as const;
     const out: Record<string, number> = {};
-    const missing: Asset[] = [] as any;
+    const missing: Asset[] = [];
     for (const k of keys) {
       const v = this.priceCache.get(`USD:${k}`);
-      if (v == null) missing.push(k as any as Asset);
+      if (v == null) missing.push(k as unknown as Asset);
       else out[k] = v;
     }
     if (missing.length) {
@@ -73,7 +73,7 @@ export class UserManagementService {
       if (cached) {
         ({ ESOM, SOM, BTC, ETH, USDT_TRC20 } = cached);
       } else {
-        const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as any;
+        const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as Record<string, number>;
         ESOM = Number(bal.ESOM || 0);
         SOM = Number(bal.SOM || 0);
         BTC = Number(bal.BTC || 0);
@@ -92,11 +92,11 @@ export class UserManagementService {
         last_name: c.last_name ?? undefined,
         phone: c.phone ?? undefined,
         email: c.email ?? undefined,
-        status: (c as any).status ?? 'ACTIVE',
+        status: c.status ?? 'ACTIVE',
         balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
         som_balance: SOM,
         total_balance: total_salam,
-        createdAt: (c as any).createdAt ?? undefined,
+        createdAt: c.createdAt ?? undefined,
       };
     });
 
@@ -110,7 +110,7 @@ export class UserManagementService {
     if (dto.last_name !== undefined) data.last_name = dto.last_name;
     if (dto.phone !== undefined) data.phone = dto.phone;
     if (dto.email !== undefined) data.email = dto.email;
-    if ((dto as any).status !== undefined) data.status = (dto as any).status;
+    if (dto.status !== undefined) data.status = dto.status;
 
     const c = await this.prisma.customer.update({ where: { customer_id: id }, data, include: { balances: true } });
     this.balanceCache.invalidate(id);
@@ -119,7 +119,9 @@ export class UserManagementService {
     const esomPerUsd = Number(settings?.esom_per_usd || 0);
     const prices = await this.getUsdPricesCached();
 
-    const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as any;
+    // compute aggregated balances
+
+    const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as Record<string, number>;
     const ESOM = Number(bal.ESOM || 0);
     const SOM = Number(bal.SOM || 0);
     const BTC = Number(bal.BTC || 0);
@@ -135,11 +137,11 @@ export class UserManagementService {
       last_name: c.last_name ?? undefined,
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
-      status: (c as any).status ?? 'ACTIVE',
+      status: c.status ?? 'ACTIVE',
       balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
       som_balance: SOM,
       total_balance: total_salam,
-      createdAt: (c as any).createdAt ?? undefined,
+      createdAt: c.createdAt ?? undefined,
     };
   }
 
@@ -154,9 +156,11 @@ export class UserManagementService {
     const cached = this.balanceCache.get(c.customer_id);
     let ESOM: number, SOM: number, BTC: number, ETH: number, USDT_TRC20: number;
     if (cached) {
+      // snapshot balances
+
       ({ ESOM, SOM, BTC, ETH, USDT_TRC20 } = cached);
     } else {
-      const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as any;
+      const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as Record<string, number>;
       ESOM = Number(bal.ESOM || 0);
       SOM = Number(bal.SOM || 0);
       BTC = Number(bal.BTC || 0);
@@ -175,11 +179,11 @@ export class UserManagementService {
       last_name: c.last_name ?? undefined,
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
-      status: (c as any).status ?? 'ACTIVE',
+      status: c.status ?? 'ACTIVE',
       balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
       som_balance: SOM,
       total_balance: total_salam,
-      createdAt: (c as any).createdAt ?? undefined,
+      createdAt: c.createdAt ?? undefined,
     };
   }
 }

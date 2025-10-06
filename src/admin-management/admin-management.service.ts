@@ -35,7 +35,9 @@ export class AdminManagementService {
     if (exists) throw new BadRequestException('Админ с таким email уже существует');
 
     const hash = await bcrypt.hash(dto.password, 10);
-    const role: AdminRole = (dto.role as any) in AdminRole ? (dto.role as AdminRole) : AdminRole.SUPER_ADMIN;
+    const role: AdminRole = dto.role && Object.values(AdminRole).includes(dto.role as AdminRole)
+      ? (dto.role as AdminRole)
+      : AdminRole.SUPER_ADMIN;
 
     const admin = await this.prisma.admin.create({
       data: {
@@ -57,7 +59,7 @@ export class AdminManagementService {
     if (dto.email) data.email = dto.email;
     if (dto.firstName) data.first_name = dto.firstName;
     if (dto.lastName) data.last_name = dto.lastName;
-    if (dto.role) data.role = dto.role as any as AdminRole;
+    if (dto.role && Object.values(AdminRole).includes(dto.role as AdminRole)) data.role = dto.role as AdminRole;
     if (dto.password) data.password_hash = await bcrypt.hash(dto.password, 10);
 
     const updated = await this.prisma.admin.update({ where: { id }, data });
@@ -83,12 +85,12 @@ export class AdminManagementService {
     if (query.lastNameQuery) where.last_name = { contains: query.lastNameQuery, mode: 'insensitive' };
     if (query.emailQuery) where.email = { contains: query.emailQuery, mode: 'insensitive' };
 
-    if (query.roles && query.roles.length) where.role = { in: query.roles as any };
+    if (query.roles && query.roles.length) where.role = { in: query.roles as AdminRole[] };
 
     if (query.createdFrom || query.createdTo) {
-      where.createdAt = {} as any;
-      if (query.createdFrom) (where.createdAt as any).gte = new Date(query.createdFrom);
-      if (query.createdTo) (where.createdAt as any).lte = new Date(query.createdTo);
+      where.createdAt = {} as { gte?: Date; lte?: Date };
+      if (query.createdFrom) (where.createdAt as { gte?: Date }).gte = new Date(query.createdFrom);
+      if (query.createdTo) (where.createdAt as { lte?: Date }).lte = new Date(query.createdTo);
     }
 
     const orderBy: any[] = [];
