@@ -17,17 +17,13 @@ export interface AntiFraudContext {
 export class AntiFraudService {
   // CRUD/read helpers for controller
   async listRules() {
+    await this.ensureDefaults();
     return this.prisma.antiFraudRule.findMany({ orderBy: { key: 'asc' } });
   }
 
   async updateRule(key: AntiFraudRuleKey, data: any) {
     return this.prisma.antiFraudRule.update({ where: { key }, data });
   }
-
-  async listOpenCases() {
-    return this.prisma.antiFraudCase.findMany({ where: { status: 'OPEN' as any }, include: { transaction: true } });
-  }
-
 
   async listCases(query: any): Promise<{ total: number; offset: number; limit: number; items: any[] }> {
     const whereCase: any = {};
@@ -54,26 +50,34 @@ export class AntiFraudService {
       whereTx.OR = whereTx.OR || [];
       whereTx.OR.push(
         { sender_wallet_address: { contains: query.sender, mode: 'insensitive' } },
-        { sender_customer: { OR: [
-          { first_name: { contains: query.sender, mode: 'insensitive' } },
-          { middle_name: { contains: query.sender, mode: 'insensitive' } },
-          { last_name: { contains: query.sender, mode: 'insensitive' } },
-          { phone: { contains: query.sender, mode: 'insensitive' } },
-          { email: { contains: query.sender, mode: 'insensitive' } },
-        ] } }
+        {
+          sender_customer: {
+            OR: [
+              { first_name: { contains: query.sender, mode: 'insensitive' } },
+              { middle_name: { contains: query.sender, mode: 'insensitive' } },
+              { last_name: { contains: query.sender, mode: 'insensitive' } },
+              { phone: { contains: query.sender, mode: 'insensitive' } },
+              { email: { contains: query.sender, mode: 'insensitive' } },
+            ],
+          },
+        },
       );
     }
     if (query.receiver) {
       whereTx.OR = whereTx.OR || [];
       whereTx.OR.push(
         { receiver_wallet_address: { contains: query.receiver, mode: 'insensitive' } },
-        { receiver_customer: { OR: [
-          { first_name: { contains: query.receiver, mode: 'insensitive' } },
-          { middle_name: { contains: query.receiver, mode: 'insensitive' } },
-          { last_name: { contains: query.receiver, mode: 'insensitive' } },
-          { phone: { contains: query.receiver, mode: 'insensitive' } },
-          { email: { contains: query.receiver, mode: 'insensitive' } },
-        ] } }
+        {
+          receiver_customer: {
+            OR: [
+              { first_name: { contains: query.receiver, mode: 'insensitive' } },
+              { middle_name: { contains: query.receiver, mode: 'insensitive' } },
+              { last_name: { contains: query.receiver, mode: 'insensitive' } },
+              { phone: { contains: query.receiver, mode: 'insensitive' } },
+              { email: { contains: query.receiver, mode: 'insensitive' } },
+            ],
+          },
+        },
       );
     }
 
@@ -88,7 +92,7 @@ export class AntiFraudService {
         skip: query.offset ?? 0,
         take: query.limit ?? 20,
         include: { transaction: { include: { sender_customer: true, receiver_customer: true } } },
-      })
+      }),
     ]);
 
     const caseItems = items.map((c: any) => ({
@@ -128,7 +132,7 @@ export class AntiFraudService {
           phone: c.transaction.receiver_customer.phone ?? undefined,
           email: c.transaction.receiver_customer.email ?? undefined,
         } : undefined,
-      }
+      },
     }));
 
     return { total, offset: query.offset ?? 0, limit: query.limit ?? 20, items: caseItems };
@@ -184,14 +188,6 @@ export class AntiFraudService {
     await upsert('THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M', { period_days: 30, min_count: 3, threshold_som: '1000000' });
     await upsert('AFTER_INACTIVITY_6M', { period_days: 180 });
     await upsert('MANY_SENDERS_TO_ONE_10_PER_MONTH', { period_days: 30, min_count: 10 });
-  }
-
-  // returns triggered rule key if any (wrapper around evaluateTriggered)
-  async checkAndOpenCaseIfTriggered(txId: number, ctx: AntiFraudContext): Promise<AntiFraudRuleKey | null> {
-    const key = await this.evaluateTriggered(ctx);
-    if (!key) return null;
-    await this.openCase(txId, key, 'Triggered by antifraud rule');
-    return key;
   }
 
   // Evaluate without creating a case; returns triggered rule key or null
