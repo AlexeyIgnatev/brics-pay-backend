@@ -144,7 +144,8 @@ export class PaymentsService {
           comment: `Convert ESOM->${to}`,
         }
       });
-      await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
+      // Refresh only ESOM on-chain balance; do not overwrite exchange-held BTC/ETH/USDT balances
+      await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
       return new StatusOKDto();
     }
 
@@ -188,7 +189,8 @@ export class PaymentsService {
           comment: `Convert ${from}->ESOM`,
         }
       });
-      await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
+      // Refresh only ESOM on-chain balance; do not overwrite exchange-held BTC/ETH/USDT balances
+      await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
       return new StatusOKDto();
     }
 
@@ -227,7 +229,7 @@ export class PaymentsService {
             comment: `Convert ${from}->USDT_TRC20`,
           }
         });
-        await this.balanceFetchService.refreshAllBalancesForUser(customer_id);
+        // Skip on-chain rescan to avoid overwriting exchange balances for USDT
         return new StatusOKDto();
       }
       const allowed = await this.antiFraud.shouldAllowTransaction({
