@@ -22,7 +22,7 @@ export class BybitExchangeService implements IExchangeService {
 
   // Internal transfer: move USDT from Funding to Spot to ensure liquidity for spot orders
   private async transferFundingToSpotUsdt(amountUsdt: string): Promise<void> {
-    const transferId = `autotransfer-${Date.now()}`;
+    const transferId = crypto.randomUUID();
     const params = {
       transferId,
       coin: 'USDT',
@@ -32,7 +32,7 @@ export class BybitExchangeService implements IExchangeService {
     };
     const { headers, payload } = this.sign(params);
     try {
-      const { data } = await this.http.post('/v5/asset/transfer/inter-transfer', payload, { headers });
+      const { data } = await this.http.post('/v5/asset/transfer/inter-transfer', payload, { headers: { ...headers, 'X-BAPI-REQUEST-ID': transferId } });
       if (data.retCode !== 0) {
         // If insufficient balance in Funding, bubble up a clear error.
         const msg: string = data.retMsg ?? 'Unknown transfer error';
