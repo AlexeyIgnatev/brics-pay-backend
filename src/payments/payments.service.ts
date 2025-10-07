@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 /* eslint-disable max-classes-per-file */
 
 import { ModuleRef } from '@nestjs/core';
@@ -31,8 +31,9 @@ export class PaymentsService {
     private readonly exchangeService: BybitExchangeService,
     private readonly balanceFetchService: BalanceFetchService,
     private readonly antiFraud: AntiFraudService,
-  ) {
+   ) {
   }
+  private readonly logger = new (Logger as any)("PaymentsService");
 
   async getHistory(body: GetTransactions, customer_id: number): Promise<TransactionDto[]> {
     const me = await this.prisma.customer.findUnique({ where: { customer_id } });
@@ -90,12 +91,14 @@ export class PaymentsService {
   }
 
   async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {
+    this.logger.verbose(`[convert] start customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount_from=${dto.amount_from}`);
     const user = await this.prisma.customer.findUniqueOrThrow({ where: { customer_id } });
     const s = await this.settingsService.get();
     const from = dto.asset_from as unknown as Asset;
     const to = dto.asset_to as unknown as Asset;
     const amountFrom = dto.amount_from;
     const esomPerUsd = Number(s.esom_per_usd);
+    this.logger.verbose(`[convert] settings esom_per_usd=${esomPerUsd}`);
 
     const addBalance = async (asset: Asset, delta: number) => {
       await this.prisma.userAssetBalance.upsert({
@@ -114,14 +117,19 @@ export class PaymentsService {
         sender_customer_id: customer_id,
         comment: `Convert ESOM->${to}`,
       });
+      this.logger.verbose(`[convert ESOM->${to}] antifraud allowed=${allowed}`);
       if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
       const usdtAmount = amountFrom / esomPerUsd;
+      this.logger.verbose(`[convert ESOM->${to}] usdtAmount=${usdtAmount}`);
       const order = to === 'USDT_TRC20'
         ? { asset: to, amount_asset: usdtAmount.toString(), price_usd: '1', notional_usdt: usdtAmount.toString() }
-        : await this.exchangeService.marketBuy(to, usdtAmount.toString());
+         : await this.exchangeService.marketBuy(to, usdtAmount.toString());
+      if (to !== 'USDT_TRC20') this.logger.verbose(`[convert ESOM->${to}] marketBuy price_usd=${order.price_usd} amount_asset=${order.amount_asset} notional_usdt=${order.notional_usdt}`);
       await this.ethereumService.transferToFiat(amountFrom, user.private_key);
+      this.logger.verbose(`[convert ESOM->${to}] transferToFiat amount=${amountFrom}`);
       await addBalance(to, Number(order.amount_asset));
+      this.logger.verbose(`[convert ESOM->${to}] addBalance ${to} delta=${order.amount_asset}`);
       await this.prisma.transaction.create({
         data: {
           kind: TransactionKind.CONVERSION,
@@ -149,6 +157,7 @@ export class PaymentsService {
         sender_customer_id: customer_id,
         comment: `Convert ${from}->ESOM`,
       });
+      this.logger.verbose(`[convert ${from}->ESOM] antifraud allowed=${allowed}`);
       if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
       let notionalUsdt = 0;
@@ -157,10 +166,14 @@ export class PaymentsService {
       } else {
         const order = await this.exchangeService.marketSell(from, amountFrom.toString());
         notionalUsdt = Number(order.notional_usdt);
+      this.logger.verbose(`[convert ${from}->ESOM] notional_usdt=${notionalUsdt}`);
       }
       const esomAmount = notionalUsdt * esomPerUsd;
+      this.logger.verbose(`[convert ${from}->ESOM] esomAmount=${esomAmount}`);
       await this.ethereumService.transferFromFiat(user.address, esomAmount);
+      this.logger.verbose(`[convert ${from}->ESOM] transferFromFiat to=${user.address} amount=${esomAmount}`);
       await addBalance(from, -amountFrom);
+      this.logger.verbose(`[convert ${from}->ESOM] addBalance ${from} delta=${-amountFrom}`);
       await this.prisma.transaction.create({
         data: {
           kind: TransactionKind.CONVERSION,
@@ -198,6 +211,7 @@ export class PaymentsService {
         });
         if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
         await addBalance(from, -amountFrom);
+      this.logger.verbose(`[convert ${from}->ESOM] addBalance ${from} delta=${-amountFrom}`);
         await addBalance('USDT_TRC20', usdtIntermediate);
         await this.prisma.transaction.create({
           data: {
@@ -224,9 +238,12 @@ export class PaymentsService {
         sender_customer_id: customer_id,
         comment: `Convert ${from}->${to}`,
       });
+      this.logger.verbose(`[convert ${from}->${to}] antifraud allowed=${allowed}`);
       if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
       const buy = await this.exchangeService.marketBuy(to, usdtIntermediate.toString());
+      this.logger.verbose(`[convert ${from}->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`);
       await addBalance(from, -amountFrom);
+      this.logger.verbose(`[convert ${from}->ESOM] addBalance ${from} delta=${-amountFrom}`);
       await addBalance(to, Number(buy.amount_asset));
       await this.prisma.transaction.create({
         data: {
@@ -256,19 +273,24 @@ export class PaymentsService {
   }
 
   async withdrawCrypto(asset: Asset, address: string, amount: number, customer_id: number): Promise<StatusOKDto> {
+    this.logger.verbose(`[withdrawCrypto] start customer=${customer_id} asset=${asset} amount=${amount} address=${address}`);
     const s = await this.settingsService.get();
     const min = asset === 'BTC' ? Number(s.min_withdraw_btc)
       : asset === 'ETH' ? Number(s.min_withdraw_eth)
         : Number(s.min_withdraw_usdt_trc20);
     if (amount < min) {
+      
       throw new Error('Amount below minimum withdrawal');
     }
+
+    this.logger.verbose(`[withdrawCrypto] min=${min}`);
 
     const feeFixed = asset === 'BTC' ? Number(s.btc_withdraw_fee_fixed)
       : asset === 'ETH' ? Number(s.eth_withdraw_fee_fixed)
         : Number(s.usdt_withdraw_fee_fixed);
 
     const total = amount + feeFixed;
+    this.logger.verbose(`[withdrawCrypto] fee_fixed=${feeFixed} total_debit=${total}`);
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.WITHDRAW_CRYPTO,
@@ -279,16 +301,19 @@ export class PaymentsService {
       external_address: address,
       comment: `Withdraw ${amount} ${asset}`,
     });
+    this.logger.verbose(`[withdrawCrypto] antifraud allowed=${allowed}`);
     if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
     await this.prisma.$transaction(async (tx) => {
       const bal = await tx.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id, asset } } });
       const current = Number(bal?.balance ?? 0);
       if (current < total) throw new Error('Insufficient balance including fee');
+      this.logger.verbose(`[withdrawCrypto] balance_before=${current}`);
       await tx.userAssetBalance.update({
         where: { customer_id_asset: { customer_id, asset } },
         data: { balance: { decrement: total.toString() } },
       });
+      this.logger.verbose(`[withdrawCrypto] balance_decrement=${total}`);
       const w = await tx.withdrawRequest.create({
         data: {
           customer_id,
@@ -299,7 +324,9 @@ export class PaymentsService {
           status: 'PENDING',
         },
       });
+      this.logger.verbose(`[withdrawCrypto] withdrawRequest created id=${w.id}`);
       const { txid } = await this.exchangeService.withdraw(asset, address, amount.toString());
+      this.logger.verbose(`[withdrawCrypto] exchange.withdraw submitted txid=${txid}`);
       await tx.withdrawRequest.update({ where: { id: w.id }, data: { status: 'SUBMITTED', txid } });
       await tx.transaction.create({
         data: {
