@@ -73,6 +73,11 @@ export class BybitExchangeService implements IExchangeService {
     if (asset === 'USDT_TRC20') {
       return { asset, amount_asset: usdtAmount, price_usd: '1', notional_usdt: usdtAmount };
     }
+    // Enforce Bybit minimal notional for spot market orders (commonly 10 USDT)
+    const MIN_NOTIONAL_USDT = 10;
+    if (Number(usdtAmount) < MIN_NOTIONAL_USDT) {
+      throw new Error(`Order value below Bybit minimum: notional=${usdtAmount} USDT, min=${MIN_NOTIONAL_USDT} USDT`);
+    }
     const qtySide = 'Buy';
     const symbol = this.spotSymbol(asset);
     const params = {
