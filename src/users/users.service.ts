@@ -121,9 +121,23 @@ export class UsersService {
 
     const ethAddress = this.cryptoService.ethAddressFromPrivateKey(user.private_key);
     const [btcBalanceRec, ethLiveBalance, usdtBalanceRec] = await Promise.all([
-      this.prisma.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id: user.customer_id, asset: 'BTC' as Asset } } }),
+      this.prisma.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: user.customer_id,
+            asset: 'BTC' as Asset,
+          },
+        },
+      }),
       this.ethereumService.getEthBalance(ethAddress),
-      this.prisma.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id: user.customer_id, asset: 'USDT_TRC20' as Asset } } }),
+      this.prisma.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: user.customer_id,
+            asset: 'USDT_TRC20' as Asset,
+          },
+        },
+      }),
     ]);
 
     return [
@@ -138,8 +152,8 @@ export class UsersService {
         currency: Currency.ESOM,
         address: user.address,
         balance: esomBalance,
-        buy_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct),
-        sell_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct),
+        buy_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,
+        sell_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,
       },
       {
         currency: Currency.BTC,
