@@ -20,6 +20,36 @@ export class BybitExchangeService implements IExchangeService {
     this.http = axios.create({ baseURL: this.baseUrl, timeout: 10000 });
   }
 
+  // Internal transfer: move USDT from Funding to Spot to ensure liquidity for spot orders
+  private async transferFundingToSpotUsdt(amountUsdt: string): Promise<void> {
+    const transferId = `autotransfer-${Date.now()}`;
+    const params = {
+      transferId,
+      coin: 'USDT',
+      amount: amountUsdt,
+      fromAccountType: 'FUND',
+      toAccountType: 'SPOT',
+    };
+    const { headers, payload } = this.sign(params);
+    try {
+      const { data } = await this.http.post('/v5/asset/transfer/inter-transfer', payload, { headers });
+      if (data.retCode !== 0) {
+        // If insufficient balance in Funding, bubble up a clear error.
+        const msg: string = data.retMsg ?? 'Unknown transfer error';
+        if (/insufficient/i.test(msg)) throw new Error(`Bybit transfer error: ${msg}`);
+        // Otherwise log and continue (maybe funds already on Spot)
+        this.logger.warn(`Bybit transfer warning: ${msg}`);
+      } else {
+        this.logger.log(`Bybit transfer success: ${amountUsdt} USDT FUND -> SPOT (id=${transferId})`);
+      }
+    } catch (e: any) {
+      // Network or unexpected error
+      const msg = e?.message ?? String(e);
+      if (/insufficient/i.test(msg)) throw e;
+      this.logger.warn(`Bybit transfer request failed: ${msg}`);
+    }
+  }
+
   private sign(params: Record<string, any>): { headers: Record<string, string>; payload: string } {
     const timestamp = Date.now().toString();
     const recv_window = '30000';
@@ -32,6 +62,7 @@ export class BybitExchangeService implements IExchangeService {
         'X-BAPI-API-KEY': this.apiKey,
         'X-BAPI-TIMESTAMP': timestamp,
         'X-BAPI-RECV-WINDOW': recv_window,
+        'X-BAPI-SIGN-TYPE': '2',
         'Content-Type': 'application/json',
       },
       payload: query,
@@ -89,7 +120,13 @@ export class BybitExchangeService implements IExchangeService {
       qty: usdtAmount,
     };
     const { headers, payload } = this.sign(params);
-    const { data } = await this.http.post('/v5/order/create', payload, { headers });
+    let data: any;
+    ({ data } = await this.http.post('/v5/order/create', payload, { headers }));
+    if (data.retCode !== 0 && /Insufficient balance/i.test(data.retMsg ?? '')) {
+      const topUp = (Number(usdtAmount) * 1.01).toFixed(2); // small headroom for fee
+      await this.transferFundingToSpotUsdt(topUp);
+      ({ data } = await this.http.post('/v5/order/create', payload, { headers }));
+    }
     if (data.retCode !== 0) throw new Error(`Bybit order error: ${data.retMsg}`);
     const price = await this.getUsdPrices([asset]);
     const p = price[asset];
