@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Asset, PrismaClient } from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { BalanceFetchService } from './balance-fetch.service';
 
@@ -17,7 +17,7 @@ export class BalanceRescanService {
     this.logger.log('Starting daily balances rescan (ESOM, ETH, BTC, USDT_TRC20)');
     const customers = await this.prisma.customer.findMany({ select: { customer_id: true } });
     for (const c of customers) {
-      await this.fetcher.refreshAllBalancesForUser(c.customer_id);
+      await this.fetcher.refreshAllBalancesForUser(c.customer_id, ['ESOM' as Asset]);
     }
     this.logger.log('Daily balances rescan finished');
   }

@@ -384,7 +384,7 @@ export class PaymentsService {
     }
 
     const ethTransaction = await this.ethereumService.transferFromFiat(customer.address, amount);
-    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id);
+    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
     if (!ethTransaction?.success) {
       throw new Error('Ethereum transaction failed');
     }
@@ -439,7 +439,7 @@ export class PaymentsService {
     if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
     const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
-    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id);
+    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
     if (!ethTransaction?.success) {
       throw new Error('Ethereum transaction failed');
     }
@@ -578,9 +578,9 @@ export class PaymentsService {
       }
     });
 
-    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id);
+    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
     if (recipient?.customer_id && recipient.customer_id !== customer.customer_id) {
-      await this.balanceFetchService.refreshAllBalancesForUser(recipient.customer_id);
+      await this.balanceFetchService.refreshAllBalancesForUser(recipient.customer_id, ['ESOM' as Asset]);
     }
     return new StatusOKDto();
   }
