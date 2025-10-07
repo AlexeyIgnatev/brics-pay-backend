@@ -80,7 +80,6 @@ export class BybitExchangeService implements IExchangeService {
       symbol,
       side: qtySide,
       orderType: 'Market',
-      orderFilter: 'tpslOrder',
       marketUnit: 'quoteCoin',
       qty: usdtAmount,
     };
