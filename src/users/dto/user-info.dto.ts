@@ -1,6 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { WalletDto } from './wallet.dto';
-import { SettingsDto } from '../../blockchain-config/dto/settings.dto';
 
 export class UserInfoDto {
   @ApiProperty({ description: 'Идентификатор клиента' })
@@ -32,7 +31,4 @@ export class UserDto extends UserInfoDto {
     isArray: true,
   })
   wallets: WalletDto[];
-
-  @ApiProperty({ description: 'Настройки площадки' })
-  settings: SettingsDto;
 }
