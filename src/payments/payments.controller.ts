@@ -11,7 +11,9 @@ import { ConvertDto } from './dto/convert.dto';
 
 @Controller('payments')
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {
+  constructor(
+    private readonly paymentsService: PaymentsService,
+  ) {
   }
 
   @Post('fiat-to-crypto')
@@ -20,7 +22,7 @@ export class PaymentsController {
   async fiatToCrypto(
     @Body() paymentDto: PaymentDto,
     @Req() req: { user: UserInfoDto },
-  ): Promise<StatusOKDto>  {
+  ): Promise<StatusOKDto> {
     return this.paymentsService.fiatToCrypto(paymentDto, req?.user.customer_id);
   }
 
@@ -30,7 +32,7 @@ export class PaymentsController {
   async cryptoToFiat(
     @Body() paymentDto: PaymentDto,
     @Req() req: { user: UserInfoDto },
-  ): Promise<StatusOKDto>  {
+  ): Promise<StatusOKDto> {
     return this.paymentsService.cryptoToFiat(paymentDto, req?.user.customer_id);
   }
 
@@ -50,7 +52,7 @@ export class PaymentsController {
   async convert(
     @Body() dto: ConvertDto,
     @Req() req: { user: UserInfoDto },
-  ): Promise<StatusOKDto>  {
+  ): Promise<StatusOKDto> {
     return this.paymentsService.convert(dto, req?.user.customer_id);
   }
 

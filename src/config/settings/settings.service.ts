@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient, Settings } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { SettingsPartialDto } from '../../blockchain-config/dto/settings-partial.dto';
+import { SettingsDto } from '../../blockchain-config/dto/settings.dto';
 
 @Injectable()
 export class SettingsService {
@@ -9,7 +10,7 @@ export class SettingsService {
   constructor(private readonly prisma: PrismaClient) {
   }
 
-  async get(): Promise<Settings> {
+  async get(): Promise<SettingsDto> {
     let s = await this.prisma.settings.findUnique({ where: { id: 1 } });
     if (!s) {
       s = await this.prisma.settings.create({
@@ -29,16 +30,35 @@ export class SettingsService {
         },
       });
     }
-    return s;
+
+    return this.mapToDto(s);
   }
 
-  async update(partial: SettingsPartialDto): Promise<Settings> {
+  async update(partial: SettingsPartialDto): Promise<SettingsDto> {
     await this.get();
 
     this.logger.debug(`Update settings ${JSON.stringify(partial, null, 2)}`);
-    return this.prisma.settings.update({
+    const s = await this.prisma.settings.update({
       where: { id: 1 },
       data: partial,
     });
+
+    return this.mapToDto(s);
+  }
+
+  mapToDto(s: any): SettingsDto {
+    return {
+      esom_per_usd: s.esom_per_usd.toString(),
+      esom_som_conversion_fee_pct: s.esom_som_conversion_fee_pct.toString(),
+      btc_trade_fee_pct: s.btc_trade_fee_pct.toString(),
+      eth_trade_fee_pct: s.eth_trade_fee_pct.toString(),
+      usdt_trade_fee_pct: s.usdt_trade_fee_pct.toString(),
+      btc_withdraw_fee_fixed: s.btc_withdraw_fee_fixed.toString(),
+      eth_withdraw_fee_fixed: s.eth_withdraw_fee_fixed.toString(),
+      usdt_withdraw_fee_fixed: s.usdt_withdraw_fee_fixed.toString(),
+      min_withdraw_btc: s.min_withdraw_btc.toString(),
+      min_withdraw_eth: s.min_withdraw_eth.toString(),
+      min_withdraw_usdt_trc20: s.min_withdraw_usdt_trc20.toString(),
+    };
   }
 }

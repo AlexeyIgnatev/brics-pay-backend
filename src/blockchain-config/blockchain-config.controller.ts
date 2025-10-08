@@ -12,25 +12,10 @@ export class BlockchainConfigController {
   }
 
   @Get('settings')
-  @UseGuards(AdminAuthGuard)
-  @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Получить текущие настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })
   async getSettings(): Promise<SettingsDto> {
-    const s = await this.settingsService.get();
-    return {
-      esom_per_usd: s.esom_per_usd.toString(),
-      esom_som_conversion_fee_pct: s.esom_som_conversion_fee_pct.toString(),
-      btc_trade_fee_pct: s.btc_trade_fee_pct.toString(),
-      eth_trade_fee_pct: s.eth_trade_fee_pct.toString(),
-      usdt_trade_fee_pct: s.usdt_trade_fee_pct.toString(),
-      btc_withdraw_fee_fixed: s.btc_withdraw_fee_fixed.toString(),
-      eth_withdraw_fee_fixed: s.eth_withdraw_fee_fixed.toString(),
-      usdt_withdraw_fee_fixed: s.usdt_withdraw_fee_fixed.toString(),
-      min_withdraw_btc: s.min_withdraw_btc.toString(),
-      min_withdraw_eth: s.min_withdraw_eth.toString(),
-      min_withdraw_usdt_trc20: s.min_withdraw_usdt_trc20.toString(),
-    };
+    return await this.settingsService.get();
   }
 
   @Put('settings')
@@ -39,19 +24,6 @@ export class BlockchainConfigController {
   @ApiOperation({ summary: 'Обновить настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })
   async updateSettings(@Body() dto: SettingsPartialDto): Promise<SettingsDto> {
-    const s = await this.settingsService.update(dto);
-    return {
-      esom_per_usd: s.esom_per_usd.toString(),
-      esom_som_conversion_fee_pct: s.esom_som_conversion_fee_pct.toString(),
-      btc_trade_fee_pct: s.btc_trade_fee_pct.toString(),
-      eth_trade_fee_pct: s.eth_trade_fee_pct.toString(),
-      usdt_trade_fee_pct: s.usdt_trade_fee_pct.toString(),
-      btc_withdraw_fee_fixed: s.btc_withdraw_fee_fixed.toString(),
-      eth_withdraw_fee_fixed: s.eth_withdraw_fee_fixed.toString(),
-      usdt_withdraw_fee_fixed: s.usdt_withdraw_fee_fixed.toString(),
-      min_withdraw_btc: s.min_withdraw_btc.toString(),
-      min_withdraw_eth: s.min_withdraw_eth.toString(),
-      min_withdraw_usdt_trc20: s.min_withdraw_usdt_trc20.toString(),
-    };
+    return await this.settingsService.update(dto);
   }
 }
