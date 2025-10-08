@@ -92,7 +92,6 @@ export class UsersService {
       this.exchangeService.getUsdPrices(['BTC' as Asset, 'ETH' as Asset, 'USDT_TRC20' as Asset]),
     ]);
 
-    // cache fresh SOM balance
     await this.prisma.userAssetBalance.upsert({
       where: { customer_id_asset: { customer_id: user.customer_id, asset: 'SOM' as Asset } },
       create: { customer_id: user.customer_id, asset: 'SOM' as Asset, balance: somLive.toString() },
@@ -119,7 +118,6 @@ export class UsersService {
     const usdtBuy = usdtBaseEsom * (1 + usdtFee);
     const usdtSell = usdtBaseEsom * (1 - usdtFee);
 
-    const ethAddress = this.cryptoService.ethAddressFromPrivateKey(user.private_key);
     const [btcBalanceRec, ethLiveBalance, usdtBalanceRec] = await Promise.all([
       this.prisma.userAssetBalance.findUnique({
         where: {
@@ -129,7 +127,14 @@ export class UsersService {
           },
         },
       }),
-      this.ethereumService.getEthBalance(ethAddress),
+      this.prisma.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: user.customer_id,
+            asset: 'ETH' as Asset,
+          },
+        },
+      }),
       this.prisma.userAssetBalance.findUnique({
         where: {
           customer_id_asset: {
@@ -164,7 +169,7 @@ export class UsersService {
       },
       {
         currency: Currency.ETH,
-        address: ethAddress,
+        address: this.cryptoService.ethAddressFromPrivateKey(user.private_key),
         balance: Number(ethLiveBalance ?? 0),
         buy_rate: ethBuy,
         sell_rate: ethSell,
