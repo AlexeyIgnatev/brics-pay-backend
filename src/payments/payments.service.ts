@@ -108,6 +108,28 @@ export class PaymentsService {
       });
     };
 
+    const feePctForAsset = (asset: Asset): number => {
+      switch (asset) {
+        case 'BTC': return Number(s.btc_trade_fee_pct || 0);
+        case 'ETH': return Number(s.eth_trade_fee_pct || 0);
+        case 'USDT_TRC20': return Number(s.usdt_trade_fee_pct || 0);
+        default: return 0;
+      }
+    };
+
+    const feePctForTrade = (fromA: Asset, toA: Asset): number => {
+      if (fromA === 'ESOM') return feePctForAsset(toA);
+      if (toA === 'ESOM') return feePctForAsset(fromA);
+      return Math.max(feePctForAsset(fromA), feePctForAsset(toA));
+    };
+
+    const applyFee = (gross: number, pct: number) => {
+      const fee = gross * (pct / 100);
+      const net = Math.max(gross - fee, 0);
+      return { net, fee };
+    };
+
+    // ESOM -> CRYPTO
     if (from === 'ESOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
       const allowed = await this.antiFraud.shouldAllowTransaction({
         kind: TransactionKind.CONVERSION,
@@ -120,35 +142,47 @@ export class PaymentsService {
       this.logger.verbose(`[convert ESOM->${to}] antifraud allowed=${allowed}`);
       if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
+      const feePct = feePctForTrade(from, to);
       const usdtAmount = amountFrom / esomPerUsd;
-      this.logger.verbose(`[convert ESOM->${to}] usdtAmount=${usdtAmount}`);
-      const order = to === 'USDT_TRC20'
-        ? { asset: to, amount_asset: usdtAmount.toString(), price_usd: '1', notional_usdt: usdtAmount.toString() }
-         : await this.exchangeService.marketBuy(to, usdtAmount.toString());
-      if (to !== 'USDT_TRC20') this.logger.verbose(`[convert ESOM->${to}] marketBuy price_usd=${order.price_usd} amount_asset=${order.amount_asset} notional_usdt=${order.notional_usdt}`);
+      let grossOut = 0;
+      let priceUsd = '1';
+      let notionalUsdt = usdtAmount.toString();
+      if (to === 'USDT_TRC20') {
+        grossOut = usdtAmount;
+      } else {
+        const buy = await this.exchangeService.marketBuy(to, usdtAmount.toString());
+        grossOut = Number(buy.amount_asset);
+        priceUsd = buy.price_usd;
+        notionalUsdt = buy.notional_usdt;
+        this.logger.verbose(`[convert ESOM->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`);
+      }
+      const { net, fee } = applyFee(grossOut, feePct);
+
       await this.ethereumService.transferToFiat(amountFrom, user.private_key);
-      this.logger.verbose(`[convert ESOM->${to}] transferToFiat amount=${amountFrom}`);
-      await addBalance(to, Number(order.amount_asset));
-      this.logger.verbose(`[convert ESOM->${to}] addBalance ${to} delta=${order.amount_asset}`);
+      await addBalance(to, net);
+      this.logger.verbose(`[convert ESOM->${to}] feePct=${feePct}% fee=${fee} net_out=${net}`);
+
       await this.prisma.transaction.create({
         data: {
           kind: TransactionKind.CONVERSION,
           status: TransactionStatus.SUCCESS,
           amount_in: amountFrom.toString(),
           asset_in: 'ESOM',
-          amount_out: order.amount_asset,
+          amount_out: net.toString(),
           asset_out: to,
-          price_usd: order.price_usd,
-          notional_usd: order.notional_usdt,
+          price_usd: priceUsd,
+          notional_usd: notionalUsdt,
+          fee_amount: fee.toString(),
           sender_customer_id: customer_id,
           comment: `Convert ESOM->${to}`,
         }
       });
-      // Refresh only ESOM on-chain balance; do not overwrite exchange-held BTC/ETH/USDT balances
+      // Refresh only ESOM balance to avoid overwriting exchange-held balances
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
       return new StatusOKDto();
     }
 
+    // CRYPTO -> ESOM
     if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'ESOM') {
       const allowed = await this.antiFraud.shouldAllowTransaction({
         kind: TransactionKind.CONVERSION,
@@ -161,77 +195,43 @@ export class PaymentsService {
       this.logger.verbose(`[convert ${from}->ESOM] antifraud allowed=${allowed}`);
       if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
+      const feePct = feePctForTrade(from, to);
       let notionalUsdt = 0;
       if (from === 'USDT_TRC20') {
         notionalUsdt = amountFrom;
       } else {
-        const order = await this.exchangeService.marketSell(from, amountFrom.toString());
-        notionalUsdt = Number(order.notional_usdt);
-      this.logger.verbose(`[convert ${from}->ESOM] notional_usdt=${notionalUsdt}`);
+        const sell = await this.exchangeService.marketSell(from, amountFrom.toString());
+        notionalUsdt = Number(sell.notional_usdt);
+        this.logger.verbose(`[convert ${from}->ESOM] marketSell notional_usdt=${notionalUsdt}`);
       }
-      const esomAmount = notionalUsdt * esomPerUsd;
-      this.logger.verbose(`[convert ${from}->ESOM] esomAmount=${esomAmount}`);
-      await this.ethereumService.transferFromFiat(user.address, esomAmount);
-      this.logger.verbose(`[convert ${from}->ESOM] transferFromFiat to=${user.address} amount=${esomAmount}`);
+      const grossEsom = notionalUsdt * esomPerUsd;
+      const { net: netEsom, fee: feeEsom } = applyFee(grossEsom, feePct);
+
+      await this.ethereumService.transferFromFiat(user.address, netEsom);
       await addBalance(from, -amountFrom);
-      this.logger.verbose(`[convert ${from}->ESOM] addBalance ${from} delta=${-amountFrom}`);
+
       await this.prisma.transaction.create({
         data: {
           kind: TransactionKind.CONVERSION,
           status: TransactionStatus.SUCCESS,
           amount_in: amountFrom.toString(),
           asset_in: from,
-          amount_out: esomAmount.toString(),
+          amount_out: netEsom.toString(),
           asset_out: 'ESOM',
           price_usd: '1',
           notional_usd: notionalUsdt.toString(),
+          fee_amount: feeEsom.toString(),
           sender_customer_id: customer_id,
           comment: `Convert ${from}->ESOM`,
         }
       });
-      // Refresh only ESOM on-chain balance; do not overwrite exchange-held BTC/ETH/USDT balances
+      // Refresh only ESOM balance after mint
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
       return new StatusOKDto();
     }
 
+    // CRYPTO -> CRYPTO
     if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
-      let usdtIntermediate = 0;
-      if (from === 'USDT_TRC20') {
-        usdtIntermediate = amountFrom;
-      } else {
-        const sell = await this.exchangeService.marketSell(from, amountFrom.toString());
-        usdtIntermediate = Number(sell.notional_usdt);
-      }
-      if (to === 'USDT_TRC20') {
-        const allowed = await this.antiFraud.shouldAllowTransaction({
-          kind: TransactionKind.CONVERSION,
-          amount_in: amountFrom,
-          asset_in: from,
-          asset_out: 'USDT_TRC20',
-          sender_customer_id: customer_id,
-          comment: `Convert ${from}->USDT_TRC20`,
-        });
-        if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
-        await addBalance(from, -amountFrom);
-      this.logger.verbose(`[convert ${from}->ESOM] addBalance ${from} delta=${-amountFrom}`);
-        await addBalance('USDT_TRC20', usdtIntermediate);
-        await this.prisma.transaction.create({
-          data: {
-            kind: TransactionKind.CONVERSION,
-            status: TransactionStatus.SUCCESS,
-            amount_in: amountFrom.toString(),
-            asset_in: from,
-            amount_out: usdtIntermediate.toString(),
-            asset_out: 'USDT_TRC20',
-            price_usd: '1',
-            notional_usd: usdtIntermediate.toString(),
-            sender_customer_id: customer_id,
-            comment: `Convert ${from}->USDT_TRC20`,
-          }
-        });
-        // Skip on-chain rescan to avoid overwriting exchange balances for USDT
-        return new StatusOKDto();
-      }
       const allowed = await this.antiFraud.shouldAllowTransaction({
         kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
@@ -242,21 +242,37 @@ export class PaymentsService {
       });
       this.logger.verbose(`[convert ${from}->${to}] antifraud allowed=${allowed}`);
       if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
-      const buy = await this.exchangeService.marketBuy(to, usdtIntermediate.toString());
+
+      const feePct = feePctForTrade(from, to);
+
+      let usdtIntermediate = 0;
+      if (from === 'USDT_TRC20') {
+        usdtIntermediate = amountFrom;
+      } else {
+        const sell = await this.exchangeService.marketSell(from, amountFrom.toString());
+        usdtIntermediate = Number(sell.notional_usdt);
+      }
+
+      let buy = await this.exchangeService.marketBuy(to, usdtIntermediate.toString());
       this.logger.verbose(`[convert ${from}->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`);
+
+      const grossTo = Number(buy.amount_asset);
+      const { net: netTo, fee: feeTo } = applyFee(grossTo, feePct);
+
       await addBalance(from, -amountFrom);
-      this.logger.verbose(`[convert ${from}->ESOM] addBalance ${from} delta=${-amountFrom}`);
-      await addBalance(to, Number(buy.amount_asset));
+      await addBalance(to, netTo);
+
       await this.prisma.transaction.create({
         data: {
           kind: TransactionKind.CONVERSION,
           status: TransactionStatus.SUCCESS,
           amount_in: amountFrom.toString(),
           asset_in: from,
-          amount_out: buy.amount_asset,
+          amount_out: netTo.toString(),
           asset_out: to,
           price_usd: buy.price_usd,
           notional_usd: buy.notional_usdt,
+          fee_amount: feeTo.toString(),
           sender_customer_id: customer_id,
           comment: `Convert ${from}->${to}`,
         }
