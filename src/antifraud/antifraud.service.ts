@@ -190,11 +190,13 @@ export class AntiFraudService {
     await upsert('MANY_SENDERS_TO_ONE_10_PER_MONTH', { period_days: 30, min_count: 10 });
   }
 
-  // Evaluate without creating a case; returns triggered rule key or null
-  async evaluateTriggered(ctx: AntiFraudContext): Promise<AntiFraudRuleKey | null> {
+  // Evaluate and return detailed reason; used by shouldAllowTransaction
+  async evaluateTriggeredDetailed(ctx: AntiFraudContext): Promise<{ key: AntiFraudRuleKey; reason: string } | null> {
     await this.ensureDefaults();
     const rules = await this.prisma.antiFraudRule.findMany({ where: { enabled: true } });
     const amountSom = await this.toSom(ctx.asset, ctx.amount);
+
+    const fmt = (n: number) => Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 6 });
 
     const now = new Date();
     const sinceDays = async (days: number) => {
@@ -205,14 +207,23 @@ export class AntiFraudService {
 
     for (const r of rules) {
       switch (r.key) {
-        case 'FIAT_ANY_GE_1M':
-          if ((ctx.asset === 'SOM' || ctx.asset === 'ESOM') && amountSom >= Number(r.threshold_som || 0)) return r.key;
+        case 'FIAT_ANY_GE_1M': {
+          const th = Number(r.threshold_som || 0);
+          if ((ctx.asset === 'SOM' || ctx.asset === 'ESOM') && amountSom >= th)
+            return { key: r.key, reason: `FIAT_ANY_GE_1M: сумма операции ${fmt(amountSom)} СОМ >= порога ${fmt(th)} (актив=${ctx.asset})` };
           break;
-        case 'ONE_TIME_GE_8M':
-          if (amountSom >= Number(r.threshold_som || 0)) return r.key;
+        }
+        case 'ONE_TIME_GE_8M': {
+          const th = Number(r.threshold_som || 0);
+          if (amountSom >= th)
+            return { key: r.key, reason: `ONE_TIME_GE_8M: единовременная сумма ${fmt(amountSom)} СОМ >= ${fmt(th)} СОМ` };
           break;
+        }
         case 'FREQUENT_OPS_3_30D_EACH_GE_100K': {
-          const from = await sinceDays(r.period_days || 30);
+          const period = r.period_days || 30;
+          const th = Number(r.threshold_som || 0);
+          const minCount = r.min_count || 3;
+          const from = await sinceDays(period);
           const count = await this.prisma.transaction.count({
             where: {
               sender_customer_id: ctx.sender_customer_id,
@@ -220,11 +231,15 @@ export class AntiFraudService {
               amount_out: { gte: (r.threshold_som || '0') },
             },
           });
-          if (count >= (r.min_count || 3)) return r.key;
+          if (count >= minCount)
+            return { key: r.key, reason: `FREQUENT_OPS: за ${period} дн. найдено ${count} операций от отправителя ${ctx.sender_customer_id} с суммой >= ${fmt(th)} СОМ каждая (мин. ${minCount})` };
           break;
         }
         case 'WITHDRAW_AFTER_LARGE_INFLOW': {
-          const from = await sinceDays(r.period_days || 7);
+          const period = r.period_days || 7;
+          const th = Number(r.threshold_som || 0);
+          const pct = Number(r.percent_threshold || 0);
+          const from = await sinceDays(period);
           const inflow = await this.prisma.transaction.aggregate({
             _sum: { amount_out: true },
             where: {
@@ -234,21 +249,29 @@ export class AntiFraudService {
             },
           });
           const inflowSom = Number(inflow._sum.amount_out || 0);
-          if (inflowSom > 0 && amountSom >= (inflowSom * Number(r.percent_threshold || 0)) / 100) return r.key;
+          const limit = (inflowSom * pct) / 100;
+          if (inflowSom > 0 && amountSom >= limit)
+            return { key: r.key, reason: `WITHDRAW_AFTER_LARGE_INFLOW: сумма вывода ${fmt(amountSom)} СОМ >= ${fmt(pct)}% от недавнего притока ${fmt(inflowSom)} СОМ (порог ${fmt(limit)} СОМ; период ${period} дн.; мин. транзакция для учета >= ${fmt(th)} СОМ)` };
           break;
         }
         case 'SPLITTING_TOTAL_14D_GE_1M': {
-          const from = await sinceDays(r.period_days || 14);
+          const period = r.period_days || 14;
+          const th = Number(r.threshold_som || 0);
+          const from = await sinceDays(period);
           const agg = await this.prisma.transaction.aggregate({
             _sum: { amount_out: true },
             where: { sender_customer_id: ctx.sender_customer_id, createdAt: { gte: from } },
           });
           const total = Number(agg._sum.amount_out || 0);
-          if (total >= Number(r.threshold_som || 0)) return r.key;
+          if (total >= th)
+            return { key: r.key, reason: `SPLITTING: суммарно за ${period} дн. отправлено ${fmt(total)} СОМ >= порога ${fmt(th)} СОМ (sender=${ctx.sender_customer_id})` };
           break;
         }
         case 'THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M': {
-          const from = await sinceDays(r.period_days || 30);
+          const period = r.period_days || 30;
+          const th = Number(r.threshold_som || 0);
+          const minCount = r.min_count || 3;
+          const from = await sinceDays(period);
           const deposits = await this.prisma.transaction.groupBy({
             by: ['sender_customer_id'],
             where: { receiver_customer_id: ctx.receiver_customer_id, createdAt: { gte: from } },
@@ -256,7 +279,8 @@ export class AntiFraudService {
           });
           const uniqueSenders = deposits.filter(d => Number(d._sum.amount_out || 0) > 0).length;
           const total = deposits.reduce((s, d) => s + Number(d._sum.amount_out || 0), 0);
-          if (uniqueSenders >= (r.min_count || 3) && total >= Number(r.threshold_som || 0)) return r.key;
+          if (uniqueSenders >= minCount && total >= th)
+            return { key: r.key, reason: `THIRD_PARTY_DEPOSITS: получатель ${ctx.receiver_customer_id} получил от ${uniqueSenders} отправителей за ${period} дн. на сумму ${fmt(total)} СОМ (мин. отправителей ${minCount}, порог суммы ${fmt(th)} СОМ)` };
           break;
         }
         case 'AFTER_INACTIVITY_6M': {
@@ -265,17 +289,21 @@ export class AntiFraudService {
             where: { sender_customer_id: ctx.sender_customer_id },
             orderBy: { createdAt: 'desc' },
           });
-          if (!last || last.createdAt < from) return r.key;
+          if (!last || last.createdAt < from)
+            return { key: r.key, reason: `AFTER_INACTIVITY: последняя активность отправителя ${ctx.sender_customer_id} была ${last ? last.createdAt.toISOString() : 'никогда'}, что старше порога ${r.period_days || 180} дн.` };
           break;
         }
         case 'MANY_SENDERS_TO_ONE_10_PER_MONTH': {
-          const from = await sinceDays(r.period_days || 30);
+          const period = r.period_days || 30;
+          const minCount = r.min_count || 10;
+          const from = await sinceDays(period);
           const senders = await this.prisma.transaction.groupBy({
             by: ['sender_customer_id'],
             where: { receiver_customer_id: ctx.receiver_customer_id, createdAt: { gte: from } },
             _count: { sender_customer_id: true },
           });
-          if (senders.length >= (r.min_count || 10)) return r.key;
+          if (senders.length >= minCount)
+            return { key: r.key, reason: `MANY_SENDERS_TO_ONE: получатель ${ctx.receiver_customer_id} получил переводы от ${senders.length} отправителей за ${period} дн. (порог ${minCount})` };
           break;
         }
       }
@@ -330,14 +358,14 @@ export class AntiFraudService {
   }): Promise<boolean> {
     const amount = plan.amount_out ?? plan.amount_in;
     const asset = plan.asset_out ?? plan.asset_in;
-    const key = await this.evaluateTriggered({
+    const detail = await this.evaluateTriggeredDetailed({
       kind: plan.kind,
       amount,
       asset,
       sender_customer_id: plan.sender_customer_id,
       receiver_customer_id: plan.receiver_customer_id,
     });
-    if (!key) return true;
+    if (!detail) return true;
     const approvedBefore = await this.hasApprovedIdentical({
       kind: plan.kind,
       sender_customer_id: plan.sender_customer_id,
@@ -349,6 +377,7 @@ export class AntiFraudService {
       external_address: plan.external_address,
     });
     if (approvedBefore) return true;
+    const reason = `${detail.reason}`;
     const tx = await this.prisma.transaction.create({
       data: ({
         kind: plan.kind,
@@ -361,10 +390,10 @@ export class AntiFraudService {
         receiver_customer_id: plan.receiver_customer_id,
         receiver_wallet_address: plan.receiver_wallet_address ?? undefined,
         external_address: plan.external_address ?? undefined,
-        comment: plan.comment ?? 'Rejected by anti-fraud',
+        comment: plan.comment ? `${plan.comment} — ${reason}` : reason,
       }),
     });
-    await this.openCase(tx.id, key, 'Triggered by antifraud rule');
+    await this.openCase(tx.id, detail.key, reason);
     return false;
   }
 
