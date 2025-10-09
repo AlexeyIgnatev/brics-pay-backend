@@ -296,8 +296,8 @@ export class PaymentsService {
     const min = asset === 'BTC' ? Number(s.min_withdraw_btc)
       : asset === 'ETH' ? Number(s.min_withdraw_eth)
         : Number(s.min_withdraw_usdt_trc20);
+
     if (amount < min) {
-      
       throw new Error('Amount below minimum withdrawal');
     }
 

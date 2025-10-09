@@ -16,26 +16,6 @@ export class PaymentsController {
   ) {
   }
 
-  @Post('fiat-to-crypto')
-  @UseGuards(BasicAuthGuard)
-  @ApiBearerAuth('Basic')
-  async fiatToCrypto(
-    @Body() paymentDto: PaymentDto,
-    @Req() req: { user: UserInfoDto },
-  ): Promise<StatusOKDto> {
-    return this.paymentsService.fiatToCrypto(paymentDto, req?.user.customer_id);
-  }
-
-  @Post('crypto-to-fiat')
-  @ApiBearerAuth('Basic')
-  @UseGuards(BasicAuthGuard)
-  async cryptoToFiat(
-    @Body() paymentDto: PaymentDto,
-    @Req() req: { user: UserInfoDto },
-  ): Promise<StatusOKDto> {
-    return this.paymentsService.cryptoToFiat(paymentDto, req?.user.customer_id);
-  }
-
   @Post('transfer')
   @ApiBearerAuth('Basic')
   @UseGuards(BasicAuthGuard)
@@ -55,7 +35,6 @@ export class PaymentsController {
   ): Promise<StatusOKDto> {
     return this.paymentsService.convert(dto, req?.user.customer_id);
   }
-
 
   @Post('history')
   @ApiBearerAuth('Basic')
