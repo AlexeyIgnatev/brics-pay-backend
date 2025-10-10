@@ -557,7 +557,13 @@ export class PaymentsService {
         throw new BadRequestException('Address is required for crypto withdrawal');
       }
       const asset = transferDto.currency as unknown as Asset;
-      return this.withdrawCrypto(asset, transferDto.address, transferDto.amount, customer_id);
+      if (transferDto.address) {
+        return this.withdrawCrypto(asset, transferDto.address, transferDto.amount, customer_id);
+      }
+      if (transferDto.phone_number) {
+        return this.transferCryptoByPhone(asset, transferDto.amount, transferDto.phone_number, customer_id);
+      }
+      throw new Error('Either address or phone_number is required for crypto transfer');
     } else {
       return new StatusOKDto();
     }
@@ -701,6 +707,71 @@ export class PaymentsService {
       where: { customer_id_asset: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset } },
       create: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset, balance: transferDto.amount.toString() },
       update: { balance: { increment: transferDto.amount.toString() } },
+    });
+
+    return new StatusOKDto();
+  }
+
+
+  private async transferCryptoByPhone(asset: Asset, amount: number, phone: string, sender_id: number): Promise<StatusOKDto> {
+    this.logger.verbose(`[transferCryptoByPhone] asset=${asset} amount=${amount} phone=${phone} sender=${sender_id}`);
+    const sender = await this.prisma.customer.findUnique({ where: { customer_id: sender_id } });
+    if (!sender) throw new Error('Sender not found');
+
+    const bricsRecipient = await this.bricsService.findAccount(phone);
+    if (!bricsRecipient) throw new Error('Recipient not found');
+    const receiver_id = bricsRecipient.CustomerID;
+
+    // Антифрод-предчек (без ончейн операций)
+    const allowed = await this.antiFraud.shouldAllowTransaction({
+      kind: TransactionKind.WALLET_TO_WALLET,
+      amount_in: amount,
+      asset_in: asset,
+      asset_out: asset,
+      sender_customer_id: sender_id,
+      receiver_customer_id: receiver_id,
+      comment: `Crypto transfer by phone (${asset})`,
+    });
+    if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+
+    // Обеспечиваем наличие записи получателя в нашей БД (кошелек может быть не нужен, но Customer обязателен)
+    let recipient = await this.prisma.customer.findUnique({ where: { customer_id: receiver_id } });
+    if (!recipient) {
+      // создаем техн. запись с пустым кошельком? У нас address обязательный. Сгенерируем, как в ESOM переводе.
+      const recipientAddress = this.ethereumService.generateAddress();
+      recipient = await this.prisma.customer.create({
+        data: {
+          customer_id: receiver_id,
+          address: recipientAddress.address,
+          private_key: recipientAddress.privateKey,
+        },
+      });
+    }
+
+    // Атомарно списываем у отправителя и начисляем получателю в таблице кеш-балансов
+    await this.prisma.$transaction(async (tx) => {
+      const bal = await tx.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id: sender_id, asset } } });
+      const current = Number(bal?.balance ?? 0);
+      if (current < amount) throw new Error('Insufficient balance');
+      await tx.userAssetBalance.update({ where: { customer_id_asset: { customer_id: sender_id, asset } }, data: { balance: { decrement: amount.toString() } } });
+      await tx.userAssetBalance.upsert({
+        where: { customer_id_asset: { customer_id: receiver_id, asset } },
+        create: { customer_id: receiver_id, asset, balance: amount.toString() },
+        update: { balance: { increment: amount.toString() } },
+      });
+      await tx.transaction.create({
+        data: {
+          kind: TransactionKind.WALLET_TO_WALLET,
+          status: TransactionStatus.SUCCESS,
+          amount_in: amount.toString(),
+          asset_in: asset,
+          amount_out: amount.toString(),
+          asset_out: asset,
+          sender_customer_id: sender_id,
+          receiver_customer_id: receiver_id,
+          comment: `Crypto transfer by phone (${asset})`,
+        }
+      });
     });
 
     return new StatusOKDto();
