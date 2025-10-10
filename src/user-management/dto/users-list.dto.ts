@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
 
 export enum UserStatusDtoEnum { ACTIVE = 'ACTIVE', FRAUD = 'FRAUD', BLOCKED = 'BLOCKED' }
 
@@ -16,7 +16,10 @@ export class UsersListQueryDto {
   @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))
   status?: UserStatusDtoEnum[];
 
-  @ApiPropertyOptional({ enum: ['customer_id', 'fio', 'phone', 'email', 'status', 'som_balance', 'total_balance', 'createdAt'], default: 'createdAt' })
+  @ApiPropertyOptional({
+    enum: ['customer_id', 'fio', 'phone', 'email', 'status', 'som_balance', 'total_balance', 'createdAt'],
+    default: 'createdAt',
+  })
   @IsOptional()
   @IsString()
   sort_by?: 'customer_id' | 'fio' | 'phone' | 'email' | 'status' | 'som_balance' | 'total_balance' | 'createdAt' = 'createdAt';
@@ -71,10 +74,39 @@ export class UsersListResponseDto {
 }
 
 export class AdminUpdateUserDto {
-  @ApiPropertyOptional() first_name?: string;
-  @ApiPropertyOptional() middle_name?: string;
-  @ApiPropertyOptional() last_name?: string;
-  @ApiPropertyOptional() phone?: string;
-  @ApiPropertyOptional() email?: string;
-  @ApiPropertyOptional({ enum: UserStatusDtoEnum }) status?: UserStatusDtoEnum;
+  @ApiPropertyOptional()
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  first_name?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  middle_name?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  last_name?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  phone?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  email?: string;
+
+  @ApiPropertyOptional({ enum: UserStatusDtoEnum })
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  status?: UserStatusDtoEnum;
 }
