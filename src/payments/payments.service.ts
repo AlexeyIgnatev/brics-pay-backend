@@ -37,22 +37,24 @@ export class PaymentsService {
 
   async getHistory(body: GetTransactions, customer_id: number): Promise<TransactionDto[]> {
     const me = await this.prisma.customer.findUnique({ where: { customer_id } });
-    const where: any = {
-      OR: [
-        { sender_customer_id: customer_id },
-        { receiver_customer_id: customer_id },
-        me?.address ? { sender_wallet_address: me.address } : undefined,
-        me?.address ? { receiver_wallet_address: me.address } : undefined,
-      ].filter(Boolean),
-    };
+    const userOr = [
+      { sender_customer_id: customer_id },
+      { receiver_customer_id: customer_id },
+      me?.address ? { sender_wallet_address: me.address } : undefined,
+      me?.address ? { receiver_wallet_address: me.address } : undefined,
+    ].filter(Boolean);
+
+    const where: any = { OR: userOr };
 
     if (body.currency?.length) {
-      // фильтруем по любой из валют (in или out)
-      where.OR = [
-        ...(where.OR || []),
-        { asset_out: { in: body.currency.map(c => c as unknown as Asset) } },
-        { asset_in: { in: body.currency.map(c => c as unknown as Asset) } },
+      const assets = body.currency.map(c => c as unknown as Asset);
+      const currencyOr = [
+        { asset_out: { in: assets } },
+        { asset_in: { in: assets } },
       ];
+      // Объединяем фильтр пользователя И фильтр валюты через AND
+      where.AND = [ { OR: userOr }, { OR: currencyOr } ];
+      delete where.OR;
     }
     if (body.from_time || body.to_time) {
       where.createdAt = {} as { gte?: Date; lte?: Date };
