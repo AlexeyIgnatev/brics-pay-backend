@@ -210,13 +210,19 @@ export class AntiFraudService {
         case 'FIAT_ANY_GE_1M': {
           const th = Number(r.threshold_som || 0);
           if ((ctx.asset === 'SOM' || ctx.asset === 'ESOM') && amountSom >= th)
-            return { key: r.key, reason: `FIAT_ANY_GE_1M: сумма операции ${fmt(amountSom)} СОМ >= порога ${fmt(th)} (актив=${ctx.asset})` };
+            return {
+              key: r.key,
+              reason: `FIAT_ANY_GE_1M: сумма операции ${fmt(amountSom)} СОМ >= порога ${fmt(th)} (актив=${ctx.asset})`,
+            };
           break;
         }
         case 'ONE_TIME_GE_8M': {
           const th = Number(r.threshold_som || 0);
           if (amountSom >= th)
-            return { key: r.key, reason: `ONE_TIME_GE_8M: единовременная сумма ${fmt(amountSom)} СОМ >= ${fmt(th)} СОМ` };
+            return {
+              key: r.key,
+              reason: `ONE_TIME_GE_8M: единовременная сумма ${fmt(amountSom)} СОМ >= ${fmt(th)} СОМ`,
+            };
           break;
         }
         case 'FREQUENT_OPS_3_30D_EACH_GE_100K': {
@@ -232,7 +238,10 @@ export class AntiFraudService {
             },
           });
           if (count >= minCount)
-            return { key: r.key, reason: `FREQUENT_OPS: за ${period} дн. найдено ${count} операций от отправителя ${ctx.sender_customer_id} с суммой >= ${fmt(th)} СОМ каждая (мин. ${minCount})` };
+            return {
+              key: r.key,
+              reason: `FREQUENT_OPS: за ${period} дн. найдено ${count} операций от отправителя ${ctx.sender_customer_id} с суммой >= ${fmt(th)} СОМ каждая (мин. ${minCount})`,
+            };
           break;
         }
         case 'WITHDRAW_AFTER_LARGE_INFLOW': {
@@ -251,7 +260,10 @@ export class AntiFraudService {
           const inflowSom = Number(inflow._sum.amount_out || 0);
           const limit = (inflowSom * pct) / 100;
           if (inflowSom > 0 && amountSom >= limit)
-            return { key: r.key, reason: `WITHDRAW_AFTER_LARGE_INFLOW: сумма вывода ${fmt(amountSom)} СОМ >= ${fmt(pct)}% от недавнего притока ${fmt(inflowSom)} СОМ (порог ${fmt(limit)} СОМ; период ${period} дн.; мин. транзакция для учета >= ${fmt(th)} СОМ)` };
+            return {
+              key: r.key,
+              reason: `WITHDRAW_AFTER_LARGE_INFLOW: сумма вывода ${fmt(amountSom)} СОМ >= ${fmt(pct)}% от недавнего притока ${fmt(inflowSom)} СОМ (порог ${fmt(limit)} СОМ; период ${period} дн.; мин. транзакция для учета >= ${fmt(th)} СОМ)`,
+            };
           break;
         }
         case 'SPLITTING_TOTAL_14D_GE_1M': {
@@ -264,7 +276,10 @@ export class AntiFraudService {
           });
           const total = Number(agg._sum.amount_out || 0);
           if (total >= th)
-            return { key: r.key, reason: `SPLITTING: суммарно за ${period} дн. отправлено ${fmt(total)} СОМ >= порога ${fmt(th)} СОМ (sender=${ctx.sender_customer_id})` };
+            return {
+              key: r.key,
+              reason: `SPLITTING: суммарно за ${period} дн. отправлено ${fmt(total)} СОМ >= порога ${fmt(th)} СОМ (sender=${ctx.sender_customer_id})`,
+            };
           break;
         }
         case 'THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M': {
@@ -280,7 +295,10 @@ export class AntiFraudService {
           const uniqueSenders = deposits.filter(d => Number(d._sum.amount_out || 0) > 0).length;
           const total = deposits.reduce((s, d) => s + Number(d._sum.amount_out || 0), 0);
           if (uniqueSenders >= minCount && total >= th)
-            return { key: r.key, reason: `THIRD_PARTY_DEPOSITS: получатель ${ctx.receiver_customer_id} получил от ${uniqueSenders} отправителей за ${period} дн. на сумму ${fmt(total)} СОМ (мин. отправителей ${minCount}, порог суммы ${fmt(th)} СОМ)` };
+            return {
+              key: r.key,
+              reason: `THIRD_PARTY_DEPOSITS: получатель ${ctx.receiver_customer_id} получил от ${uniqueSenders} отправителей за ${period} дн. на сумму ${fmt(total)} СОМ (мин. отправителей ${minCount}, порог суммы ${fmt(th)} СОМ)`,
+            };
           break;
         }
         case 'AFTER_INACTIVITY_6M': {
@@ -290,7 +308,10 @@ export class AntiFraudService {
             orderBy: { createdAt: 'desc' },
           });
           if (!last || last.createdAt < from)
-            return { key: r.key, reason: `AFTER_INACTIVITY: последняя активность отправителя ${ctx.sender_customer_id} была ${last ? last.createdAt.toISOString() : 'никогда'}, что старше порога ${r.period_days || 180} дн.` };
+            return {
+              key: r.key,
+              reason: `AFTER_INACTIVITY: последняя активность отправителя ${ctx.sender_customer_id} была ${last ? last.createdAt.toISOString() : 'никогда'}, что старше порога ${r.period_days || 180} дн.`,
+            };
           break;
         }
         case 'MANY_SENDERS_TO_ONE_10_PER_MONTH': {
@@ -303,7 +324,10 @@ export class AntiFraudService {
             _count: { sender_customer_id: true },
           });
           if (senders.length >= minCount)
-            return { key: r.key, reason: `MANY_SENDERS_TO_ONE: получатель ${ctx.receiver_customer_id} получил переводы от ${senders.length} отправителей за ${period} дн. (порог ${minCount})` };
+            return {
+              key: r.key,
+              reason: `MANY_SENDERS_TO_ONE: получатель ${ctx.receiver_customer_id} получил переводы от ${senders.length} отправителей за ${period} дн. (порог ${minCount})`,
+            };
           break;
         }
       }
@@ -356,8 +380,9 @@ export class AntiFraudService {
     external_address?: string | null;
     comment?: string;
   }): Promise<boolean> {
-    const amount = plan.amount_out ?? plan.amount_in;
-    const asset = plan.asset_out ?? plan.asset_in;
+    const amount = plan.amount_out != undefined ? plan.amount_out : plan.amount_in;
+    const asset = plan.amount_out != undefined ? plan.asset_out : plan.asset_in;
+
     const detail = await this.evaluateTriggeredDetailed({
       kind: plan.kind,
       amount,
@@ -384,7 +409,7 @@ export class AntiFraudService {
         status: 'REJECTED',
         amount_in: plan.amount_in.toString(),
         asset_in: plan.asset_in,
-        amount_out: (plan.amount_out ?? plan.amount_in).toString(),
+        amount_out: (plan.amount_out ?? 0).toString(),
         asset_out: plan.asset_out,
         sender_customer_id: plan.sender_customer_id,
         receiver_customer_id: plan.receiver_customer_id,

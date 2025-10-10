@@ -86,8 +86,8 @@ export class TransactionsService {
       id: t.id,
       kind: t.kind as unknown as string,
       status: t.status as unknown as string,
-      amount: Number(t.amount_out),
-      asset: t.asset_out as unknown as string,
+      amount: Number(t.amount_in),
+      asset: t.asset_in as unknown as string,
       tx_hash: t.tx_hash ?? undefined,
       bank_op_id: t.bank_op_id ?? undefined,
       sender_customer_id: t.sender_customer_id ?? undefined,
@@ -122,7 +122,6 @@ export class TransactionsService {
     if (query.kind?.length) where.kind = { in: query.kind as TransactionKind[] };
     if (query.status?.length) where.status = { in: query.status as TransactionStatus[] };
     if (query.asset?.length) where.OR = [
-      { asset_out: { in: query.asset as Asset[] } },
       { asset_in: { in: query.asset as Asset[] } },
     ];
     if (query.date_from || query.date_to) {
@@ -133,7 +132,7 @@ export class TransactionsService {
 
     const txs = await this.prisma.transaction.findMany({
       where,
-      select: { id: true, createdAt: true, amount_out: true, asset_out: true },
+      select: { id: true, createdAt: true, amount_in: true, asset_in: true },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -169,7 +168,7 @@ export class TransactionsService {
 
     let totalSumSom = 0;
     for (const t of txs) {
-      const som = toSom(t.asset_out as Asset, t.amount_out as unknown as string);
+      const som = toSom(t.asset_in as Asset, t.amount_in as unknown as string);
       totalSumSom += som;
       const k = keyFor(t.createdAt);
       const cur = seriesMap.get(k) || { sum: 0, count: 0 };
@@ -177,7 +176,7 @@ export class TransactionsService {
       cur.count += 1;
       seriesMap.set(k, cur);
 
-      const a = t.asset_out as string;
+      const a = t.asset_in as string;
       perCurrencySum.set(a, (perCurrencySum.get(a) || 0) + som);
       perCurrencyCount.set(a, (perCurrencyCount.get(a) || 0) + 1);
     }
