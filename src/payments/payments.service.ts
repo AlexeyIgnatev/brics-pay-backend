@@ -92,26 +92,32 @@ export class PaymentsService {
 
     // По умолчанию показываем входящую сторону (asset_in/amount_in)
     const rows: TransactionDto[] = [];
+    const filterSet = body.currency?.length ? new Set(body.currency) : null;
+
     for (const t of items) {
+      const inCurrency = (t.asset_in || 'SOM') as unknown as Currency;
       const baseRow: TransactionDto = {
-        currency: (t.asset_in || 'SOM') as unknown as Currency,
+        currency: inCurrency,
         amount: Number(t.amount_in),
         type: mapType(t),
         successful: t.status === 'SUCCESS',
         created_at: t.createdAt.getTime(),
       };
-      rows.push(baseRow);
+      if (!filterSet || filterSet.has(inCurrency)) rows.push(baseRow);
 
       // Если успешная конвертация и валюты различаются — добавить вторую строку с out
       const isConversion = t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK';
       if (t.status === 'SUCCESS' && isConversion && t.asset_in && t.asset_out && t.asset_in !== t.asset_out) {
-        rows.push({
-          currency: (t.asset_out || 'SOM') as unknown as Currency,
-          amount: Number(t.amount_out),
-          type: mapType(t),
-          successful: true,
-          created_at: t.createdAt.getTime(),
-        });
+        const outCurrency = (t.asset_out || 'SOM') as unknown as Currency;
+        if (!filterSet || filterSet.has(outCurrency)) {
+          rows.push({
+            currency: outCurrency,
+            amount: Number(t.amount_out),
+            type: mapType(t),
+            successful: true,
+            created_at: t.createdAt.getTime(),
+          });
+        }
       }
     }
     return rows;
