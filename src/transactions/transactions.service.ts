@@ -19,15 +19,14 @@ export class TransactionsService {
     if (query.kind?.length) where.kind = { in: query.kind as TransactionKind[] };
     if (query.status?.length) where.status = { in: query.status as TransactionStatus[] };
     if (query.asset?.length) where.OR = [
-      { asset_out: { in: query.asset as Asset[] } },
       { asset_in: { in: query.asset as Asset[] } },
     ];
     if (query.tx_hash) where.tx_hash = { contains: query.tx_hash };
     if (query.id) where.bank_op_id = query.id;
     if (query.amount_min != null || query.amount_max != null) {
-      where.amount_out = {} as { gte?: string; lte?: string };
-      if (query.amount_min != null) (where.amount_out as { gte?: string }).gte = query.amount_min.toString();
-      if (query.amount_max != null) (where.amount_out as { lte?: string }).lte = query.amount_max.toString();
+      where.amount_in = {} as { gte?: string; lte?: string };
+      if (query.amount_min != null) (where.amount_in as { gte?: string }).gte = query.amount_min.toString();
+      if (query.amount_max != null) (where.amount_in as { lte?: string }).lte = query.amount_max.toString();
     }
     if (query.date_from || query.date_to) {
       where.createdAt = {} as { gte?: Date; lte?: Date };
@@ -63,7 +62,7 @@ export class TransactionsService {
     }
 
     const orderBy: Prisma.TransactionOrderByWithRelationInput = {};
-    const sortBy = (query.sort_by === 'amount' ? 'amount_out' : query.sort_by) ?? 'createdAt';
+    const sortBy = (query.sort_by === 'amount' ? 'amount_in' : query.sort_by) ?? 'createdAt';
     const sortDir = query.sort_dir ?? 'desc';
     (orderBy as Record<string, 'asc' | 'desc'>)[sortBy] = sortDir;
 
@@ -227,15 +226,15 @@ export class TransactionsService {
 
     const baseWhere: Prisma.TransactionWhereInput = { createdAt: { gte: start, lte: end } };
 
-    const totalSom = await this.prisma.transaction.aggregate({ _sum: { amount_out: true }, where: baseWhere });
-    const bankToBank = await this.prisma.transaction.aggregate({ _sum: { amount_out: true }, where: { ...baseWhere, kind: 'BANK_TO_BANK' } });
-    const walletToWallet = await this.prisma.transaction.aggregate({ _sum: { amount_out: true }, where: { ...baseWhere, kind: 'WALLET_TO_WALLET' } });
+    const totalSom = await this.prisma.transaction.aggregate({ _sum: { amount_in: true }, where: baseWhere });
+    const bankToBank = await this.prisma.transaction.aggregate({ _sum: { amount_in: true }, where: { ...baseWhere, kind: 'BANK_TO_BANK' } });
+    const walletToWallet = await this.prisma.transaction.aggregate({ _sum: { amount_in: true }, where: { ...baseWhere, kind: 'WALLET_TO_WALLET' } });
     const usersCount = await this.prisma.customer.count();
 
     return {
-      total_amount_som: Number(totalSom._sum.amount_out ?? 0),
-      bank_to_bank_som: Number(bankToBank._sum.amount_out ?? 0),
-      wallet_to_wallet_som: Number(walletToWallet._sum.amount_out ?? 0),
+      total_amount_som: Number(totalSom._sum.amount_in ?? 0),
+      bank_to_bank_som: Number(bankToBank._sum.amount_in ?? 0),
+      wallet_to_wallet_som: Number(walletToWallet._sum.amount_in ?? 0),
       users_count: usersCount,
       date_from: start.toISOString(),
       date_to: end.toISOString(),
