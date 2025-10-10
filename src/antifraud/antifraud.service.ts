@@ -219,7 +219,7 @@ export class AntiFraudService {
       switch (r.key) {
         case 'FIAT_ANY_GE_1M': {
           const th = Number(r.threshold_som || 0);
-          if ((ctx.asset === 'SOM' || ctx.asset === 'ESOM') && amountSom >= th)
+          if ((ctx.asset === 'SOM') && amountSom >= th)
             return {
               key: r.key,
               reason: `FIAT_ANY_GE_1M: сумма операции ${fmt(amountSom)} СОМ >= порога ${fmt(th)} (актив=${ctx.asset})`,
@@ -390,8 +390,8 @@ export class AntiFraudService {
     external_address?: string | null;
     comment?: string;
   }): Promise<boolean> {
-    const amount = plan.amount_out != undefined ? plan.amount_out : plan.amount_in;
-    const asset = plan.amount_out != undefined ? plan.asset_out : plan.asset_in;
+    const amount = plan.amount_in;
+    const asset = plan.asset_in;
 
     const detail = await this.evaluateTriggeredDetailed({
       kind: plan.kind,
@@ -413,9 +413,11 @@ export class AntiFraudService {
     });
     if (approvedBefore) return true;
     const reason = `${detail.reason}`;
-    // Помечаем отправителя статусом FRAUD (если указан), при создании REJECTED транзакции и кейса
     if (plan.sender_customer_id) {
-      await this.prisma.customer.updateMany({ where: { customer_id: plan.sender_customer_id }, data: { status: 'FRAUD' } });
+      await this.prisma.customer.updateMany({
+        where: { customer_id: plan.sender_customer_id },
+        data: { status: 'FRAUD' },
+      });
     }
     const tx = await this.prisma.transaction.create({
       data: ({
