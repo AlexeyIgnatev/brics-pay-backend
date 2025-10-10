@@ -118,7 +118,7 @@ export class UsersService {
     const usdtBuy = usdtBaseEsom * (1 + usdtFee);
     const usdtSell = usdtBaseEsom * (1 - usdtFee);
 
-    const [btcBalanceRec, ethLiveBalance, usdtBalanceRec] = await Promise.all([
+    const [btcBalanceRec, ethBalanceRec, usdtBalanceRec] = await Promise.all([
       this.prisma.userAssetBalance.findUnique({
         where: {
           customer_id_asset: {
@@ -170,7 +170,7 @@ export class UsersService {
       {
         currency: Currency.ETH,
         address: this.cryptoService.ethAddressFromPrivateKey(user.private_key),
-        balance: Number(ethLiveBalance ?? 0),
+        balance: Number(ethBalanceRec?.balance ?? 0),
         buy_rate: ethBuy,
         sell_rate: ethSell,
       },
