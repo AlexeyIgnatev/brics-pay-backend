@@ -1,4 +1,4 @@
-import { Injectable, Logger, Scope } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Scope } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import * as cheerio from 'cheerio';
@@ -62,7 +62,7 @@ export class BricsService {
     const token = $('input[name="__RequestVerificationToken"]').val();
     if (!token) {
       this.logger.error('Токен не найден в ответе');
-      throw new Error('Токен не найден в ответе');
+      throw new BadRequestException('Токен не найден в ответе');
     }
     this.logger.verbose(`Parsed RequestVerificationToken ${token}`);
     return token as string;
@@ -81,7 +81,7 @@ export class BricsService {
       innerHtml = scriptTag.html();
       if (!innerHtml) {
         this.logger.error('Script tag found but empty');
-        throw new Error('Script tag found but empty');
+        throw new BadRequestException('Script tag found but empty');
       }
       // Загружаем заново как HTML
       $ = cheerio.load(innerHtml);
@@ -90,7 +90,7 @@ export class BricsService {
     const token = $('input[name="__RequestVerificationToken"]').val();
     if (!token) {
       this.logger.error('Токен не найден в ответе');
-      throw new Error('Токен не найден в ответе');
+      throw new BadRequestException('Токен не найден в ответе');
     }
     this.logger.verbose(`Parsed RequestVerificationToken ${token}`);
     return token as string;

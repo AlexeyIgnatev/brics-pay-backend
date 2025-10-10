@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
 import * as Ethers from 'ethers';
 import * as TronWeb from 'tronweb';
@@ -16,7 +16,7 @@ export class CryptoService {
     let hex = priv.trim();
     if (hex.startsWith('0x') || hex.startsWith('0X')) hex = hex.slice(2);
     if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
-      throw new Error('Invalid private key: expected 32-byte hex (64 chars).');
+      throw new BadRequestException('Invalid private key: expected 32-byte hex (64 chars).');
     }
     return hex.toLowerCase();
   }
@@ -44,7 +44,7 @@ export class CryptoService {
       pubkey: pubkey,
       network: bitcoin.networks.bitcoin,
     });
-    if (!address) throw new Error('Failed to derive BTC address');
+    if (!address) throw new BadRequestException('Failed to derive BTC address');
     return address;
   }
 }

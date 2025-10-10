@@ -1,8 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 /* eslint-disable max-classes-per-file */
-
 import { ModuleRef } from '@nestjs/core';
-import { Asset, Prisma, PrismaClient, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
+import { Asset, PrismaClient, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
 import { AntiFraudService } from '../antifraud/antifraud.service';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { EthereumService } from 'src/config/ethereum/ethereum.service';
@@ -31,9 +30,10 @@ export class PaymentsService {
     private readonly exchangeService: BybitExchangeService,
     private readonly balanceFetchService: BalanceFetchService,
     private readonly antiFraud: AntiFraudService,
-   ) {
+  ) {
   }
-  private readonly logger = new (Logger as any)("PaymentsService");
+
+  private readonly logger = new (Logger as any)('PaymentsService');
 
   async getHistory(body: GetTransactions, customer_id: number): Promise<TransactionDto[]> {
     const me = await this.prisma.customer.findUnique({ where: { customer_id } });
@@ -53,7 +53,7 @@ export class PaymentsService {
         { asset_in: { in: assets } },
       ];
       // Объединяем фильтр пользователя И фильтр валюты через AND
-      where.AND = [ { OR: userOr }, { OR: currencyOr } ];
+      where.AND = [{ OR: userOr }, { OR: currencyOr }];
       delete where.OR;
     }
     if (body.from_time || body.to_time) {
@@ -143,10 +143,14 @@ export class PaymentsService {
 
     const feePctForAsset = (asset: Asset): number => {
       switch (asset) {
-        case 'BTC': return Number(s.btc_trade_fee_pct || 0);
-        case 'ETH': return Number(s.eth_trade_fee_pct || 0);
-        case 'USDT_TRC20': return Number(s.usdt_trade_fee_pct || 0);
-        default: return 0;
+        case 'BTC':
+          return Number(s.btc_trade_fee_pct || 0);
+        case 'ETH':
+          return Number(s.eth_trade_fee_pct || 0);
+        case 'USDT_TRC20':
+          return Number(s.usdt_trade_fee_pct || 0);
+        default:
+          return 0;
       }
     };
 
@@ -208,7 +212,7 @@ export class PaymentsService {
           fee_amount: fee.toString(),
           sender_customer_id: customer_id,
           comment: `Convert ESOM->${to}`,
-        }
+        },
       });
       // Refresh only ESOM balance to avoid overwriting exchange-held balances
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
@@ -256,7 +260,7 @@ export class PaymentsService {
           fee_amount: feeEsom.toString(),
           sender_customer_id: customer_id,
           comment: `Convert ${from}->ESOM`,
-        }
+        },
       });
       // Refresh only ESOM balance after mint
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
@@ -308,7 +312,7 @@ export class PaymentsService {
           fee_amount: feeTo.toString(),
           sender_customer_id: customer_id,
           comment: `Convert ${from}->${to}`,
-        }
+        },
       });
       return new StatusOKDto();
     }
@@ -331,7 +335,7 @@ export class PaymentsService {
         : Number(s.min_withdraw_usdt_trc20);
 
     if (amount < min) {
-      throw new Error('Amount below minimum withdrawal');
+      throw new BadRequestException('Amount below minimum withdrawal');
     }
 
     this.logger.verbose(`[withdrawCrypto] min=${min}`);
@@ -358,7 +362,7 @@ export class PaymentsService {
     await this.prisma.$transaction(async (tx) => {
       const bal = await tx.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id, asset } } });
       const current = Number(bal?.balance ?? 0);
-      if (current < total) throw new Error('Insufficient balance including fee');
+      if (current < total) throw new BadRequestException('Insufficient balance including fee');
       this.logger.verbose(`[withdrawCrypto] balance_before=${current}`);
       await tx.userAssetBalance.update({
         where: { customer_id_asset: { customer_id, asset } },
@@ -392,7 +396,7 @@ export class PaymentsService {
           external_address: address,
           sender_customer_id: customer_id,
           comment: `Withdraw ${amount} ${asset}`,
-        }
+        },
       });
     });
 
@@ -409,7 +413,7 @@ export class PaymentsService {
       where: { customer_id: customer_id },
     });
     if (!customer) {
-      throw new Error('Customer not found');
+      throw new BadRequestException('Customer not found');
     }
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
@@ -429,13 +433,13 @@ export class PaymentsService {
       customer.customer_id.toString(),
     );
     if (!bricsTransaction) {
-      throw new Error('Brics transaction failed');
+      throw new BadRequestException('Brics transaction failed');
     }
 
     const ethTransaction = await this.ethereumService.transferFromFiat(customer.address, amount);
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
     if (!ethTransaction?.success) {
-      throw new Error('Ethereum transaction failed');
+      throw new BadRequestException('Ethereum transaction failed');
     }
 
     await this.prisma.transaction.create({
@@ -451,7 +455,7 @@ export class PaymentsService {
         sender_customer_id: customer.customer_id,
         receiver_wallet_address: customer.address,
         comment: 'Fiat->Crypto',
-      }
+      },
     });
 
     // decrement SOM cached balance by amount
@@ -474,7 +478,7 @@ export class PaymentsService {
       where: { customer_id: customer_id },
     });
     if (!customer) {
-      throw new Error('Customer not found');
+      throw new BadRequestException('Customer not found');
     }
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
@@ -490,7 +494,7 @@ export class PaymentsService {
     const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
     if (!ethTransaction?.success) {
-      throw new Error('Ethereum transaction failed');
+      throw new BadRequestException('Ethereum transaction failed');
     }
 
     const adminBricsService = await this.moduleRef.create(BricsService);
@@ -500,7 +504,7 @@ export class PaymentsService {
       this.configService.get<string>('ADMIN_PASSWORD')!,
     );
     if (!adminAuth) {
-      throw new Error('Admin authentication failed');
+      throw new BadRequestException('Admin authentication failed');
     }
 
     const bricsTransaction = await adminBricsService.createTransactionCryptoToFiat(
@@ -508,7 +512,7 @@ export class PaymentsService {
       customer.customer_id.toString(),
     );
     if (!bricsTransaction) {
-      throw new Error('Brics transaction failed');
+      throw new BadRequestException('Brics transaction failed');
     }
 
     await this.prisma.transaction.create({
@@ -550,7 +554,7 @@ export class PaymentsService {
       transferDto.currency == Currency.USDT_TRC20
     ) {
       if (!transferDto.address) {
-        throw new Error('Address is required for crypto withdrawal');
+        throw new BadRequestException('Address is required for crypto withdrawal');
       }
       const asset = transferDto.currency as unknown as Asset;
       return this.withdrawCrypto(asset, transferDto.address, transferDto.amount, customer_id);
@@ -567,14 +571,14 @@ export class PaymentsService {
       where: { customer_id: customer_id },
     });
     if (!customer) {
-      throw new Error('Customer not found');
+      throw new BadRequestException('Customer not found');
     }
 
     const bricsRecipient = await this.bricsService.findAccount(
       transferDto.phone_number!,
     );
     if (!bricsRecipient) {
-      throw new Error('Recipient not found');
+      throw new BadRequestException('Recipient not found');
     }
 
     // антифрод-предчек: отменяем операцию без побочных эффектов, если сработал
@@ -609,7 +613,7 @@ export class PaymentsService {
       customer.private_key,
     );
     if (!ethTransaction?.success) {
-      throw new Error('Ethereum transaction failed');
+      throw new BadRequestException('Ethereum transaction failed');
     }
 
     await this.prisma.transaction.create({
@@ -624,7 +628,7 @@ export class PaymentsService {
         sender_customer_id: customer.customer_id,
         receiver_customer_id: recipient.customer_id,
         comment: 'ESOM transfer',
-      }
+      },
     });
 
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
@@ -642,14 +646,14 @@ export class PaymentsService {
       where: { customer_id: customer_id },
     });
     if (!customer) {
-      throw new Error('Customer not found');
+      throw new BadRequestException('Customer not found');
     }
 
     const bricsRecipient = await this.bricsService.findAccount(
       transferDto.phone_number!,
     );
     if (!bricsRecipient) {
-      throw new Error('Recipient not found');
+      throw new BadRequestException('Recipient not found');
     }
 
     // предчек антифрода
@@ -670,7 +674,7 @@ export class PaymentsService {
       bricsRecipient.CustomerID.toString(),
     );
     if (!bricsTransaction) {
-      throw new Error('Brics transaction failed');
+      throw new BadRequestException('Brics transaction failed');
     }
     await this.prisma.transaction.create({
       data: {
@@ -684,7 +688,7 @@ export class PaymentsService {
         sender_customer_id: customer.customer_id,
         receiver_customer_id: bricsRecipient.CustomerID,
         comment: 'SOM transfer',
-      }
+      },
     });
 
     // Начисляем получателю кеш-баланс СОМ и списываем у отправителя

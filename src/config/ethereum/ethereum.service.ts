@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Web3 from 'web3';
 
@@ -116,7 +116,7 @@ export class EthereumService {
         this.ADMIN_PRIVATE_KEY,
       );
       if (account.address.toLowerCase() !== this.ADMIN_ADDRESS.toLowerCase()) {
-        throw new Error('Private key does not match admin address');
+        throw new BadRequestException('Private key does not match admin address');
       }
 
       const fee = await this.web3.eth.getGasPrice();
@@ -138,7 +138,7 @@ export class EthereumService {
         this.ADMIN_PRIVATE_KEY,
       );
       if (!signedTx.rawTransaction) {
-        throw new Error('Failed to sign transaction');
+        throw new BadRequestException('Failed to sign transaction');
       }
 
       const receipt = await this.web3.eth.sendSignedTransaction(
@@ -317,7 +317,7 @@ export class EthereumService {
 
     const signedTx = await this.web3.eth.accounts.signTransaction(tx, fundPrivateKey);
     if (!signedTx.rawTransaction) {
-      throw new Error('Failed to sign fund transfer transaction');
+      throw new BadRequestException('Failed to sign fund transfer transaction');
     }
 
     const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
@@ -327,7 +327,7 @@ export class EthereumService {
     const start = Date.now();
     let updatedBalance = BigInt(await this.web3.eth.getBalance(userAddress));
     while (updatedBalance < requiredBalance) {
-      if (Date.now() - start > 10000) throw new Error('Timeout waiting for user funding');
+      if (Date.now() - start > 10000) throw new BadRequestException('Timeout waiting for user funding');
       await new Promise((r) => setTimeout(r, 1000));
       updatedBalance = BigInt(await this.web3.eth.getBalance(userAddress));
     }

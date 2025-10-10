@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
@@ -36,7 +36,7 @@ export class BybitExchangeService implements IExchangeService {
       if (data.retCode !== 0) {
         // If insufficient balance in Funding, bubble up a clear error.
         const msg: string = data.retMsg ?? 'Unknown transfer error';
-        if (/insufficient/i.test(msg)) throw new Error(`Bybit transfer error: ${msg}`);
+        if (/insufficient/i.test(msg)) throw new BadRequestException(`Bybit transfer error: ${msg}`);
         // Otherwise log and continue (maybe funds already on Spot)
         this.logger.warn(`Bybit transfer warning: ${msg}`);
       } else {
@@ -77,7 +77,7 @@ export class BybitExchangeService implements IExchangeService {
         return 'ETHUSDT';
       // USDT -> USD price is 1
       default:
-        throw new Error(`Unsupported spot symbol for asset ${asset}`);
+        throw new BadRequestException(`Unsupported spot symbol for asset ${asset}`);
     }
   }
 
@@ -92,7 +92,7 @@ export class BybitExchangeService implements IExchangeService {
         const symbol = this.spotSymbol(a);
         const { data } = await this.http.get(`/v5/market/tickers`, { params: { category: 'spot', symbol } });
         const tick = data?.result?.list?.[0];
-        if (!tick) throw new Error(`No ticker for ${symbol}`);
+        if (!tick) throw new BadRequestException(`No ticker for ${symbol}`);
         result[a] = tick.lastPrice ?? tick.ask1Price ?? tick.bid1Price ?? '0';
         continue;
       }
@@ -107,7 +107,7 @@ export class BybitExchangeService implements IExchangeService {
     // Enforce Bybit minimal notional for spot market orders (commonly 10 USDT)
     const MIN_NOTIONAL_USDT = 10;
     if (Number(usdtAmount) < MIN_NOTIONAL_USDT) {
-      throw new Error(`Order value below Bybit minimum: notional=${usdtAmount} USDT, min=${MIN_NOTIONAL_USDT} USDT`);
+      throw new BadRequestException(`Order value below Bybit minimum: notional=${usdtAmount} USDT, min=${MIN_NOTIONAL_USDT} USDT`);
     }
     const qtySide = 'Buy';
     const symbol = this.spotSymbol(asset);
@@ -127,7 +127,7 @@ export class BybitExchangeService implements IExchangeService {
       await this.transferFundingToSpotUsdt(topUp);
       ({ data } = await this.http.post('/v5/order/create', payload, { headers }));
     }
-    if (data.retCode !== 0) throw new Error(`Bybit order error: ${data.retMsg}`);
+    if (data.retCode !== 0) throw new BadRequestException(`Bybit order error: ${data.retMsg}`);
     const price = await this.getUsdPrices([asset]);
     const p = price[asset];
     const amount = (Number(usdtAmount) / Number(p)).toString();
@@ -149,7 +149,7 @@ export class BybitExchangeService implements IExchangeService {
     };
     const { headers, payload } = this.sign(params);
     const { data } = await this.http.post('/v5/order/create', payload, { headers });
-    if (data.retCode !== 0) throw new Error(`Bybit order error: ${data.retMsg}`);
+    if (data.retCode !== 0) throw new BadRequestException(`Bybit order error: ${data.retMsg}`);
     const price = await this.getUsdPrices([asset]);
     const p = price[asset];
     const notional = (Number(assetAmount) * Number(p)).toString();
@@ -169,12 +169,12 @@ export class BybitExchangeService implements IExchangeService {
     } else if (asset === 'USDT_TRC20') {
       coin = 'USDT';
       chain = 'TRX';
-    } else throw new Error(`Unsupported withdraw asset ${asset}`);
+    } else throw new BadRequestException(`Unsupported withdraw asset ${asset}`);
 
     const params = { coin, chain, address, amount };
     const { headers, payload } = this.sign(params);
     const { data } = await this.http.post('/v5/asset/withdraw/create', payload, { headers });
-    if (data.retCode !== 0) throw new Error(`Bybit withdraw error: ${data.retMsg}`);
+    if (data.retCode !== 0) throw new BadRequestException(`Bybit withdraw error: ${data.retMsg}`);
     const txid = data?.result?.id?.toString() ?? '';
     return { txid };
   }
