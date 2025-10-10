@@ -344,7 +344,6 @@ export class PaymentsService {
       throw new BadRequestException('User is blocked');
     }
 
-
     if (amount < min) {
       throw new BadRequestException('Amount below minimum withdrawal');
     }
@@ -555,6 +554,11 @@ export class PaymentsService {
     transferDto: TransferDto,
     customer_id: number,
   ): Promise<StatusOKDto> {
+    const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+    if (me && me.status === 'BLOCKED') {
+      throw new BadRequestException('User is blocked');
+    }
+
     if (transferDto.currency == Currency.ESOM) {
       return this.transferESom(transferDto, customer_id);
     } else if (transferDto.currency == Currency.SOM) {
