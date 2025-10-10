@@ -46,7 +46,14 @@ export class PaymentsService {
       ].filter(Boolean),
     };
 
-    if (body.currency?.length) where.asset_out = { in: body.currency.map(c => c as unknown as Asset) };
+    if (body.currency?.length) {
+      // фильтруем по любой из валют (in или out)
+      where.OR = [
+        ...(where.OR || []),
+        { asset_out: { in: body.currency.map(c => c as unknown as Asset) } },
+        { asset_in: { in: body.currency.map(c => c as unknown as Asset) } },
+      ];
+    }
     if (body.from_time || body.to_time) {
       where.createdAt = {} as { gte?: Date; lte?: Date };
       if (body.from_time) (where.createdAt as { gte?: Date }).gte = new Date(body.from_time);
@@ -81,13 +88,31 @@ export class PaymentsService {
       }
     };
 
-    return items.map(t => ({
-      currency: (t.asset_out || 'SOM') as unknown as Currency,
-      amount: Number(t.amount_out),
-      type: mapType(t),
-      successful: t.status === 'SUCCESS',
-      created_at: t.createdAt.getTime(),
-    }));
+    // По умолчанию показываем входящую сторону (asset_in/amount_in)
+    const rows: TransactionDto[] = [];
+    for (const t of items) {
+      const baseRow: TransactionDto = {
+        currency: (t.asset_in || 'SOM') as unknown as Currency,
+        amount: Number(t.amount_in),
+        type: mapType(t),
+        successful: t.status === 'SUCCESS',
+        created_at: t.createdAt.getTime(),
+      };
+      rows.push(baseRow);
+
+      // Если успешная конвертация и валюты различаются — добавить вторую строку с out
+      const isConversion = t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK';
+      if (t.status === 'SUCCESS' && isConversion && t.asset_in && t.asset_out && t.asset_in !== t.asset_out) {
+        rows.push({
+          currency: (t.asset_out || 'SOM') as unknown as Currency,
+          amount: Number(t.amount_out),
+          type: mapType(t),
+          successful: true,
+          created_at: t.createdAt.getTime(),
+        });
+      }
+    }
+    return rows;
   }
 
   async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {
