@@ -141,16 +141,26 @@ export class AntiFraudService {
   async adminApprove(id: number) {
     const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
     if (!c) return null;
-    // Банковский стиль: никакие операции не выполняем, транзакция остаётся REJECTED.
-    await this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' } });
+      const senderId = c.transaction.sender_customer_id;
+      if (senderId) {
+        await tx.customer.updateMany({ where: { customer_id: senderId, status: 'FRAUD' }, data: { status: 'ACTIVE' } });
+      }
+    });
     return { ok: true };
   }
 
   async adminReject(id: number) {
     const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
     if (!c) return null;
-    // Ничего не откатываем: транзакция уже REJECTED, просто фиксируем решение кейса
-    await this.prisma.antiFraudCase.update({ where: { id: c.id }, data: { status: 'REJECTED' } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.antiFraudCase.update({ where: { id: c.id }, data: { status: 'REJECTED' } });
+      const senderId = c.transaction.sender_customer_id;
+      if (senderId) {
+        await tx.customer.update({ where: { customer_id: senderId }, data: { status: 'BLOCKED' } });
+      }
+    });
     return { ok: true };
   }
 
@@ -403,6 +413,10 @@ export class AntiFraudService {
     });
     if (approvedBefore) return true;
     const reason = `${detail.reason}`;
+    // Помечаем отправителя статусом FRAUD (если указан), при создании REJECTED транзакции и кейса
+    if (plan.sender_customer_id) {
+      await this.prisma.customer.updateMany({ where: { customer_id: plan.sender_customer_id }, data: { status: 'FRAUD' } });
+    }
     const tx = await this.prisma.transaction.create({
       data: ({
         kind: plan.kind,

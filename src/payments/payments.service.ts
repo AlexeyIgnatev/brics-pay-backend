@@ -35,6 +35,7 @@ export class PaymentsService {
 
   private readonly logger = new (Logger as any)('PaymentsService');
 
+
   async getHistory(body: GetTransactions, customer_id: number): Promise<TransactionDto[]> {
     const me = await this.prisma.customer.findUnique({ where: { customer_id } });
     const userOr = [
@@ -124,6 +125,10 @@ export class PaymentsService {
   }
 
   async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {
+    const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+    if (me && me.status === 'BLOCKED') {
+      throw new BadRequestException('User is blocked');
+    }
     this.logger.verbose(`[convert] start customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount_from=${dto.amount_from}`);
     const user = await this.prisma.customer.findUniqueOrThrow({ where: { customer_id } });
     const s = await this.settingsService.get();
@@ -333,6 +338,12 @@ export class PaymentsService {
     const min = asset === 'BTC' ? Number(s.min_withdraw_btc)
       : asset === 'ETH' ? Number(s.min_withdraw_eth)
         : Number(s.min_withdraw_usdt_trc20);
+
+    const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+    if (me && me.status === 'BLOCKED') {
+      throw new BadRequestException('User is blocked');
+    }
+
 
     if (amount < min) {
       throw new BadRequestException('Amount below minimum withdrawal');
