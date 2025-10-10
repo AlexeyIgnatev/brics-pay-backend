@@ -553,9 +553,6 @@ export class PaymentsService {
       transferDto.currency == Currency.ETH ||
       transferDto.currency == Currency.USDT_TRC20
     ) {
-      if (!transferDto.address) {
-        throw new BadRequestException('Address is required for crypto withdrawal');
-      }
       const asset = transferDto.currency as unknown as Asset;
       if (transferDto.address) {
         return this.withdrawCrypto(asset, transferDto.address, transferDto.amount, customer_id);
@@ -750,10 +747,20 @@ export class PaymentsService {
 
     // Атомарно списываем у отправителя и начисляем получателю в таблице кеш-балансов
     await this.prisma.$transaction(async (tx) => {
-      const bal = await tx.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id: sender_id, asset } } });
+      const bal = await tx.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: sender_id,
+            asset,
+          },
+        },
+      });
       const current = Number(bal?.balance ?? 0);
       if (current < amount) throw new Error('Insufficient balance');
-      await tx.userAssetBalance.update({ where: { customer_id_asset: { customer_id: sender_id, asset } }, data: { balance: { decrement: amount.toString() } } });
+      await tx.userAssetBalance.update({
+        where: { customer_id_asset: { customer_id: sender_id, asset } },
+        data: { balance: { decrement: amount.toString() } },
+      });
       await tx.userAssetBalance.upsert({
         where: { customer_id_asset: { customer_id: receiver_id, asset } },
         create: { customer_id: receiver_id, asset, balance: amount.toString() },
@@ -770,7 +777,7 @@ export class PaymentsService {
           sender_customer_id: sender_id,
           receiver_customer_id: receiver_id,
           comment: `Crypto transfer by phone (${asset})`,
-        }
+        },
       });
     });
 
