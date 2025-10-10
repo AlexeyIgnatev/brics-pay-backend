@@ -92,7 +92,7 @@ export class UserManagementService {
         last_name: c.last_name ?? undefined,
         phone: c.phone ?? undefined,
         email: c.email ?? undefined,
-        status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : UserStatusDtoEnum.ACTIVE,
+        status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : (c.status === 'FRAUD' ? UserStatusDtoEnum.FRAUD : UserStatusDtoEnum.ACTIVE),
         balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
         som_balance: SOM,
         total_balance: total_salam,

@@ -220,5 +220,6 @@ model Admin {
 
 enum UserStatus {
   ACTIVE
+  FRAUD
   BLOCKED
 }

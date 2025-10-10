@@ -2,7 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
-export enum UserStatusDtoEnum { ACTIVE = 'ACTIVE', BLOCKED = 'BLOCKED' }
+export enum UserStatusDtoEnum { ACTIVE = 'ACTIVE', FRAUD = 'FRAUD', BLOCKED = 'BLOCKED' }
 
 export class UsersListQueryDto {
   @ApiPropertyOptional({ description: 'Поиск по ФИО/телефону/email', example: 'Иван' })
