@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { NotificationDto } from './dto/notification.dto';
-import { PrismaService } from '../config/prisma/prisma.service';
+import { PrismaClient } from '@prisma/client';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(private readonly prismaService: PrismaClient) {
+  }
 
   async getNotifications(
     userId: number,

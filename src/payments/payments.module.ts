@@ -16,4 +16,5 @@ import { AntiFraudModule } from '../antifraud/antifraud.module';
   controllers: [PaymentsController],
   providers: [PaymentsService, PrismaClient],
 })
-export class PaymentsModule {}
+export class PaymentsModule {
+}
