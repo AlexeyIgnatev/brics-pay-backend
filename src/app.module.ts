@@ -10,6 +10,7 @@ import { UserManagementModule } from './user-management/user-management.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { BlockchainConfigModule } from './blockchain-config/blockchain-config.module';
 import { AntiFraudModule } from './antifraud/antifraud.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -21,8 +22,10 @@ import { AntiFraudModule } from './antifraud/antifraud.module';
     TransactionsModule,
     BlockchainConfigModule,
     AntiFraudModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService, EthereumService],
 })
-export class AppModule {}
+export class AppModule {
+}

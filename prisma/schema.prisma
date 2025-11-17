@@ -218,6 +218,15 @@ model Admin {
   @@map("admins")
 }
 
+model Notification {
+  id        Int      @id @default(autoincrement()) @map("notification_id")
+  title     String   @db.VarChar(256)
+  text      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("notifications")
+}
+
 enum UserStatus {
   ACTIVE
   FRAUD
