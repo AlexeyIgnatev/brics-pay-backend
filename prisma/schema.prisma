@@ -15,6 +15,10 @@ datasource db {
 
 enum AdminRole {
   SUPER_ADMIN
+  SKK
+  UDBO
+  UBUIO
+  UIT
 }
 
 model Customer {
