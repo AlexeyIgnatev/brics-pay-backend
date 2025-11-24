@@ -18,6 +18,7 @@ enum AdminRole {
   SKK
   UDBO
   UBUIO
+  TREASURY
   UIT
 }
 
