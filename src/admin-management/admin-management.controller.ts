@@ -8,6 +8,14 @@ import { AdminManagementService } from './admin-management.service';
 import { AdminAuthDto, AdminAuthResponseDto, AdminRefreshDto } from './dto/admin-auth.dto';
 import { AdminListQueryDto } from './dto/admin-list-query.dto';
 import { AdminAuthGuard } from './guards/admin-auth.guard';
+import { Request } from 'express';
+
+function getClientIp(req: Request): string {
+  const xf = (req.headers['x-forwarded-for'] as string) || '';
+  if (xf) return xf.split(',')[0].trim();
+  // @ts-ignore
+  return (req.ip as string) || (req.connection as any)?.remoteAddress || (req.socket as any)?.remoteAddress || 'unknown';
+}
 
 @ApiTags('Управление администраторами')
 @Controller('admin-management')
@@ -17,8 +25,8 @@ export class AdminManagementController {
   @Post('auth/login')
   @ApiOperation({ summary: 'Авторизация администратора (email+password)' })
   @ApiResponse({ status: 200, type: AdminAuthResponseDto })
-  async login(@Body() dto: AdminAuthDto): Promise<AdminAuthResponseDto> {
-    const res = await this.service.login(dto.email, dto.password);
+  async login(@Body() dto: AdminAuthDto, @Req() req: Request): Promise<AdminAuthResponseDto> {
+    const res = await this.service.login(dto.email, dto.password, getClientIp(req));
     return { accessToken: res.accessToken, refreshToken: res.refreshToken };
   }
 

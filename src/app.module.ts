@@ -11,6 +11,7 @@ import { TransactionsModule } from './transactions/transactions.module';
 import { BlockchainConfigModule } from './blockchain-config/blockchain-config.module';
 import { AntiFraudModule } from './antifraud/antifraud.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     BlockchainConfigModule,
     AntiFraudModule,
     NotificationsModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [AppService, EthereumService],

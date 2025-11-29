@@ -232,6 +232,21 @@ model Notification {
   @@map("notifications")
 }
 
+model AdminActionLog {
+  id        Int      @id @default(autoincrement())
+  admin_id  Int
+  ip        String
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
+
+  admin Admin @relation(fields: [admin_id], references: [id])
+
+  @@index([admin_id, createdAt])
+  @@index([createdAt])
+  @@map("admin_action_logs")
+}
+
 enum UserStatus {
   ACTIVE
   FRAUD

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@ne
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 import { UsersListQueryDto, UsersListResponseDto, AdminUpdateUserDto } from './dto/users-list.dto';
 import { UserManagementService } from './user-management.service';
+import { LogAdminActions } from '../audit/audit.decorator';
 
 @ApiTags('Управление пользователями')
 @ApiBearerAuth('Bearer')
@@ -26,6 +27,7 @@ export class UserManagementController {
   }
 
   @Put(':id')
+  @LogAdminActions()
   @ApiOperation({ summary: 'Редактирование пользователя', description: 'ФИО, телефон, email, статус' })
   @ApiParam({ name: 'id', example: 101 })
   @ApiResponse({ status: 200, type: UsersListResponseDto })

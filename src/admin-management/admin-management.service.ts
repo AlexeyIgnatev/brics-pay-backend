@@ -138,10 +138,13 @@ export class AdminManagementService {
     return { accessToken, refreshToken };
   }
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, ip?: string) {
     const admin = await this.validateAdmin(email, password);
     const payload = { sub: admin.id, email: admin.email, role: admin.role };
     const { accessToken, refreshToken } = await this.signTokens(payload);
+    try {
+      await this.prisma.adminActionLog.create({ data: { admin_id: admin.id, ip: ip || 'unknown', action: 'LOGIN', details: undefined } });
+    } catch (_) {}
     return {
       accessToken,
       refreshToken,
