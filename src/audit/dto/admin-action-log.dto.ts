@@ -7,7 +7,7 @@ export class AdminActionLogItemDto {
   @ApiProperty() admin_id: number;
   @ApiProperty() ip: string;
   @ApiProperty() action: string;
-  @ApiPropertyOptional() details?: string;
+  @ApiPropertyOptional() details: string | null;
   @ApiProperty() createdAt: Date;
 }
 

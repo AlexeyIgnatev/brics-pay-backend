@@ -9,10 +9,14 @@ import { AdminActionLogsQueryDto, AdminActionLogsResponseDto } from './dto/admin
 @UseGuards(AdminAuthGuard)
 @Controller('audit')
 export class AdminActionLogController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {
+  }
 
   @Get('admin-actions')
-  @ApiOperation({ summary: 'Список действий администраторов', description: 'Пагинация и сортировка. Только для администраторов' })
+  @ApiOperation({
+    summary: 'Список действий администраторов',
+    description: 'Пагинация и сортировка. Только для администраторов',
+  })
   @ApiOkResponse({ type: AdminActionLogsResponseDto })
   async list(@Query() query: AdminActionLogsQueryDto): Promise<AdminActionLogsResponseDto> {
     const where: any = {};
