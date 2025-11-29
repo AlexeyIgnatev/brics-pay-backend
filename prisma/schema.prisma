@@ -211,14 +211,15 @@ model WithdrawRequest {
 }
 
 model Admin {
-  id            Int       @id @default(autoincrement())
-  email         String    @unique
+  id            Int              @id @default(autoincrement())
+  email         String           @unique
   password_hash String
   first_name    String
   last_name     String
-  role          AdminRole @default(SUPER_ADMIN)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  role          AdminRole        @default(SUPER_ADMIN)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  logs          AdminActionLog[]
 
   @@map("admins")
 }
