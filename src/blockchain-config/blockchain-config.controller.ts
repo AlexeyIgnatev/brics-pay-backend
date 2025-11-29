@@ -4,7 +4,6 @@ import { SettingsService } from '../config/settings/settings.service';
 import { SettingsDto } from './dto/settings.dto';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 import { SettingsPartialDto } from './dto/settings-partial.dto';
-import { LogAdminActions } from '../audit/audit.decorator';
 
 @ApiTags('Конфигурация блокчейна')
 @Controller('blockchain-config')
@@ -21,7 +20,6 @@ export class BlockchainConfigController {
 
   @Put('settings')
   @UseGuards(AdminAuthGuard)
-  @LogAdminActions()
   @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Обновить настройки системы' })
   @ApiResponse({ status: 200, type: SettingsDto })

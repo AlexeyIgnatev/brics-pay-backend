@@ -12,6 +12,7 @@ import { BlockchainConfigModule } from './blockchain-config/blockchain-config.mo
 import { AntiFraudModule } from './antifraud/antifraud.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
+import { PrismaModule } from './config/prisma/prisma.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { AuditModule } from './audit/audit.module';
     AntiFraudModule,
     NotificationsModule,
     AuditModule,
+    PrismaModule,
   ],
   controllers: [AppController],
   providers: [AppService, EthereumService],
