@@ -8,6 +8,7 @@ import { AdminActionLogController } from './admin-action-log.controller';
   controllers: [AdminActionLogController],
   providers: [
     PrismaService,
+    AdminActionLogInterceptor,
     { provide: APP_INTERCEPTOR, useClass: AdminActionLogInterceptor },
   ],
 })
