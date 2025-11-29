@@ -18,7 +18,17 @@ export class UsersService {
     private readonly cryptoService: CryptoService,
     private readonly settingsService: SettingsService,
     private readonly exchangeService: BybitExchangeService,
-  ) {
+  ) {}
+
+  async updateLastLogin(customerId: number, ip?: string, device?: string) {
+    try {
+      await this.prisma.customer.update({
+        where: { customer_id: customerId },
+        data: { last_login_at: new Date(), last_login_ip: ip, last_login_device: device },
+      });
+    } catch (_) {
+      // ignore if user not created yet; getUserInfo will handle creation
+    }
   }
 
   async getUserInfo(

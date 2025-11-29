@@ -55,7 +55,22 @@ export class UserManagementService {
     const [itemsRaw, total] = await this.prisma.$transaction([
       this.prisma.customer.findMany({
         where,
-        orderBy: q.sort_by === 'createdAt' ? { updatedAt: q.sort_dir || 'desc' } : { customer_id: 'asc' },
+        orderBy: (() => {
+          switch (q.sort_by) {
+            case 'createdAt':
+              return { createdAt: q.sort_dir || 'desc' };
+            case 'last_login_at':
+              return { last_login_at: q.sort_dir || 'desc' } as any;
+            case 'customer_id':
+              return { customer_id: q.sort_dir || 'asc' } as any;
+            case 'phone':
+              return { phone: q.sort_dir || 'asc' } as any;
+            case 'email':
+              return { email: q.sort_dir || 'asc' } as any;
+            default:
+              return { customer_id: 'asc' } as any;
+          }
+        })(),
         skip: q.offset ?? 0,
         take: q.limit ?? 20,
         include: { balances: true },
@@ -97,6 +112,9 @@ export class UserManagementService {
         som_balance: SOM,
         total_balance: total_salam,
         createdAt: c.createdAt ?? undefined,
+        last_login_at: c.last_login_at ?? undefined,
+        last_login_ip: c.last_login_ip ?? undefined,
+        last_login_device: c.last_login_device ?? undefined,
       };
     });
 
@@ -142,6 +160,10 @@ export class UserManagementService {
       som_balance: SOM,
       total_balance: total_salam,
       createdAt: c.createdAt ?? undefined,
+      last_login_at: c.last_login_at ?? undefined,
+      last_login_ip: c.last_login_ip ?? undefined,
+      last_login_device: c.last_login_device ?? undefined,
+
     };
   }
 
@@ -181,6 +203,10 @@ export class UserManagementService {
       email: c.email ?? undefined,
       status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : (c.status === 'FRAUD' ? UserStatusDtoEnum.FRAUD : UserStatusDtoEnum.ACTIVE),
       balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
+      last_login_at: c.last_login_at ?? undefined,
+      last_login_ip: c.last_login_ip ?? undefined,
+      last_login_device: c.last_login_device ?? undefined,
+
       som_balance: SOM,
       total_balance: total_salam,
       createdAt: c.createdAt ?? undefined,

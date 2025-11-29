@@ -17,12 +17,12 @@ export class UsersListQueryDto {
   status?: UserStatusDtoEnum[];
 
   @ApiPropertyOptional({
-    enum: ['customer_id', 'fio', 'phone', 'email', 'status', 'som_balance', 'total_balance', 'createdAt'],
+    enum: ['customer_id', 'fio', 'phone', 'email', 'status', 'som_balance', 'total_balance', 'createdAt', 'last_login_at'],
     default: 'createdAt',
   })
   @IsOptional()
   @IsString()
-  sort_by?: 'customer_id' | 'fio' | 'phone' | 'email' | 'status' | 'som_balance' | 'total_balance' | 'createdAt' = 'createdAt';
+  sort_by?: 'customer_id' | 'fio' | 'phone' | 'email' | 'status' | 'som_balance' | 'total_balance' | 'createdAt' | 'last_login_at' = 'createdAt';
 
   @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'desc' })
   @IsOptional()
@@ -64,6 +64,9 @@ export class UsersListItemDto {
   @ApiProperty({ description: 'Баланс СОМ', example: 0 }) som_balance: number;
   @ApiProperty({ description: 'Общий баланс (САЛАМ + СОМ + крипта в САЛАМ)', example: 0 }) total_balance: number;
   @ApiProperty({ required: false }) createdAt?: Date;
+  @ApiProperty({ required: false, description: 'Дата и время последнего логина' }) last_login_at?: Date;
+  @ApiProperty({ required: false, description: 'IP последнего логина' }) last_login_ip?: string;
+  @ApiProperty({ required: false, description: 'Устройство последнего логина' }) last_login_device?: string;
 }
 
 export class UsersListResponseDto {
