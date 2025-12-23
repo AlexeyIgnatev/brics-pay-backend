@@ -8,6 +8,7 @@ import * as https from 'node:https';
 @Injectable({ scope: Scope.REQUEST })
 export class BricsService {
   private readonly BRICS_API_ROOT: string;
+  private readonly INTEGRATION_API_ROOT: string;
   private readonly CT_ACCOUNT_NO: string;
   private readonly axiosInstance: AxiosInstance;
   private readonly logger = new Logger(BricsService.name);
@@ -15,6 +16,7 @@ export class BricsService {
 
   constructor(private readonly configService: ConfigService) {
     this.BRICS_API_ROOT = this.configService.get<string>('BRICS_API_ROOT')!;
+    this.INTEGRATION_API_ROOT = this.configService.get<string>('INTEGRATION_API_ROOT')!;
     this.CT_ACCOUNT_NO = this.configService.get<string>('CT_ACCOUNT_NO')!;
 
     this.axiosInstance = axios.create({
@@ -100,7 +102,7 @@ export class BricsService {
     try {
       this.logger.verbose('Request Init page');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Account/Login`,
+        `${this.BRICS_API_ROOT}/Account/Login`,
       );
       this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose('Received Init page');
@@ -121,7 +123,7 @@ export class BricsService {
       };
       this.logger.verbose('Send Login request', JSON.stringify(body));
       const response = await this.axiosInstance.post(
-        `${this.BRICS_API_ROOT}/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking%2Fru-RU`,
+        `${this.BRICS_API_ROOT}/Account/Login`,
         body,
         {
           withCredentials: true,
@@ -135,7 +137,7 @@ export class BricsService {
             'Accept-Encoding': 'gzip, deflate, br, zstd',
             'Accept-Language': 'ru-RU,ru;q=0.9',
             Referer:
-              'https://192.168.255.109/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking%2Fru-RU',
+              'https://192.168.255.109/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking',
             Origin: 'https://192.168.255.109',
             Cookie: this.cookies != null ? this.cookies : undefined,
           },
@@ -156,7 +158,7 @@ export class BricsService {
     try {
       this.logger.verbose('Send getAccount request');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/CurrentAccounts`,
+        `${this.BRICS_API_ROOT}/ru-RU/Reference/CurrentAccounts`,
         {
           withCredentials: true,
           headers: {
@@ -181,7 +183,7 @@ export class BricsService {
     try {
       this.logger.verbose('Send findAccount request');
       const response = await this.axiosInstance.post(
-        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
+        `${this.BRICS_API_ROOT}/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
         {
           account: accountNoOrPhone,
         },
@@ -211,7 +213,7 @@ export class BricsService {
     try {
       this.logger.verbose('Send getCustomerInfo request');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/customer/GetCustomerFullInfo?customerID=${foundAccount.CustomerID}`,
+        `${this.INTEGRATION_API_ROOT}/OnlineBank.IntegrationService/api/customer/GetCustomerFullInfo?customerID=${foundAccount.CustomerID}`,
       );
       this.logger.verbose(
         `Received getCustomerInfo response ${response.status}`,
@@ -227,7 +229,7 @@ export class BricsService {
     try {
       this.logger.verbose('Send getCustomerAccounts request');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/OnlineBank.IntegrationService/api/Deposits/GetCurrentAccounts?customerID=${customerId}`,
+        `${this.INTEGRATION_API_ROOT}/OnlineBank.IntegrationService/api/Deposits/GetCurrentAccounts?customerID=${customerId}`,
       );
       this.logger.verbose(
         `Received getCustomerAccounts response ${response.status}`,
@@ -245,7 +247,7 @@ export class BricsService {
     try {
       this.logger.verbose('Send getSomBalance request');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Reference/CurrentAccounts`,
+        `${this.BRICS_API_ROOT}/ru-RU/Reference/CurrentAccounts`,
         {
           withCredentials: true,
           headers: {
@@ -270,7 +272,7 @@ export class BricsService {
     try {
       this.logger.verbose(`Send initTransactionScreen request ${accountNo}`);
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`,
+        `${this.BRICS_API_ROOT}/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`,
         {
           withCredentials: true,
           headers: {
@@ -341,7 +343,7 @@ export class BricsService {
     );
 
     const response = await this.axiosInstance.post(
-      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Accounts/InternalTransaction`,
+      `${this.BRICS_API_ROOT}/ru-RU/Accounts/InternalTransaction`,
       transactionBody,
       {
         withCredentials: true,
@@ -370,7 +372,7 @@ export class BricsService {
   async confirmLoad(operationId: number): Promise<boolean> {
     this.logger.verbose('Send confirmLoad request');
     const response = await this.axiosInstance.post(
-      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/ConfirmLoad`,
+      `${this.BRICS_API_ROOT}/ru-RU/Operation/Operation/ConfirmLoad`,
       {
         operationID: operationId,
       },
@@ -391,7 +393,7 @@ export class BricsService {
   async confirmFinal(operationId: number): Promise<boolean> {
     this.logger.verbose('Send confirmFinal request');
     const response = await this.axiosInstance.post(
-      `${this.BRICS_API_ROOT}/InternetBanking/ru-RU/Operation/Operation/Confirm`,
+      `${this.BRICS_API_ROOT}/ru-RU/Operation/Operation/Confirm`,
       {
         OperationID: operationId,
         OperationTypeID: 1,
