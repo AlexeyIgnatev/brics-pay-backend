@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 /* eslint-disable max-classes-per-file */
 import { ModuleRef } from '@nestjs/core';
 import { Asset, PrismaClient, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
@@ -15,6 +15,7 @@ import { BybitExchangeService } from '../config/exchange/bybit.service';
 import { BalanceFetchService } from '../user-management/balance-fetch.service';
 
 import { GetTransactions } from './dto/get-transactions.dto';
+import { ReceiptConversionSide, TransactionReceiptDto, TransactionReceiptRequestDto } from './dto/transaction-receipt.dto';
 import { TransactionDto } from './dto/transaction.dto';
 import { TransactionType } from './enums/transaction-type';
 
@@ -34,6 +35,104 @@ export class PaymentsService {
   }
 
   private readonly logger = new (Logger as any)('PaymentsService');
+
+  private mapType(t: Transaction, customer_id: number): TransactionType {
+    switch (t.kind) {
+      case 'BANK_TO_BANK':
+        if (t.sender_customer_id === customer_id) return TransactionType.EXPENSE;
+        if (t.receiver_customer_id === customer_id) return TransactionType.INCOME;
+        return TransactionType.TRANSFER;
+      case 'BANK_TO_WALLET':
+        return TransactionType.CONVERSION;
+      case 'WALLET_TO_BANK':
+        return TransactionType.CONVERSION;
+      case 'WALLET_TO_WALLET':
+        return TransactionType.TRANSFER;
+      case 'CONVERSION':
+        return TransactionType.CONVERSION;
+      case 'WITHDRAW_CRYPTO':
+        return TransactionType.EXPENSE;
+      default:
+        return TransactionType.TRANSFER;
+    }
+  }
+
+  private maskAccount(value?: string | number | null): string {
+    if (value == null) return 'N/A';
+    const raw = String(value).trim();
+    if (!raw) return 'N/A';
+    return `****${raw.slice(-4)}`;
+  }
+
+  private isBankKind(kind: TransactionKind): boolean {
+    return kind === 'BANK_TO_BANK' || kind === 'BANK_TO_WALLET';
+  }
+
+  private getDisplaySide(
+    t: Transaction,
+    requested: TransactionReceiptRequestDto,
+  ): { currency: Currency; amount: number } {
+    const inCurrency = (t.asset_in || 'SOM') as unknown as Currency;
+    const inAmount = Number(t.amount_in);
+    const outCurrency = (t.asset_out || 'SOM') as unknown as Currency;
+    const outAmount = Number(t.amount_out);
+
+    const isConversion = (t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK')
+      && t.status === TransactionStatus.SUCCESS
+      && t.asset_in !== t.asset_out;
+
+    if (isConversion && requested.conversion_side === ReceiptConversionSide.OUT) {
+      return { currency: outCurrency, amount: outAmount };
+    }
+
+    return { currency: inCurrency, amount: inAmount };
+  }
+
+  private buildRecipientFullName(t: {
+    receiver_customer?: {
+      first_name: string | null;
+      middle_name: string | null;
+      last_name: string | null;
+    } | null;
+    receiver_customer_id: number | null;
+  }): string {
+    const fullName = [t.receiver_customer?.last_name, t.receiver_customer?.first_name, t.receiver_customer?.middle_name]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    if (fullName) return fullName;
+    if (t.receiver_customer_id != null) return `Customer #${t.receiver_customer_id}`;
+    return 'N/A';
+  }
+
+  private buildPaidFromAccount(t: {
+    kind: TransactionKind;
+    sender_wallet_address: string | null;
+    sender_customer?: { address: string } | null;
+    sender_customer_id: number | null;
+    bank_op_id: number | null;
+  }): string {
+    const senderWallet = t.sender_wallet_address || t.sender_customer?.address;
+    if (senderWallet) return this.maskAccount(senderWallet);
+    if (this.isBankKind(t.kind) && t.sender_customer_id != null) return `Bank account of customer #${t.sender_customer_id}`;
+    if (t.bank_op_id != null) return `Bank operation #${t.bank_op_id}`;
+    return 'N/A';
+  }
+
+  private buildAccountDetails(t: {
+    kind: TransactionKind;
+    external_address: string | null;
+    receiver_wallet_address: string | null;
+    receiver_customer?: { address: string } | null;
+    receiver_customer_id: number | null;
+    bank_op_id: number | null;
+  }): string {
+    const targetWallet = t.external_address || t.receiver_wallet_address || t.receiver_customer?.address;
+    if (targetWallet) return this.maskAccount(targetWallet);
+    if (this.isBankKind(t.kind) && t.receiver_customer_id != null) return `Bank account of customer #${t.receiver_customer_id}`;
+    if (t.bank_op_id != null) return `Bank operation #${t.bank_op_id}`;
+    return 'N/A';
+  }
 
 
   async getHistory(body: GetTransactions, customer_id: number): Promise<TransactionDto[]> {
@@ -70,27 +169,6 @@ export class PaymentsService {
       take: body.take ?? 50,
     });
 
-    const mapType = (t: Transaction): TransactionType => {
-      switch (t.kind) {
-        case 'BANK_TO_BANK':
-          if (t.sender_customer_id === customer_id) return TransactionType.EXPENSE;
-          if (t.receiver_customer_id === customer_id) return TransactionType.INCOME;
-          return TransactionType.TRANSFER;
-        case 'BANK_TO_WALLET':
-          return TransactionType.CONVERSION;
-        case 'WALLET_TO_BANK':
-          return TransactionType.CONVERSION;
-        case 'WALLET_TO_WALLET':
-          return TransactionType.TRANSFER;
-        case 'CONVERSION':
-          return TransactionType.CONVERSION;
-        case 'WITHDRAW_CRYPTO':
-          return TransactionType.EXPENSE;
-        default:
-          return TransactionType.TRANSFER;
-      }
-    };
-
     // По умолчанию показываем входящую сторону (asset_in/amount_in)
     const rows: TransactionDto[] = [];
     const filterSet = body.currency?.length ? new Set(body.currency) : null;
@@ -98,9 +176,10 @@ export class PaymentsService {
     for (const t of items) {
       const inCurrency = (t.asset_in || 'SOM') as unknown as Currency;
       const baseRow: TransactionDto = {
+        id: t.id,
         currency: inCurrency,
         amount: Number(t.amount_in),
-        type: mapType(t),
+        type: this.mapType(t, customer_id),
         successful: t.status === 'SUCCESS',
         created_at: t.createdAt.getTime(),
       };
@@ -112,9 +191,10 @@ export class PaymentsService {
         const outCurrency = (t.asset_out || 'SOM') as unknown as Currency;
         if (!filterSet || filterSet.has(outCurrency)) {
           rows.push({
+            id: t.id,
             currency: outCurrency,
             amount: Number(t.amount_out),
-            type: mapType(t),
+            type: this.mapType(t, customer_id),
             successful: true,
             created_at: t.createdAt.getTime(),
           });
@@ -122,6 +202,59 @@ export class PaymentsService {
       }
     }
     return rows;
+  }
+
+  async getReceipt(dto: TransactionReceiptRequestDto, customer_id: number): Promise<TransactionReceiptDto> {
+    const me = await this.prisma.customer.findUnique({
+      where: { customer_id },
+      select: { address: true },
+    });
+
+    const tx = await this.prisma.transaction.findUnique({
+      where: { id: dto.transaction_id },
+      include: {
+        sender_customer: {
+          select: {
+            address: true,
+          },
+        },
+        receiver_customer: {
+          select: {
+            address: true,
+            first_name: true,
+            middle_name: true,
+            last_name: true,
+          },
+        },
+      },
+    });
+
+    if (!tx) throw new NotFoundException('Transaction not found');
+
+    const myAddress = me?.address?.toLowerCase();
+    const isMine = tx.sender_customer_id === customer_id
+      || tx.receiver_customer_id === customer_id
+      || (!!myAddress && (
+        tx.sender_wallet_address?.toLowerCase() === myAddress
+        || tx.receiver_wallet_address?.toLowerCase() === myAddress
+      ));
+
+    if (!isMine) throw new ForbiddenException('Transaction does not belong to user');
+
+    const side = this.getDisplaySide(tx, dto);
+
+    return {
+      successful: tx.status === TransactionStatus.SUCCESS,
+      amount: side.amount,
+      type: this.mapType(tx, customer_id),
+      currency: side.currency,
+      created_at: tx.createdAt.getTime(),
+      fee: Number(tx.fee_amount ?? 0),
+      account_details: this.buildAccountDetails(tx),
+      recipient_full_name: this.buildRecipientFullName(tx),
+      paid_from_account: this.buildPaidFromAccount(tx),
+      receipt_number: `TX-${tx.id}-${tx.createdAt.getTime()}`,
+    };
   }
 
   async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {

@@ -8,6 +8,7 @@ import { GetTransactions } from './dto/get-transactions.dto';
 import { TransactionDto } from './dto/transaction.dto';
 import { StatusOKDto } from '../common/dto/status.dto';
 import { ConvertDto } from './dto/convert.dto';
+import { TransactionReceiptDto, TransactionReceiptRequestDto } from './dto/transaction-receipt.dto';
 
 @Controller('payments')
 export class PaymentsController {
@@ -44,5 +45,15 @@ export class PaymentsController {
     @Req() req: { user: UserInfoDto },
   ): Promise<TransactionDto[]> {
     return this.paymentsService.getHistory(getTransactions, req?.user.customer_id);
+  }
+
+  @Post('receipt')
+  @ApiBearerAuth('Basic')
+  @UseGuards(BasicAuthGuard)
+  async getReceipt(
+    @Body() dto: TransactionReceiptRequestDto,
+    @Req() req: { user: UserInfoDto },
+  ): Promise<TransactionReceiptDto> {
+    return this.paymentsService.getReceipt(dto, req?.user.customer_id);
   }
 }

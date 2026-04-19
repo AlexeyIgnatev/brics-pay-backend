@@ -1,8 +1,11 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Currency } from '../../users/enums/currency';
 import { TransactionType } from '../enums/transaction-type';
 
 export class TransactionDto {
+  @ApiPropertyOptional({ description: 'ID транзакции в БД' })
+  id?: number;
+
   @ApiProperty({ enum: Currency })
   currency: Currency;
 
