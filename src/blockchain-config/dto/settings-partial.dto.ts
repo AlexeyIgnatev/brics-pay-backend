@@ -4,6 +4,7 @@ export class SettingsPartialDto {
   @IsString() esom_per_usd?: string;
 
   @IsString() esom_som_conversion_fee_pct?: string;
+  @IsString() esom_som_conversion_fee_min?: string;
 
   @IsString() btc_trade_fee_pct?: string;
   @IsString() eth_trade_fee_pct?: string;

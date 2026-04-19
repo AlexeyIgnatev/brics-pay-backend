@@ -1,10 +1,11 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { NotificationDto } from './dto/notification.dto';
 import { PaginateParams } from '../common/params/pagination.params';
 import { BasicAuthGuard } from '../common/guards/basic-auth.guard';
 import { UserInfoDto } from '../users/dto/user-info.dto';
+import { SendFinancialReportRequestDto, SendFinancialReportResponseDto } from './dto/financial-report.dto';
 
 @Controller('notifications')
 @ApiTags('Notifications')
@@ -24,5 +25,15 @@ export class NotificationsController {
       pagination.take ?? 10,
       pagination.skip ?? 0,
     );
+  }
+
+  @Post('financial-report')
+  @ApiBearerAuth('Basic')
+  @UseGuards(BasicAuthGuard)
+  async sendFinancialReport(
+    @Body() body: SendFinancialReportRequestDto,
+    @Req() req: { user: UserInfoDto },
+  ): Promise<SendFinancialReportResponseDto> {
+    return this.notificationsService.sendFinancialReport(body, req.user);
   }
 }

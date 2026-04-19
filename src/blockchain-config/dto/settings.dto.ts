@@ -3,6 +3,7 @@ import { ApiProperty } from '@nestjs/swagger';
 export class SettingsDto {
   @ApiProperty() esom_per_usd: string;
   @ApiProperty() esom_som_conversion_fee_pct: string;
+  @ApiProperty() esom_som_conversion_fee_min: string;
 
   @ApiProperty() btc_trade_fee_pct: string;
   @ApiProperty() eth_trade_fee_pct: string;

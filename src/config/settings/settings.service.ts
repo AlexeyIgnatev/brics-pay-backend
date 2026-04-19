@@ -18,6 +18,7 @@ export class SettingsService {
           id: 1,
           esom_per_usd: '1',
           esom_som_conversion_fee_pct: '0',
+          esom_som_conversion_fee_min: '0',
           btc_trade_fee_pct: '0.5',
           eth_trade_fee_pct: '0.5',
           usdt_trade_fee_pct: '0.2',
@@ -50,6 +51,7 @@ export class SettingsService {
     return {
       esom_per_usd: s.esom_per_usd.toString(),
       esom_som_conversion_fee_pct: s.esom_som_conversion_fee_pct.toString(),
+      esom_som_conversion_fee_min: s.esom_som_conversion_fee_min.toString(),
       btc_trade_fee_pct: s.btc_trade_fee_pct.toString(),
       eth_trade_fee_pct: s.eth_trade_fee_pct.toString(),
       usdt_trade_fee_pct: s.usdt_trade_fee_pct.toString(),

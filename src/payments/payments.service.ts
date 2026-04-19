@@ -96,6 +96,20 @@ export class PaymentsService {
     return `${clientFio}, ID транзакции ${transactionRef}, ${this.formatAbsTime(at)}`;
   }
 
+  private calcSomEsomConversionFee(
+    amount: number,
+    settings: { esom_som_conversion_fee_pct?: string; esom_som_conversion_fee_min?: string },
+  ): { fee: number; net: number; pct: number; minFee: number } {
+    const pct = Number(settings.esom_som_conversion_fee_pct ?? 0);
+    const minFee = Number(settings.esom_som_conversion_fee_min ?? 0);
+    const safePct = Number.isFinite(pct) && pct > 0 ? pct : 0;
+    const safeMinFee = Number.isFinite(minFee) && minFee > 0 ? minFee : 0;
+    const feeByPct = amount * (safePct / 100);
+    const fee = Math.max(feeByPct, safeMinFee);
+    const net = Math.max(amount - fee, 0);
+    return { fee, net, pct: safePct, minFee: safeMinFee };
+  }
+
   private mapType(t: Transaction, customer_id: number): TransactionType {
     switch (t.kind) {
       case 'BANK_TO_BANK':
@@ -636,6 +650,13 @@ export class PaymentsService {
       throw new BadRequestException('Customer not found');
     }
 
+    const s = await this.settingsService.get();
+    const { fee: conversionFee, net: netAmount, pct: feePct, minFee } = this.calcSomEsomConversionFee(amount, s);
+    if (netAmount <= 0) {
+      throw new BadRequestException('Amount is too low after conversion commission');
+    }
+    this.logger.verbose(`[fiatToCrypto] conversion_fee pct=${feePct}% min=${minFee} fee=${conversionFee} net=${netAmount}`);
+
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.BANK_TO_WALLET,
       amount_in: amount,
@@ -663,7 +684,7 @@ export class PaymentsService {
       throw new BadRequestException('Brics transaction failed');
     }
 
-    const ethTransaction = await this.ethereumService.transferFromFiat(customer.address, amount);
+    const ethTransaction = await this.ethereumService.transferFromFiat(customer.address, netAmount);
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
     if (!ethTransaction?.success) {
       throw new BadRequestException('Ethereum transaction failed');
@@ -675,8 +696,9 @@ export class PaymentsService {
         status: TransactionStatus.SUCCESS,
         amount_in: amount.toString(),
         asset_in: 'SOM',
-        amount_out: amount.toString(),
+        amount_out: netAmount.toString(),
         asset_out: 'ESOM',
+        fee_amount: conversionFee.toString(),
         tx_hash: ethTransaction.txHash,
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
@@ -709,6 +731,13 @@ export class PaymentsService {
     if (!customer) {
       throw new BadRequestException('Customer not found');
     }
+
+    const s = await this.settingsService.get();
+    const { fee: conversionFee, net: netAmount, pct: feePct, minFee } = this.calcSomEsomConversionFee(amount, s);
+    if (netAmount <= 0) {
+      throw new BadRequestException('Amount is too low after conversion commission');
+    }
+    this.logger.verbose(`[cryptoToFiat] conversion_fee pct=${feePct}% min=${minFee} fee=${conversionFee} net=${netAmount}`);
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.WALLET_TO_BANK,
@@ -744,7 +773,7 @@ export class PaymentsService {
       requestedAt,
     );
     const bricsTransaction = await adminBricsService.createTransactionCryptoToFiat(
-      amount * (1 - Number(this.configService.get('PLATFORM_FEE'))),
+      netAmount,
       customer.customer_id.toString(),
       paymentPurpose,
     );
@@ -758,8 +787,9 @@ export class PaymentsService {
         status: 'SUCCESS',
         amount_in: amount.toString(),
         asset_in: 'ESOM',
-        amount_out: amount.toString(),
+        amount_out: netAmount.toString(),
         asset_out: 'SOM',
+        fee_amount: conversionFee.toString(),
         tx_hash: ethTransaction.txHash,
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
@@ -767,11 +797,11 @@ export class PaymentsService {
       },
     });
 
-    // increment SOM cached balance by amount (minus platform fee already handled by bank operation)
+    // increment SOM cached balance by net amount after commission
     await this.prisma.userAssetBalance.upsert({
       where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
-      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: amount.toString() },
-      update: { balance: { increment: amount.toString() } },
+      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: netAmount.toString() },
+      update: { balance: { increment: netAmount.toString() } },
     });
 
     return new StatusOKDto();

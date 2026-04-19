@@ -86,11 +86,15 @@ export class TransactionsService {
       kind: t.kind as unknown as string,
       status: t.status as unknown as string,
       amount: Number(t.amount_in),
+      fee_amount: Number(t.fee_amount ?? 0),
       asset: t.asset_in as unknown as string,
       tx_hash: t.tx_hash ?? undefined,
       bank_op_id: t.bank_op_id ?? undefined,
       sender_customer_id: t.sender_customer_id ?? undefined,
       receiver_customer_id: t.receiver_customer_id ?? undefined,
+      sender_abs_id: t.sender_customer_id ?? undefined,
+      receiver_abs_id: t.receiver_customer_id ?? undefined,
+      client_abs_id: t.sender_customer_id ?? t.receiver_customer_id ?? undefined,
       sender_wallet_address: t.sender_wallet_address ?? undefined,
       receiver_wallet_address: t.receiver_wallet_address ?? undefined,
       comment: t.comment ?? undefined,
@@ -230,12 +234,14 @@ export class TransactionsService {
     const bankToBank = await this.prisma.transaction.aggregate({ _sum: { amount_in: true }, where: { ...baseWhere, kind: 'BANK_TO_BANK' } });
     const walletToWallet = await this.prisma.transaction.aggregate({ _sum: { amount_in: true }, where: { ...baseWhere, kind: 'WALLET_TO_WALLET' } });
     const usersCount = await this.prisma.customer.count();
+    const successfulCount = await this.prisma.transaction.count({ where: { ...baseWhere, status: 'SUCCESS' } });
 
     return {
       total_amount_som: Number(totalSom._sum.amount_in ?? 0),
       bank_to_bank_som: Number(bankToBank._sum.amount_in ?? 0),
       wallet_to_wallet_som: Number(walletToWallet._sum.amount_in ?? 0),
       users_count: usersCount,
+      successful_count: successfulCount,
       date_from: start.toISOString(),
       date_to: end.toISOString(),
     };

@@ -16,6 +16,9 @@ export class TransactionsStatsTodayDto {
   @ApiProperty({ description: 'Количество пользователей в системе' })
   users_count: number;
 
+  @ApiProperty({ description: 'Successful transactions count for period' })
+  successful_count: number;
+
   @ApiProperty()
   date_from: string;
 

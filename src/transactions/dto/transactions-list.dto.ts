@@ -3,63 +3,63 @@ import { Transform } from 'class-transformer';
 import { IsArray, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class TransactionsListDto {
-  @ApiPropertyOptional({ type: [String], description: 'Типы транзакций', example: ['BANK_TO_BANK', 'WALLET_TO_WALLET'] })
+  @ApiPropertyOptional({ type: [String], description: 'Transaction kinds', example: ['BANK_TO_BANK', 'WALLET_TO_WALLET'] })
   @IsOptional()
   @IsArray()
   @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))
   kind?: string[];
 
-  @ApiPropertyOptional({ type: [String], description: 'Статусы', example: ['SUCCESS', 'FAILED'] })
+  @ApiPropertyOptional({ type: [String], description: 'Statuses', example: ['SUCCESS', 'FAILED'] })
   @IsOptional()
   @IsArray()
   @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))
   status?: string[];
 
-  @ApiPropertyOptional({ type: [String], description: 'Актив/валюта', example: ['ESOM', 'SOM'] })
+  @ApiPropertyOptional({ type: [String], description: 'Asset/currency', example: ['ESOM', 'SOM'] })
   @IsOptional()
   @IsArray()
   @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))
   asset?: string[];
 
-  @ApiPropertyOptional({ description: 'Дата c (ISO)' })
+  @ApiPropertyOptional({ description: 'Date from (ISO)' })
   @IsOptional()
   @IsDateString()
   date_from?: string;
 
-  @ApiPropertyOptional({ description: 'Дата по (ISO)' })
+  @ApiPropertyOptional({ description: 'Date to (ISO)' })
   @IsOptional()
   @IsDateString()
   date_to?: string;
 
-  @ApiPropertyOptional({ description: 'Минимальная сумма (SOM)' })
+  @ApiPropertyOptional({ description: 'Minimum amount (SOM)' })
   @IsOptional()
   @IsNumber()
   @Transform(({ value }) => (value != null ? Number(value) : undefined))
   amount_min?: number;
 
-  @ApiPropertyOptional({ description: 'Максимальная сумма (SOM)' })
+  @ApiPropertyOptional({ description: 'Maximum amount (SOM)' })
   @IsOptional()
   @IsNumber()
   @Transform(({ value }) => (value != null ? Number(value) : undefined))
   amount_max?: number;
 
-  @ApiPropertyOptional({ description: 'ID операции банка (bank_op_id)' })
+  @ApiPropertyOptional({ description: 'Bank operation ID (bank_op_id)' })
   @IsOptional()
   @IsInt()
   @Transform(({ value }) => (value != null ? Number(value) : undefined))
   id?: number;
 
-  @ApiPropertyOptional({ description: 'Хэш транзакции' })
+  @ApiPropertyOptional({ description: 'Transaction hash' })
   @IsOptional()
   @IsString()
   tx_hash?: string;
 
-  @ApiPropertyOptional({ description: 'Поиск по отправителю (FIO/телефон/email/кошелек)' })
+  @ApiPropertyOptional({ description: 'Search by sender (FIO/phone/email/wallet)' })
   @IsOptional()
   @IsString()
   sender?: string;
 
-  @ApiPropertyOptional({ description: 'Поиск по получателю (FIO/телефон/email/кошелек)' })
+  @ApiPropertyOptional({ description: 'Search by receiver (FIO/phone/email/wallet)' })
   @IsOptional()
   @IsString()
   receiver?: string;
@@ -102,12 +102,16 @@ export class TransactionItemDto {
   @ApiProperty() id: number;
   @ApiProperty() kind: string;
   @ApiProperty() status: string;
-  @ApiProperty({ description: 'Сумма операции в единицах currency' }) amount: number;
+  @ApiProperty({ description: 'Operation amount in asset units' }) amount: number;
+  @ApiProperty({ required: false, description: 'Commission amount in operation asset units' }) fee_amount?: number;
   @ApiProperty({ required: false }) asset?: string;
   @ApiProperty({ required: false }) tx_hash?: string;
   @ApiProperty({ required: false }) bank_op_id?: number;
   @ApiProperty({ required: false }) sender_customer_id?: number;
   @ApiProperty({ required: false }) receiver_customer_id?: number;
+  @ApiProperty({ required: false, description: 'Sender ABS ID (alias of sender_customer_id)' }) sender_abs_id?: number;
+  @ApiProperty({ required: false, description: 'Receiver ABS ID (alias of receiver_customer_id)' }) receiver_abs_id?: number;
+  @ApiProperty({ required: false, description: 'Client ABS ID for transaction row' }) client_abs_id?: number;
   @ApiProperty({ required: false }) sender_wallet_address?: string;
   @ApiProperty({ required: false }) receiver_wallet_address?: string;
   @ApiProperty({ required: false }) comment?: string;

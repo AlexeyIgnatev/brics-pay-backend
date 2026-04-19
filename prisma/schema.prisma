@@ -129,6 +129,7 @@ model Settings {
   id                          Int     @id @default(1)
   esom_per_usd                Decimal @db.Decimal(38, 18)
   esom_som_conversion_fee_pct Decimal @db.Decimal(5, 2)
+  esom_som_conversion_fee_min Decimal @default(0) @db.Decimal(38, 18)
 
   btc_trade_fee_pct  Decimal @db.Decimal(5, 2)
   eth_trade_fee_pct  Decimal @db.Decimal(5, 2)
