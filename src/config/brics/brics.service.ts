@@ -116,19 +116,21 @@ export class BricsService {
   async auth(username: string, password: string): Promise<boolean> {
     const token = await this.init();
     try {
-      const body = {
-        __RequestVerificationToken: token,
-        UserName: username,
-        Password: password,
-      };
-      this.logger.verbose('Send Login request', JSON.stringify(body));
+      const loginUrl = new URL(`${this.BRICS_API_ROOT}/Account/Login`);
+      const origin = `${loginUrl.protocol}//${loginUrl.host}`;
+      const referer = `${origin}/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking`;
+
+      const body = new URLSearchParams();
+      body.append('__RequestVerificationToken', token);
+      body.append('UserName', username);
+      body.append('Password', password);
+      this.logger.verbose('Send Login request');
       const response = await this.axiosInstance.post(
         `${this.BRICS_API_ROOT}/Account/Login`,
         body,
         {
           withCredentials: true,
           headers: {
-            'Access-Control-Allow-Origin': '*',
             'Content-Type': 'application/x-www-form-urlencoded',
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
@@ -136,9 +138,8 @@ export class BricsService {
               'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Encoding': 'gzip, deflate, br, zstd',
             'Accept-Language': 'ru-RU,ru;q=0.9',
-            Referer:
-              'https://192.168.255.109/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking',
-            Origin: 'https://192.168.255.109',
+            Referer: referer,
+            Origin: origin,
             Cookie: this.cookies != null ? this.cookies : undefined,
           },
           maxRedirects: 0,
