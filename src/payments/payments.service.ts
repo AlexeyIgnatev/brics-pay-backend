@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 /* eslint-disable max-classes-per-file */
 import { ModuleRef } from '@nestjs/core';
 import { Asset, PrismaClient, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
-import { AntiFraudService } from '../antifraud/antifraud.service';
+import { AntiFraudDecision, AntiFraudService } from '../antifraud/antifraud.service';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { EthereumService } from 'src/config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
@@ -35,6 +35,15 @@ export class PaymentsService {
   }
 
   private readonly logger = new (Logger as any)('PaymentsService');
+
+  private antiFraudRejectMessage(flow: string, decision: AntiFraudDecision): string {
+    const parts: string[] = [`flow=${flow}`];
+    if (decision.rule_key) parts.push(`rule=${decision.rule_key}`);
+    if (decision.case_id != null) parts.push(`case_id=${decision.case_id}`);
+    if (decision.transaction_id != null) parts.push(`transaction_id=${decision.transaction_id}`);
+    if (decision.reason) parts.push(`reason=${decision.reason}`);
+    return `Rejected by anti-fraud (${parts.join(', ')})`;
+  }
 
   private mapType(t: Transaction, customer_id: number): TransactionType {
     switch (t.kind) {
@@ -306,7 +315,7 @@ export class PaymentsService {
 
     // ESOM -> CRYPTO
     if (from === 'ESOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
-      const allowed = await this.antiFraud.shouldAllowTransaction({
+      const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
         asset_in: 'ESOM',
@@ -314,8 +323,13 @@ export class PaymentsService {
         sender_customer_id: customer_id,
         comment: `Convert ESOM->${to}`,
       });
-      this.logger.verbose(`[convert ESOM->${to}] antifraud allowed=${allowed}`);
-      if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+      this.logger.verbose(
+        `[convert ESOM->${to}] antifraud allowed=${antiFraudDecision.allowed}`
+        + (antiFraudDecision.reason ? ` reason=${antiFraudDecision.reason}` : ''),
+      );
+      if (!antiFraudDecision.allowed) {
+        throw new BadRequestException(this.antiFraudRejectMessage(`ESOM->${to}`, antiFraudDecision));
+      }
 
       const feePct = feePctForTrade(from, to);
       const usdtAmount = amountFrom / esomPerUsd;
@@ -359,7 +373,7 @@ export class PaymentsService {
 
     // CRYPTO -> ESOM
     if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'ESOM') {
-      const allowed = await this.antiFraud.shouldAllowTransaction({
+      const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
         asset_in: from,
@@ -367,8 +381,13 @@ export class PaymentsService {
         sender_customer_id: customer_id,
         comment: `Convert ${from}->ESOM`,
       });
-      this.logger.verbose(`[convert ${from}->ESOM] antifraud allowed=${allowed}`);
-      if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+      this.logger.verbose(
+        `[convert ${from}->ESOM] antifraud allowed=${antiFraudDecision.allowed}`
+        + (antiFraudDecision.reason ? ` reason=${antiFraudDecision.reason}` : ''),
+      );
+      if (!antiFraudDecision.allowed) {
+        throw new BadRequestException(this.antiFraudRejectMessage(`${from}->ESOM`, antiFraudDecision));
+      }
 
       const feePct = feePctForTrade(from, to);
       let notionalUsdt = 0;
@@ -407,7 +426,7 @@ export class PaymentsService {
 
     // CRYPTO -> CRYPTO
     if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
-      const allowed = await this.antiFraud.shouldAllowTransaction({
+      const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
         asset_in: from,
@@ -415,8 +434,13 @@ export class PaymentsService {
         sender_customer_id: customer_id,
         comment: `Convert ${from}->${to}`,
       });
-      this.logger.verbose(`[convert ${from}->${to}] antifraud allowed=${allowed}`);
-      if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+      this.logger.verbose(
+        `[convert ${from}->${to}] antifraud allowed=${antiFraudDecision.allowed}`
+        + (antiFraudDecision.reason ? ` reason=${antiFraudDecision.reason}` : ''),
+      );
+      if (!antiFraudDecision.allowed) {
+        throw new BadRequestException(this.antiFraudRejectMessage(`${from}->${to}`, antiFraudDecision));
+      }
 
       const feePct = feePctForTrade(from, to);
 

@@ -13,6 +13,14 @@ export interface AntiFraudContext {
   receiver_customer_id?: number;
 }
 
+export interface AntiFraudDecision {
+  allowed: boolean;
+  reason?: string;
+  rule_key?: AntiFraudRuleKey;
+  case_id?: number;
+  transaction_id?: number;
+}
+
 @Injectable()
 export class AntiFraudService {
   // CRUD/read helpers for controller
@@ -390,6 +398,22 @@ export class AntiFraudService {
     external_address?: string | null;
     comment?: string;
   }): Promise<boolean> {
+    const decision = await this.checkTransactionDetailed(plan);
+    return decision.allowed;
+  }
+
+  async checkTransactionDetailed(plan: {
+    kind: TransactionKind;
+    amount_in: number;
+    asset_in: Asset;
+    amount_out?: number;
+    asset_out: Asset;
+    sender_customer_id?: number;
+    receiver_customer_id?: number;
+    receiver_wallet_address?: string | null;
+    external_address?: string | null;
+    comment?: string;
+  }): Promise<AntiFraudDecision> {
     const amount = plan.amount_in;
     const asset = plan.asset_in;
 
@@ -400,7 +424,8 @@ export class AntiFraudService {
       sender_customer_id: plan.sender_customer_id,
       receiver_customer_id: plan.receiver_customer_id,
     });
-    if (!detail) return true;
+    if (!detail) return { allowed: true };
+
     const approvedBefore = await this.hasApprovedIdentical({
       kind: plan.kind,
       sender_customer_id: plan.sender_customer_id,
@@ -411,7 +436,8 @@ export class AntiFraudService {
       receiver_wallet_address: plan.receiver_wallet_address,
       external_address: plan.external_address,
     });
-    if (approvedBefore) return true;
+    if (approvedBefore) return { allowed: true };
+
     const reason = `${detail.reason}`;
     if (plan.sender_customer_id) {
       await this.prisma.customer.updateMany({
@@ -419,6 +445,7 @@ export class AntiFraudService {
         data: { status: 'FRAUD' },
       });
     }
+
     const tx = await this.prisma.transaction.create({
       data: ({
         kind: plan.kind,
@@ -431,15 +458,22 @@ export class AntiFraudService {
         receiver_customer_id: plan.receiver_customer_id,
         receiver_wallet_address: plan.receiver_wallet_address ?? undefined,
         external_address: plan.external_address ?? undefined,
-        comment: plan.comment ? `${plan.comment} — ${reason}` : reason,
+        comment: plan.comment ? `${plan.comment} - ${reason}` : reason,
       }),
     });
-    await this.openCase(tx.id, detail.key, reason);
-    return false;
+
+    const antiFraudCase = await this.openCase(tx.id, detail.key, reason);
+    return {
+      allowed: false,
+      reason,
+      rule_key: detail.key,
+      case_id: antiFraudCase.id,
+      transaction_id: tx.id,
+    };
   }
 
-  private async openCase(txId: number, key: AntiFraudRuleKey, reason: string): Promise<AntiFraudRuleKey> {
-    await this.prisma.antiFraudCase.create({ data: { transaction_id: txId, rule_key: key, reason } });
-    return key;
+  private async openCase(txId: number, key: AntiFraudRuleKey, reason: string): Promise<{ id: number }> {
+    const created = await this.prisma.antiFraudCase.create({ data: { transaction_id: txId, rule_key: key, reason } });
+    return { id: created.id };
   }
 }
