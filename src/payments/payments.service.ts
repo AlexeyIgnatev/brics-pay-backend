@@ -45,6 +45,57 @@ export class PaymentsService {
     return `Rejected by anti-fraud (${parts.join(', ')})`;
   }
 
+  private buildClientFio(customer: {
+    customer_id: number;
+    first_name?: string | null;
+    middle_name?: string | null;
+    last_name?: string | null;
+  } | null): string {
+    const fullName = [customer?.last_name, customer?.first_name, customer?.middle_name]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    return fullName || `Client #${customer?.customer_id ?? 'N/A'}`;
+  }
+
+  // Business format requested by ABS task: SS:MM:HH.
+  private formatAbsTime(date: Date): string {
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    return `${ss}:${mm}:${hh}`;
+  }
+
+  private buildAbsTransactionRef(): string {
+    return `ABS-${Date.now()}`;
+  }
+
+  private buildCreditPurpose(
+    walletId: string | number,
+    transactionRef: string,
+    recipientFio: string,
+    at: Date,
+  ): string {
+    return `Пополнение Салам №${walletId}, ID транзакции ${transactionRef}, ${recipientFio}, ${this.formatAbsTime(at)}`;
+  }
+
+  private buildDebitPurpose(
+    accountNo: string,
+    transactionRef: string,
+    senderFio: string,
+    at: Date,
+  ): string {
+    return `Пополнение счета №${accountNo}, ID транзакции ${transactionRef}, ${senderFio}, ${this.formatAbsTime(at)}`;
+  }
+
+  private buildGenericAbsPurpose(
+    clientFio: string,
+    transactionRef: string,
+    at: Date,
+  ): string {
+    return `${clientFio}, ID транзакции ${transactionRef}, ${this.formatAbsTime(at)}`;
+  }
+
   private mapType(t: Transaction, customer_id: number): TransactionType {
     switch (t.kind) {
       case 'BANK_TO_BANK':
@@ -575,6 +626,8 @@ export class PaymentsService {
     customer_id: number,
   ): Promise<StatusOKDto> {
     const { amount } = paymentDto;
+    const requestedAt = new Date();
+    const transactionRef = this.buildAbsTransactionRef();
 
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
@@ -595,9 +648,16 @@ export class PaymentsService {
     });
     if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
+    const paymentPurpose = this.buildCreditPurpose(
+      customer.customer_id,
+      transactionRef,
+      this.buildClientFio(customer),
+      requestedAt,
+    );
     const bricsTransaction = await this.bricsService.createTransactionFiatToCrypto(
       amount,
       customer.customer_id.toString(),
+      paymentPurpose,
     );
     if (!bricsTransaction) {
       throw new BadRequestException('Brics transaction failed');
@@ -621,7 +681,7 @@ export class PaymentsService {
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
         receiver_wallet_address: customer.address,
-        comment: 'Fiat->Crypto',
+        comment: `Fiat->Crypto (${transactionRef})`,
       },
     });
 
@@ -640,6 +700,8 @@ export class PaymentsService {
     customer_id: number,
   ): Promise<StatusOKDto> {
     const { amount } = paymentDto;
+    const requestedAt = new Date();
+    const transactionRef = this.buildAbsTransactionRef();
 
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
@@ -674,9 +736,17 @@ export class PaymentsService {
       throw new BadRequestException('Admin authentication failed');
     }
 
+    const ctAccountNo = this.configService.get<string>('CT_ACCOUNT_NO') || 'N/A';
+    const paymentPurpose = this.buildDebitPurpose(
+      ctAccountNo,
+      transactionRef,
+      this.buildClientFio(customer),
+      requestedAt,
+    );
     const bricsTransaction = await adminBricsService.createTransactionCryptoToFiat(
       amount * (1 - Number(this.configService.get('PLATFORM_FEE'))),
       customer.customer_id.toString(),
+      paymentPurpose,
     );
     if (!bricsTransaction) {
       throw new BadRequestException('Brics transaction failed');
@@ -693,7 +763,7 @@ export class PaymentsService {
         tx_hash: ethTransaction.txHash,
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
-        comment: 'Crypto->Fiat',
+        comment: `Crypto->Fiat (${transactionRef})`,
       },
     });
 
@@ -817,6 +887,8 @@ export class PaymentsService {
     transferDto: TransferDto,
     customer_id: number,
   ): Promise<StatusOKDto> {
+    const requestedAt = new Date();
+    const transactionRef = this.buildAbsTransactionRef();
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
     });
@@ -843,10 +915,16 @@ export class PaymentsService {
     });
     if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
+    const paymentPurpose = this.buildGenericAbsPurpose(
+      this.buildClientFio(customer),
+      transactionRef,
+      requestedAt,
+    );
     const bricsTransaction = await this.bricsService.createTransferFiatToFiat(
       transferDto.amount,
       customer.customer_id.toString(),
       bricsRecipient.CustomerID.toString(),
+      paymentPurpose,
     );
     if (!bricsTransaction) {
       throw new BadRequestException('Brics transaction failed');
@@ -862,7 +940,7 @@ export class PaymentsService {
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
         receiver_customer_id: bricsRecipient.CustomerID,
-        comment: 'SOM transfer',
+        comment: `SOM transfer (${transactionRef})`,
       },
     });
 

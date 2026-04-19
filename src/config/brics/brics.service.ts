@@ -338,27 +338,45 @@ export class BricsService {
   async createTransactionCryptoToFiat(
     amount: number,
     customerId: string,
+    paymentPurpose?: string,
   ): Promise<number> {
     const customerAccount = await this.getCustomerAccount(customerId);
-    return this.createTransfer(this.CT_ACCOUNT_NO, customerAccount.AccountNo, amount, customerId);
+    return this.createTransfer(
+      this.CT_ACCOUNT_NO,
+      customerAccount.AccountNo,
+      amount,
+      paymentPurpose ?? customerId,
+    );
   }
 
   async createTransactionFiatToCrypto(
     amount: number,
     customerId: string,
+    paymentPurpose?: string,
   ): Promise<number> {
     const account = await this.getCustomerAccount(customerId);
-    return this.createTransfer(account.AccountNo, this.CT_ACCOUNT_NO, amount, customerId);
+    return this.createTransfer(
+      account.AccountNo,
+      this.CT_ACCOUNT_NO,
+      amount,
+      paymentPurpose ?? customerId,
+    );
   }
 
   async createTransferFiatToFiat(
     amount: number,
     customerId: string,
     receiverId: string,
+    paymentPurpose?: string,
   ): Promise<number> {
     const account = await this.getCustomerAccount(customerId);
     const receiverAccount = await this.getCustomerAccount(receiverId);
-    return this.createTransfer(account.AccountNo, receiverAccount.AccountNo, amount, customerId);
+    return this.createTransfer(
+      account.AccountNo,
+      receiverAccount.AccountNo,
+      amount,
+      paymentPurpose ?? customerId,
+    );
   }
 
   async createTransfer(
