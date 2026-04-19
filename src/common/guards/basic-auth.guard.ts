@@ -1,9 +1,17 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { UsersService } from '../../users/users.service';
 
 @Injectable()
 export class BasicAuthGuard implements CanActivate {
+  private readonly logger = new Logger(BasicAuthGuard.name);
+
   constructor(private readonly usersService: UsersService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -36,7 +44,13 @@ export class BasicAuthGuard implements CanActivate {
 
       return true;
     } catch (error) {
-      throw new UnauthorizedException('Неверные учетные данные');
+      const details =
+        error instanceof Error
+          ? error.message
+          : 'Unknown authorization error';
+
+      this.logger.warn(`Authorization failed: ${details}`);
+      throw new UnauthorizedException(`Неверные учетные данные. Детали: ${details}`);
     }
   }
 }

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, Scope } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Scope, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import * as cheerio from 'cheerio';
@@ -125,6 +125,7 @@ export class BricsService {
       body.append('UserName', username);
       body.append('Password', password);
       this.logger.verbose('Send Login request');
+
       const response = await this.axiosInstance.post(
         `${this.BRICS_API_ROOT}/Account/Login`,
         body,
@@ -146,15 +147,38 @@ export class BricsService {
           validateStatus: (status: number) => status >= 200 && status < 400,
         },
       );
+
       this.updateCookies(response.headers['set-cookie']);
-      this.logger.verbose(`Received Login response ${response.status}`);
-      return response.status === 302;
+      const locationHeader = response.headers?.location;
+      const location = Array.isArray(locationHeader)
+        ? locationHeader[0]
+        : locationHeader;
+      const locationSuffix = location ? `, location=${location}` : '';
+
+      this.logger.verbose(
+        `Received Login response ${response.status}${locationSuffix}`,
+      );
+
+      if (response.status !== 302) {
+        throw new UnauthorizedException(
+          `BRICS authentication failed: expected 302, got ${response.status}${locationSuffix}`,
+        );
+      }
+
+      return true;
     } catch (error) {
-      this.logger.error('Ошибка при авторизации:', error);
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status ?? 'no-status';
+        const message = error.message || 'request failed';
+        const details = `status=${status}, message=${message}`;
+        this.logger.error(`BRICS auth request failed: ${details}`);
+        throw new UnauthorizedException(`BRICS auth request failed: ${details}`);
+      }
+
+      this.logger.error('BRICS auth failed', error as any);
       throw error;
     }
   }
-
   async getAccount(): Promise<BricsAccountDto> {
     try {
       this.logger.verbose('Send getAccount request');
@@ -413,3 +437,4 @@ export class BricsService {
     return response.status === 200;
   }
 }
+
