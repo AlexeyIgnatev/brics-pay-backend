@@ -59,6 +59,15 @@ export class BricsService {
       .join('; ');
   }
 
+  private buildBricsUrl(path: string): string {
+    const normalizedRoot = this.BRICS_API_ROOT.replace(/\/+$/, '');
+    const rootWithInternetBanking = /\/InternetBanking$/i.test(normalizedRoot)
+      ? normalizedRoot
+      : `${normalizedRoot}/InternetBanking`;
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${rootWithInternetBanking}${normalizedPath}`;
+  }
+
   private async getRequestVerificationToken(html: string): Promise<string> {
     const $ = cheerio.load(html);
     const token = $('input[name="__RequestVerificationToken"]').val();
@@ -102,21 +111,30 @@ export class BricsService {
     try {
       this.logger.verbose('Request Init page');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/Account/Login`,
+        this.buildBricsUrl('/Account/Login'),
       );
       this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose('Received Init page');
       return this.getRequestVerificationToken(response.data);
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status ?? 'no-status';
+        const url = error.config?.url || this.buildBricsUrl('/Account/Login');
+        const message = error.message || 'request failed';
+        const details = `status=${status}, url=${url}, message=${message}`;
+        this.logger.error(`BRICS init failed: ${details}`);
+        throw new UnauthorizedException(`BRICS init failed: ${details}`);
+      }
+
       this.logger.error('Error getting token:', error);
       throw error;
     }
   }
 
   async auth(username: string, password: string): Promise<boolean> {
-    const token = await this.init();
     try {
-      const loginUrl = new URL(`${this.BRICS_API_ROOT}/Account/Login`);
+      const token = await this.init();
+      const loginUrl = new URL(this.buildBricsUrl('/Account/Login'));
       const origin = `${loginUrl.protocol}//${loginUrl.host}`;
       const referer = `${origin}/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking`;
 
@@ -127,7 +145,7 @@ export class BricsService {
       this.logger.verbose('Send Login request');
 
       const response = await this.axiosInstance.post(
-        `${this.BRICS_API_ROOT}/Account/Login`,
+        loginUrl.toString(),
         body,
         {
           withCredentials: true,
@@ -169,8 +187,9 @@ export class BricsService {
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const status = error.response?.status ?? 'no-status';
+        const url = error.config?.url || this.buildBricsUrl('/Account/Login');
         const message = error.message || 'request failed';
-        const details = `status=${status}, message=${message}`;
+        const details = `status=${status}, url=${url}, message=${message}`;
         this.logger.error(`BRICS auth request failed: ${details}`);
         throw new UnauthorizedException(`BRICS auth request failed: ${details}`);
       }
@@ -183,7 +202,7 @@ export class BricsService {
     try {
       this.logger.verbose('Send getAccount request');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/ru-RU/Reference/CurrentAccounts`,
+        this.buildBricsUrl('/ru-RU/Reference/CurrentAccounts'),
         {
           withCredentials: true,
           headers: {
@@ -208,7 +227,7 @@ export class BricsService {
     try {
       this.logger.verbose('Send findAccount request');
       const response = await this.axiosInstance.post(
-        `${this.BRICS_API_ROOT}/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
+        this.buildBricsUrl('/ru-RU/Reference/GetAccountsByAccountNoOrPhone'),
         {
           account: accountNoOrPhone,
         },
@@ -272,7 +291,7 @@ export class BricsService {
     try {
       this.logger.verbose('Send getSomBalance request');
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/ru-RU/Reference/CurrentAccounts`,
+        this.buildBricsUrl('/ru-RU/Reference/CurrentAccounts'),
         {
           withCredentials: true,
           headers: {
@@ -297,7 +316,7 @@ export class BricsService {
     try {
       this.logger.verbose(`Send initTransactionScreen request ${accountNo}`);
       const response = await this.axiosInstance.get(
-        `${this.BRICS_API_ROOT}/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`,
+        this.buildBricsUrl(`/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`),
         {
           withCredentials: true,
           headers: {
@@ -368,7 +387,7 @@ export class BricsService {
     );
 
     const response = await this.axiosInstance.post(
-      `${this.BRICS_API_ROOT}/ru-RU/Accounts/InternalTransaction`,
+      this.buildBricsUrl('/ru-RU/Accounts/InternalTransaction'),
       transactionBody,
       {
         withCredentials: true,
@@ -397,7 +416,7 @@ export class BricsService {
   async confirmLoad(operationId: number): Promise<boolean> {
     this.logger.verbose('Send confirmLoad request');
     const response = await this.axiosInstance.post(
-      `${this.BRICS_API_ROOT}/ru-RU/Operation/Operation/ConfirmLoad`,
+      this.buildBricsUrl('/ru-RU/Operation/Operation/ConfirmLoad'),
       {
         operationID: operationId,
       },
@@ -418,7 +437,7 @@ export class BricsService {
   async confirmFinal(operationId: number): Promise<boolean> {
     this.logger.verbose('Send confirmFinal request');
     const response = await this.axiosInstance.post(
-      `${this.BRICS_API_ROOT}/ru-RU/Operation/Operation/Confirm`,
+      this.buildBricsUrl('/ru-RU/Operation/Operation/Confirm'),
       {
         OperationID: operationId,
         OperationTypeID: 1,
