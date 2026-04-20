@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 /* eslint-disable max-classes-per-file */
 import { ModuleRef } from '@nestjs/core';
 import { Asset, PrismaClient, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
@@ -43,6 +43,24 @@ export class PaymentsService {
     if (decision.transaction_id != null) parts.push(`transaction_id=${decision.transaction_id}`);
     if (decision.reason) parts.push(`reason=${decision.reason}`);
     return `Rejected by anti-fraud (${parts.join(', ')})`;
+  }
+
+  private errorDetails(error: unknown): string {
+    if (error instanceof Error) {
+      const anyErr = error as any;
+      const status = anyErr?.response?.status;
+      const data = anyErr?.response?.data;
+      if (status != null || data != null) {
+        const dataText = typeof data === 'string' ? data : JSON.stringify(data);
+        return `status=${status ?? 'n/a'}, message=${error.message}, data=${dataText}`;
+      }
+      return error.message;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
   }
 
   private async complianceStatusMessage(customerId: number, status: 'FRAUD' | 'BLOCKED'): Promise<string> {
@@ -355,26 +373,27 @@ export class PaymentsService {
   }
 
   async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {
-    const me = await this.prisma.customer.findUnique({ where: { customer_id } });
-    if (me && (me.status === 'BLOCKED' || me.status === 'FRAUD')) {
-      throw new BadRequestException(await this.complianceStatusMessage(customer_id, me.status as 'FRAUD' | 'BLOCKED'));
-    }
-    this.logger.verbose(`[convert] start customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount_from=${dto.amount_from}`);
-    const user = await this.prisma.customer.findUniqueOrThrow({ where: { customer_id } });
-    const s = await this.settingsService.get();
-    const from = dto.asset_from as unknown as Asset;
-    const to = dto.asset_to as unknown as Asset;
-    const amountFrom = dto.amount_from;
-    const esomPerUsd = Number(s.esom_per_usd);
-    this.logger.verbose(`[convert] settings esom_per_usd=${esomPerUsd}`);
+    try {
+      const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+      if (me && (me.status === 'BLOCKED' || me.status === 'FRAUD')) {
+        throw new BadRequestException(await this.complianceStatusMessage(customer_id, me.status as 'FRAUD' | 'BLOCKED'));
+      }
+      this.logger.verbose(`[convert] start customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount_from=${dto.amount_from}`);
+      const user = await this.prisma.customer.findUniqueOrThrow({ where: { customer_id } });
+      const s = await this.settingsService.get();
+      const from = dto.asset_from as unknown as Asset;
+      const to = dto.asset_to as unknown as Asset;
+      const amountFrom = dto.amount_from;
+      const esomPerUsd = Number(s.esom_per_usd);
+      this.logger.verbose(`[convert] settings esom_per_usd=${esomPerUsd}`);
 
-    const addBalance = async (asset: Asset, delta: number) => {
-      await this.prisma.userAssetBalance.upsert({
-        where: { customer_id_asset: { customer_id, asset } },
-        create: { customer_id, asset, balance: delta.toString() },
-        update: { balance: { increment: delta.toString() } },
-      });
-    };
+      const addBalance = async (asset: Asset, delta: number) => {
+        await this.prisma.userAssetBalance.upsert({
+          where: { customer_id_asset: { customer_id, asset } },
+          create: { customer_id, asset, balance: delta.toString() },
+          update: { balance: { increment: delta.toString() } },
+        });
+      };
 
     const feePctForAsset = (asset: Asset): number => {
       switch (asset) {
@@ -401,8 +420,8 @@ export class PaymentsService {
       return { net, fee };
     };
 
-    // ESOM -> CRYPTO
-    if (from === 'ESOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
+      // ESOM -> CRYPTO
+      if (from === 'ESOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
       const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
@@ -456,11 +475,11 @@ export class PaymentsService {
       });
       // Refresh only ESOM balance to avoid overwriting exchange-held balances
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
-      return new StatusOKDto();
-    }
+        return new StatusOKDto();
+      }
 
-    // CRYPTO -> ESOM
-    if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'ESOM') {
+      // CRYPTO -> ESOM
+      if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'ESOM') {
       const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
@@ -509,11 +528,11 @@ export class PaymentsService {
       });
       // Refresh only ESOM balance after mint
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
-      return new StatusOKDto();
-    }
+        return new StatusOKDto();
+      }
 
-    // CRYPTO -> CRYPTO
-    if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
+      // CRYPTO -> CRYPTO
+      if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
       const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
@@ -564,17 +583,30 @@ export class PaymentsService {
           comment: `Convert ${from}->${to}`,
         },
       });
+        return new StatusOKDto();
+      }
+
+      if (from === 'SOM' && to === 'ESOM') {
+        return this.fiatToCrypto({ amount: amountFrom }, customer_id);
+      }
+      if (from === 'ESOM' && to === 'SOM') {
+        return this.cryptoToFiat({ amount: amountFrom }, customer_id);
+      }
+
       return new StatusOKDto();
+    } catch (error) {
+      const details = this.errorDetails(error);
+      this.logger.error(`[convert] failed customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount=${dto.amount_from}: ${details}`);
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException ||
+        error instanceof NotFoundException ||
+        error instanceof UnauthorizedException
+      ) {
+        throw error;
+      }
+      throw new BadRequestException(`Convert failed: ${details}`);
     }
-
-    if (from === 'SOM' && to === 'ESOM') {
-      return this.fiatToCrypto({ amount: amountFrom }, customer_id);
-    }
-    if (from === 'ESOM' && to === 'SOM') {
-      return this.cryptoToFiat({ amount: amountFrom }, customer_id);
-    }
-
-    return new StatusOKDto();
   }
 
   async withdrawCrypto(asset: Asset, address: string, amount: number, customer_id: number): Promise<StatusOKDto> {
