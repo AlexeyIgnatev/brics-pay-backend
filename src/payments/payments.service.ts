@@ -45,6 +45,23 @@ export class PaymentsService {
     return `Rejected by anti-fraud (${parts.join(', ')})`;
   }
 
+  private async complianceStatusMessage(customerId: number, status: 'FRAUD' | 'BLOCKED'): Promise<string> {
+    const latestCase = await this.prisma.antiFraudCase.findFirst({
+      where: { transaction: { sender_customer_id: customerId } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true, rule_key: true },
+    });
+    const parts = [`customer_status=${status}`];
+    if (latestCase) {
+      parts.push(`case_id=${latestCase.id}`);
+      parts.push(`case_status=${latestCase.status}`);
+      parts.push(`rule=${latestCase.rule_key}`);
+    } else {
+      parts.push('case_id=none');
+    }
+    return `Operation blocked by compliance (${parts.join(', ')})`;
+  }
+
   private buildClientFio(customer: {
     customer_id: number;
     first_name?: string | null;
@@ -333,8 +350,8 @@ export class PaymentsService {
 
   async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {
     const me = await this.prisma.customer.findUnique({ where: { customer_id } });
-    if (me && me.status === 'BLOCKED') {
-      throw new BadRequestException('User is blocked');
+    if (me && (me.status === 'BLOCKED' || me.status === 'FRAUD')) {
+      throw new BadRequestException(await this.complianceStatusMessage(customer_id, me.status as 'FRAUD' | 'BLOCKED'));
     }
     this.logger.verbose(`[convert] start customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount_from=${dto.amount_from}`);
     const user = await this.prisma.customer.findUniqueOrThrow({ where: { customer_id } });
@@ -657,7 +674,7 @@ export class PaymentsService {
     }
     this.logger.verbose(`[fiatToCrypto] conversion_fee pct=${feePct}% min=${minFee} fee=${conversionFee} net=${netAmount}`);
 
-    const allowed = await this.antiFraud.shouldAllowTransaction({
+    const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
       kind: TransactionKind.BANK_TO_WALLET,
       amount_in: amount,
       asset_in: 'SOM',
@@ -667,7 +684,9 @@ export class PaymentsService {
       receiver_wallet_address: customer.address,
       comment: 'Fiat->Crypto',
     });
-    if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+    if (!antiFraudDecision.allowed) {
+      throw new BadRequestException(this.antiFraudRejectMessage('SOM->ESOM', antiFraudDecision));
+    }
 
     const paymentPurpose = this.buildCreditPurpose(
       customer.customer_id,
@@ -739,7 +758,7 @@ export class PaymentsService {
     }
     this.logger.verbose(`[cryptoToFiat] conversion_fee pct=${feePct}% min=${minFee} fee=${conversionFee} net=${netAmount}`);
 
-    const allowed = await this.antiFraud.shouldAllowTransaction({
+    const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
       kind: TransactionKind.WALLET_TO_BANK,
       amount_in: amount,
       asset_in: 'ESOM',
@@ -747,7 +766,9 @@ export class PaymentsService {
       sender_customer_id: customer.customer_id,
       comment: 'Crypto->Fiat',
     });
-    if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+    if (!antiFraudDecision.allowed) {
+      throw new BadRequestException(this.antiFraudRejectMessage('ESOM->SOM', antiFraudDecision));
+    }
 
     const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
