@@ -279,18 +279,31 @@ export class BricsService {
         `Received getCustomerAccounts response ${response.status}`,
       );
       const rawResult = response.data?.Result;
-      const accounts: BricsAccountDto[] = Array.isArray(rawResult)
+      const accounts: any[] = Array.isArray(rawResult)
         ? rawResult
         : Array.isArray(response.data)
           ? response.data
           : Object.values(rawResult ?? {});
+      const normalizedAccounts: BricsAccountDto[] = accounts.map((item: any) => ({
+        ...item,
+        AccountNo:
+          item?.AccountNo ??
+          item?.accountNo ??
+          item?.AccountNumber ??
+          item?.account_number ??
+          item?.Iban ??
+          item?.IBAN,
+        CurrencyID: Number(item?.CurrencyID ?? item?.currencyId ?? item?.currency_id),
+        CustomerID: Number(item?.CustomerID ?? item?.customerId ?? item?.customer_id),
+        Balance: Number(item?.Balance ?? item?.balance ?? 0),
+      }));
 
-      const account = accounts.find(
+      const account = normalizedAccounts.find(
         (item: BricsAccountDto) => Number(item?.CurrencyID) === 417,
       );
 
       if (!account) {
-        const currencyIds = accounts
+        const currencyIds = normalizedAccounts
           .map((item: any) => item?.CurrencyID)
           .filter((v: any) => v != null)
           .join(',');
@@ -299,8 +312,10 @@ export class BricsService {
         );
       }
       if (!account.AccountNo) {
+        const matchedRawAccount = accounts.find((item: any) => Number(item?.CurrencyID ?? item?.currencyId ?? item?.currency_id) === 417);
+        const rawKeys = matchedRawAccount ? Object.keys(matchedRawAccount).join(',') : 'unknown';
         throw new BadRequestException(
-          `ABS account is missing AccountNo for customer ${customerId} (CurrencyID=${account.CurrencyID})`,
+          `ABS account is missing account number for customer ${customerId} (CurrencyID=${account.CurrencyID}). Expected one of [AccountNo,accountNo,AccountNumber,account_number,Iban,IBAN]. RawKeys=[${rawKeys}]`,
         );
       }
       return account;
