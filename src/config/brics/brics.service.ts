@@ -278,9 +278,32 @@ export class BricsService {
       this.logger.verbose(
         `Received getCustomerAccounts response ${response.status}`,
       );
-      return response.data['Result'].find(
-        (account: BricsAccountDto) => account.CurrencyID === 417,
-      )!!;
+      const rawResult = response.data?.Result;
+      const accounts: BricsAccountDto[] = Array.isArray(rawResult)
+        ? rawResult
+        : Array.isArray(response.data)
+          ? response.data
+          : Object.values(rawResult ?? {});
+
+      const account = accounts.find(
+        (item: BricsAccountDto) => Number(item?.CurrencyID) === 417,
+      );
+
+      if (!account) {
+        const currencyIds = accounts
+          .map((item: any) => item?.CurrencyID)
+          .filter((v: any) => v != null)
+          .join(',');
+        throw new BadRequestException(
+          `ABS SOM account not found for customer ${customerId}. CurrencyID=417 is required. AvailableCurrencyIDs=[${currencyIds}]`,
+        );
+      }
+      if (!account.AccountNo) {
+        throw new BadRequestException(
+          `ABS account is missing AccountNo for customer ${customerId} (CurrencyID=${account.CurrencyID})`,
+        );
+      }
+      return account;
     } catch (error) {
       this.logger.error('Error getting customer information:', error);
       throw error;
