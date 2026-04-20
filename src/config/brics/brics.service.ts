@@ -392,7 +392,25 @@ export class BricsService {
     customerId: string,
     paymentPurpose?: string,
   ): Promise<number> {
-    const account = await this.getCustomerAccount(customerId);
+    let account: BricsAccountDto | null = null;
+    try {
+      account = await this.getCustomerAccount(customerId);
+    } catch (error) {
+      const details = error instanceof Error ? error.message : 'unknown';
+      this.logger.warn(
+        `getCustomerAccount failed for customer=${customerId}, fallback to authenticated BRICS session account: ${details}`,
+      );
+    }
+
+    if (!account?.AccountNo) {
+      account = await this.getAccount();
+    }
+    if (!account?.AccountNo) {
+      throw new BadRequestException(
+        `Unable to resolve source SOM account for customer ${customerId}`,
+      );
+    }
+
     return this.createTransfer(
       account.AccountNo,
       this.CT_ACCOUNT_NO,
