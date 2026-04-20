@@ -46,20 +46,26 @@ export class PaymentsService {
   }
 
   private async complianceStatusMessage(customerId: number, status: 'FRAUD' | 'BLOCKED'): Promise<string> {
-    const latestCase = await this.prisma.antiFraudCase.findFirst({
-      where: { transaction: { sender_customer_id: customerId } },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, status: true, rule_key: true },
-    });
-    const parts = [`customer_status=${status}`];
-    if (latestCase) {
-      parts.push(`case_id=${latestCase.id}`);
-      parts.push(`case_status=${latestCase.status}`);
-      parts.push(`rule=${latestCase.rule_key}`);
-    } else {
-      parts.push('case_id=none');
+    try {
+      const latestCase = await this.prisma.antiFraudCase.findFirst({
+        where: { transaction: { is: { sender_customer_id: customerId } } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, status: true, rule_key: true },
+      });
+      const parts = [`customer_status=${status}`];
+      if (latestCase) {
+        parts.push(`case_id=${latestCase.id}`);
+        parts.push(`case_status=${latestCase.status}`);
+        parts.push(`rule=${latestCase.rule_key}`);
+      } else {
+        parts.push('case_id=none');
+      }
+      return `Operation blocked by compliance (${parts.join(', ')})`;
+    } catch (error) {
+      const details = error instanceof Error ? error.message : 'unknown';
+      this.logger.error(`[complianceStatusMessage] failed for customer=${customerId}: ${details}`);
+      return `Operation blocked by compliance (customer_status=${status}, case_id=unknown)`;
     }
-    return `Operation blocked by compliance (${parts.join(', ')})`;
   }
 
   private buildClientFio(customer: {
