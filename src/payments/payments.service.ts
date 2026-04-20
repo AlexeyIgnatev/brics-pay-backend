@@ -204,6 +204,13 @@ export class PaymentsService {
   }
 
   private buildRecipientFullName(t: {
+    kind: TransactionKind;
+    sender_customer?: {
+      first_name: string | null;
+      middle_name: string | null;
+      last_name: string | null;
+    } | null;
+    sender_customer_id: number | null;
     receiver_customer?: {
       first_name: string | null;
       middle_name: string | null;
@@ -211,6 +218,20 @@ export class PaymentsService {
     } | null;
     receiver_customer_id: number | null;
   }): string {
+    const isConversion =
+      t.kind === 'CONVERSION'
+      || t.kind === 'BANK_TO_WALLET'
+      || t.kind === 'WALLET_TO_BANK';
+
+    if (isConversion) {
+      const converterFullName = [t.sender_customer?.last_name, t.sender_customer?.first_name, t.sender_customer?.middle_name]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (converterFullName) return converterFullName;
+      if (t.sender_customer_id != null) return `Customer #${t.sender_customer_id}`;
+    }
+
     const fullName = [t.receiver_customer?.last_name, t.receiver_customer?.first_name, t.receiver_customer?.middle_name]
       .filter(Boolean)
       .join(' ')
@@ -331,6 +352,9 @@ export class PaymentsService {
         sender_customer: {
           select: {
             address: true,
+            first_name: true,
+            middle_name: true,
+            last_name: true,
           },
         },
         receiver_customer: {
