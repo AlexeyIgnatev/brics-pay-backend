@@ -587,10 +587,10 @@ export class PaymentsService {
       }
 
       if (from === 'SOM' && to === 'ESOM') {
-        return this.fiatToCrypto({ amount: amountFrom }, customer_id);
+        return await this.fiatToCrypto({ amount: amountFrom }, customer_id);
       }
       if (from === 'ESOM' && to === 'SOM') {
-        return this.cryptoToFiat({ amount: amountFrom }, customer_id);
+        return await this.cryptoToFiat({ amount: amountFrom }, customer_id);
       }
 
       return new StatusOKDto();
