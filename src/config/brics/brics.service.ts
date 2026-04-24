@@ -496,6 +496,7 @@ export class BricsService {
     paymentPurpose?: string,
     resolvedCustomerAccountNo?: string,
     fallbackPhone?: string,
+    sourceAccountNo?: string,
   ): Promise<number> {
     let customerAccountNo = resolvedCustomerAccountNo;
     if (!customerAccountNo) {
@@ -511,9 +512,13 @@ export class BricsService {
         `Unable to resolve destination SOM account for customer ${customerId}`,
       );
     }
+    const fromAccountNo = (sourceAccountNo || this.CT_ACCOUNT_NO || '').trim();
+    if (!fromAccountNo) {
+      throw new BadRequestException('ABS source account is not configured');
+    }
 
     return this.createTransfer(
-      this.CT_ACCOUNT_NO,
+      fromAccountNo,
       customerAccountNo,
       amount,
       paymentPurpose ?? customerId,

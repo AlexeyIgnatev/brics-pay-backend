@@ -853,8 +853,27 @@ export class PaymentsService {
       );
     }
 
-    const ctAccountNo = this.configService.get<string>('CT_ACCOUNT_NO') || 'N/A';
-    await adminBricsService.ensureTransferSourceAccountAccessible(ctAccountNo);
+    const configuredCtAccountNo = this.configService.get<string>('CT_ACCOUNT_NO') || '';
+    let sourceAccountNo = configuredCtAccountNo;
+    try {
+      await adminBricsService.ensureTransferSourceAccountAccessible(sourceAccountNo);
+    } catch (error) {
+      const details = this.errorDetails(error);
+      // ABS can reject with "account is not yours" if CT_ACCOUNT_NO does not belong to ADMIN_LOGIN user.
+      if (/не является вашим|not yours/i.test(details)) {
+        const adminSomAccount = await adminBricsService.getAccount();
+        if (!adminSomAccount?.AccountNo) {
+          throw new BadRequestException('ABS admin SOM source account not found');
+        }
+        sourceAccountNo = adminSomAccount.AccountNo;
+        await adminBricsService.ensureTransferSourceAccountAccessible(sourceAccountNo);
+        this.logger.warn(
+          `[cryptoToFiat] configured CT_ACCOUNT_NO is not owned by admin, fallback source account=${sourceAccountNo}`,
+        );
+      } else {
+        throw error;
+      }
+    }
 
     const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
@@ -862,6 +881,7 @@ export class PaymentsService {
       throw new BadRequestException('Ethereum transaction failed');
     }
 
+    const ctAccountNo = sourceAccountNo || 'N/A';
     const paymentPurpose = this.buildDebitPurpose(
       ctAccountNo,
       transactionRef,
@@ -874,6 +894,7 @@ export class PaymentsService {
       paymentPurpose,
       resolvedSomAccount.AccountNo,
       customer.phone ?? undefined,
+      sourceAccountNo,
     );
     if (!bricsTransaction) {
       throw new BadRequestException('Brics transaction failed');
