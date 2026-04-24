@@ -886,21 +886,46 @@ export class PaymentsService {
       throw new BadRequestException('Ethereum transaction failed');
     }
 
-    const ctAccountNo = sourceAccountNo || 'N/A';
-    const paymentPurpose = this.buildDebitPurpose(
-      ctAccountNo,
-      transactionRef,
-      this.buildClientFio(customer),
-      requestedAt,
-    );
-    const bricsTransaction = await adminBricsService.createTransactionCryptoToFiat(
-      netAmount,
-      customer.customer_id.toString(),
-      paymentPurpose,
-      resolvedSomAccount.AccountNo,
-      customer.phone ?? undefined,
-      sourceAccountNo,
-    );
+    let transferSourceAccountNo = sourceAccountNo;
+    const createBankPayout = async (fromAccountNo: string): Promise<number> => {
+      const paymentPurpose = this.buildDebitPurpose(
+        fromAccountNo || 'N/A',
+        transactionRef,
+        this.buildClientFio(customer),
+        requestedAt,
+      );
+
+      return adminBricsService.createTransactionCryptoToFiat(
+        netAmount,
+        customer.customer_id.toString(),
+        paymentPurpose,
+        resolvedSomAccount.AccountNo,
+        customer.phone ?? undefined,
+        fromAccountNo,
+      );
+    };
+
+    let bricsTransaction: number;
+    try {
+      bricsTransaction = await createBankPayout(transferSourceAccountNo);
+    } catch (error) {
+      const details = this.errorDetails(error);
+      const adminSomAccount = await adminBricsService.getAccount();
+      const fallbackSourceAccountNo = adminSomAccount?.AccountNo;
+      if (
+        !fallbackSourceAccountNo
+        || (transferSourceAccountNo && fallbackSourceAccountNo.trim() === transferSourceAccountNo.trim())
+      ) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `[cryptoToFiat] primary ABS payout failed (${details}); retry with admin SOM account=${fallbackSourceAccountNo}`,
+      );
+      transferSourceAccountNo = fallbackSourceAccountNo;
+      bricsTransaction = await createBankPayout(transferSourceAccountNo);
+    }
+
     if (!bricsTransaction) {
       throw new BadRequestException('Brics transaction failed');
     }
