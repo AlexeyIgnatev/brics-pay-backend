@@ -96,6 +96,22 @@ export class BricsService {
     return String(data);
   }
 
+  private extractBricsPageAlert(html: unknown): string | null {
+    if (typeof html !== 'string') return null;
+    const text = html.trim();
+    if (!text.includes('<html')) return null;
+
+    try {
+      const $ = cheerio.load(text);
+      const alertText = $('.alert.alert_type_error .alert__body p').first().text().trim()
+        || $('.alert_type_error .alert__body p').first().text().trim()
+        || $('.alert.alert_type_error .alert__body').first().text().trim();
+      return alertText ? alertText.replace(/\s+/g, ' ').trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
   private throwBricsRequestError(action: string, error: unknown): void {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
@@ -479,6 +495,14 @@ export class BricsService {
       this.logger.verbose(
         `Received initTransactionScreen response ${response.status}`,
       );
+
+      const pageAlert = this.extractBricsPageAlert(response.data);
+      if (pageAlert) {
+        throw new BadRequestException(
+          `ABS prepare transfer failed: ${pageAlert}`,
+        );
+      }
+
       return this.getTransactionToken(response.data);
     } catch (error) {
       this.throwBricsRequestError('prepare transfer', error);
