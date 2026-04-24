@@ -59,6 +59,61 @@ export class BricsService {
       .join('; ');
   }
 
+  private extractBricsErrorMessage(data: unknown): string | null {
+    if (data == null) return null;
+
+    if (typeof data === 'string') {
+      const text = data.trim();
+      if (!text) return null;
+
+      if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
+        try {
+          const $ = cheerio.load(text);
+          const alertText = $('.alert__body p').first().text().trim()
+            || $('.alert_type_error .alert__body').first().text().trim()
+            || $('title').first().text().trim();
+          if (alertText) return alertText.replace(/\s+/g, ' ').trim();
+        } catch {
+          // ignore parser failure and fallback below
+        }
+      }
+
+      return text.replace(/\s+/g, ' ').trim().slice(0, 300);
+    }
+
+    if (typeof data === 'object') {
+      const anyData = data as any;
+      const message = anyData?.message || anyData?.error || anyData?.title;
+      if (typeof message === 'string' && message.trim()) return message.trim();
+
+      try {
+        return JSON.stringify(data).slice(0, 300);
+      } catch {
+        return null;
+      }
+    }
+
+    return String(data);
+  }
+
+  private throwBricsRequestError(action: string, error: unknown): void {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const extractedMessage = this.extractBricsErrorMessage(error.response?.data);
+
+      const details = [
+        `ABS ${action} failed`,
+        status != null ? `status=${status}` : null,
+        extractedMessage ? `message=${extractedMessage}` : null,
+      ].filter(Boolean).join(', ');
+
+      this.logger.error(details);
+      throw new BadRequestException(details);
+    }
+
+    throw error;
+  }
+
   private buildBricsUrl(path: string): string {
     const normalizedRoot = this.BRICS_API_ROOT.replace(/\/+$/, '');
     const rootWithInternetBanking = /\/InternetBanking$/i.test(normalizedRoot)
@@ -426,9 +481,13 @@ export class BricsService {
       );
       return this.getTransactionToken(response.data);
     } catch (error) {
-      this.logger.error('Ошибка при получении токена:', error);
+      this.throwBricsRequestError('prepare transfer', error);
       throw error;
     }
+  }
+
+  async ensureTransferSourceAccountAccessible(accountNo: string): Promise<void> {
+    await this.initTransactionScreen(accountNo);
   }
 
   async createTransactionCryptoToFiat(
@@ -515,50 +574,55 @@ export class BricsService {
     amount: number,
     comment: string,
   ): Promise<number> {
-    const token = await this.initTransactionScreen(fromAccount);
+    try {
+      const token = await this.initTransactionScreen(fromAccount);
 
-    const transactionBody = {
-      InternalOperationType: 1,
-      OperationID: 0,
-      DtAccountNo: fromAccount,
-      CtAccountNo: toAccount,
-      CurrencyID: 417,
-      Sum: amount,
-      Comment: comment,
-      IsTemplate: false,
-      Schedule: null,
-    };
+      const transactionBody = {
+        InternalOperationType: 1,
+        OperationID: 0,
+        DtAccountNo: fromAccount,
+        CtAccountNo: toAccount,
+        CurrencyID: 417,
+        Sum: amount,
+        Comment: comment,
+        IsTemplate: false,
+        Schedule: null,
+      };
 
-    this.logger.verbose(
-      'Send createTransfer request',
-      transactionBody,
-    );
+      this.logger.verbose(
+        'Send createTransfer request',
+        transactionBody,
+      );
 
-    const response = await this.axiosInstance.post(
-      this.buildBricsUrl('/ru-RU/Accounts/InternalTransaction'),
-      transactionBody,
-      {
-        withCredentials: true,
-        headers: {
-          __requestverificationtoken: token,
-          Cookie: this.cookies != null ? this.cookies : undefined,
+      const response = await this.axiosInstance.post(
+        this.buildBricsUrl('/ru-RU/Accounts/InternalTransaction'),
+        transactionBody,
+        {
+          withCredentials: true,
+          headers: {
+            __requestverificationtoken: token,
+            Cookie: this.cookies != null ? this.cookies : undefined,
+          },
         },
-      },
-    );
+      );
 
-    this.updateCookies(response.headers['set-cookie']);
+      this.updateCookies(response.headers['set-cookie']);
 
-    this.logger.verbose(
-      `Received createTransfer response ${response.status} ${JSON.stringify(response.data)}`,
-    );
+      this.logger.verbose(
+        `Received createTransfer response ${response.status} ${JSON.stringify(response.data)}`,
+      );
 
-    const operationId = response.data.operationID;
-    this.logger.log('Operation ID:', operationId);
+      const operationId = response.data.operationID;
+      this.logger.log('Operation ID:', operationId);
 
-    await this.confirmLoad(operationId);
-    await this.confirmFinal(operationId);
+      await this.confirmLoad(operationId);
+      await this.confirmFinal(operationId);
 
-    return operationId;
+      return operationId;
+    } catch (error) {
+      this.throwBricsRequestError('create transfer', error);
+      throw error;
+    }
   }
 
   async confirmLoad(operationId: number): Promise<boolean> {

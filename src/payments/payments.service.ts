@@ -853,13 +853,15 @@ export class PaymentsService {
       );
     }
 
+    const ctAccountNo = this.configService.get<string>('CT_ACCOUNT_NO') || 'N/A';
+    await adminBricsService.ensureTransferSourceAccountAccessible(ctAccountNo);
+
     const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
     if (!ethTransaction?.success) {
       throw new BadRequestException('Ethereum transaction failed');
     }
 
-    const ctAccountNo = this.configService.get<string>('CT_ACCOUNT_NO') || 'N/A';
     const paymentPurpose = this.buildDebitPurpose(
       ctAccountNo,
       transactionRef,
