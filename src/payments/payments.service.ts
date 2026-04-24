@@ -932,23 +932,66 @@ export class PaymentsService {
 
     let bricsTransaction: number;
     try {
-      bricsTransaction = await createBankPayout(transferSourceAccountNo);
-    } catch (error) {
-      const details = this.errorDetails(error);
-      const adminSomAccount = await adminBricsService.getAccount();
-      const fallbackSourceAccountNo = adminSomAccount?.AccountNo;
-      if (
-        !fallbackSourceAccountNo
-        || (transferSourceAccountNo && fallbackSourceAccountNo.trim() === transferSourceAccountNo.trim())
-      ) {
-        throw error;
+      try {
+        bricsTransaction = await createBankPayout(transferSourceAccountNo);
+      } catch (error) {
+        const details = this.errorDetails(error);
+        const adminSomAccount = await adminBricsService.getAccount();
+        const fallbackSourceAccountNo = adminSomAccount?.AccountNo;
+        if (
+          !fallbackSourceAccountNo
+          || (transferSourceAccountNo && fallbackSourceAccountNo.trim() === transferSourceAccountNo.trim())
+        ) {
+          throw error;
+        }
+
+        this.logger.warn(
+          `[cryptoToFiat] primary ABS payout failed (${details}); retry with admin SOM account=${fallbackSourceAccountNo}`,
+        );
+        transferSourceAccountNo = fallbackSourceAccountNo;
+        bricsTransaction = await createBankPayout(transferSourceAccountNo);
+      }
+    } catch (bankError) {
+      const bankDetails = this.errorDetails(bankError);
+      this.logger.error(
+        `[cryptoToFiat] ABS payout failed after ESOM debit for customer=${customer.customer_id}. Starting compensation. details=${bankDetails}`,
+      );
+
+      let compensationSucceeded = false;
+      let compensationDetails = 'unknown';
+      try {
+        // Compensation path: refund the exact ESOM amount that was already debited.
+        const compensationTx = await this.ethereumService.transferFromFiat(
+          customer.address,
+          amount,
+          false,
+        );
+        compensationSucceeded = !!compensationTx?.success;
+        if (!compensationSucceeded) {
+          compensationDetails = 'compensation transaction returned unsuccessful status';
+        } else {
+          compensationDetails = compensationTx.txHash
+            ? `txHash=${compensationTx.txHash}`
+            : 'txHash=n/a';
+        }
+      } catch (compensationError) {
+        compensationDetails = this.errorDetails(compensationError);
       }
 
-      this.logger.warn(
-        `[cryptoToFiat] primary ABS payout failed (${details}); retry with admin SOM account=${fallbackSourceAccountNo}`,
+      await this.balanceFetchService.refreshAllBalancesForUser(
+        customer.customer_id,
+        ['ESOM' as Asset],
       );
-      transferSourceAccountNo = fallbackSourceAccountNo;
-      bricsTransaction = await createBankPayout(transferSourceAccountNo);
+
+      if (compensationSucceeded) {
+        throw new BadRequestException(
+          `ABS payout failed. ESOM was refunded automatically. Reason: ${bankDetails}. Compensation: ${compensationDetails}`,
+        );
+      }
+
+      throw new BadRequestException(
+        `ABS payout failed after ESOM debit (${bankDetails}); automatic ESOM refund failed (${compensationDetails}). Manual intervention required.`,
+      );
     }
 
     if (!bricsTransaction) {

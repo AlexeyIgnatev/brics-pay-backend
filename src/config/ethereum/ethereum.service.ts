@@ -83,7 +83,11 @@ export class EthereumService {
     }
   }
 
-  async transferFromFiat(address: string, amount: number): Promise<{ success: boolean, txHash?: string }> {
+  async transferFromFiat(
+    address: string,
+    amount: number,
+    applyPlatformFee = true,
+  ): Promise<{ success: boolean, txHash?: string }> {
     try {
       const contract = new this.web3.eth.Contract(
         [
@@ -103,12 +107,16 @@ export class EthereumService {
         this.TOKEN_ADDRESS,
       );
 
-      const amountWithFee = BigInt(
-        Math.floor(amount * 10 ** 18 * (1 - this.PLATFORM_FEE)),
-      );
+      const effectiveAmount = applyPlatformFee
+        ? amount * (1 - this.PLATFORM_FEE)
+        : amount;
+      if (!(effectiveAmount > 0)) {
+        throw new BadRequestException('Amount must be greater than 0');
+      }
+      const tokenAmount = BigInt(Math.floor(effectiveAmount * 10 ** 18));
 
       const data = contract.methods
-        .transferFromFiat(address, amountWithFee.toString())
+        .transferFromFiat(address, tokenAmount.toString())
         .encodeABI();
 
       const nonce = await this.web3.eth.getTransactionCount(
