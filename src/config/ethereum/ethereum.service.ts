@@ -43,6 +43,11 @@ export class EthereumService {
     }
   }
 
+  getAddressFromPrivateKey(privateKey: string): string {
+    const account = this.web3.eth.accounts.privateKeyToAccount(privateKey);
+    return account.address;
+  }
+
   async getEsomBalance(address: string): Promise<number> {
     try {
       const contract = new this.web3.eth.Contract(

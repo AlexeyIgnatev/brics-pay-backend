@@ -880,7 +880,32 @@ export class PaymentsService {
       );
     }
 
-    const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
+    const signerAddress = this.ethereumService.getAddressFromPrivateKey(customer.private_key);
+    if (
+      !customer.address
+      || customer.address.trim().toLowerCase() !== signerAddress.toLowerCase()
+    ) {
+      throw new BadRequestException(
+        `Wallet mismatch for customer ${customer.customer_id}: profile address=${customer.address ?? 'N/A'}, signer address=${signerAddress}`,
+      );
+    }
+
+    const signerEsomBalance = await this.ethereumService.getEsomBalance(signerAddress);
+    if (signerEsomBalance + 1e-12 < amount) {
+      throw new BadRequestException(
+        `Insufficient ESOM balance for conversion. Required=${amount}, available=${signerEsomBalance}, wallet=${signerAddress}`,
+      );
+    }
+
+    let ethTransaction: { success: boolean; txHash?: string };
+    try {
+      ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
+    } catch (error) {
+      const details = this.errorDetails(error);
+      throw new BadRequestException(
+        `Blockchain ESOM->SOM transfer failed for wallet ${signerAddress}: ${details}`,
+      );
+    }
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
     if (!ethTransaction?.success) {
       throw new BadRequestException('Ethereum transaction failed');
