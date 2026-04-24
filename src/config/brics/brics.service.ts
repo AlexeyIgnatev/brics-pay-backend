@@ -130,6 +130,57 @@ export class BricsService {
     throw error;
   }
 
+  private isInvalidUri1023Error(message: string | null): boolean {
+    if (!message) return false;
+    return /\b1023\b/.test(message) && /недопустимый uri/i.test(message);
+  }
+
+  private buildSafeAsciiComment(originalComment: string): string {
+    const txRefMatch = originalComment.match(/ABS-\d+/i);
+    const txRef = txRefMatch?.[0] ?? `ABS-${Date.now()}`;
+    return `ABS transfer ${txRef}`;
+  }
+
+  private async sendCreateTransferRequest(
+    token: string,
+    transactionBody: {
+      InternalOperationType: number;
+      OperationID: number;
+      DtAccountNo: string;
+      CtAccountNo: string;
+      CurrencyID: number;
+      Sum: number;
+      Comment: string;
+      IsTemplate: boolean;
+      Schedule: null;
+    },
+  ) {
+    this.logger.verbose(
+      'Send createTransfer request',
+      transactionBody,
+    );
+
+    const response = await this.axiosInstance.post(
+      this.buildBricsUrl('/ru-RU/Accounts/InternalTransaction'),
+      transactionBody,
+      {
+        withCredentials: true,
+        headers: {
+          __requestverificationtoken: token,
+          Cookie: this.cookies != null ? this.cookies : undefined,
+        },
+      },
+    );
+
+    this.updateCookies(response.headers['set-cookie']);
+
+    this.logger.verbose(
+      `Received createTransfer response ${response.status} ${JSON.stringify(response.data)}`,
+    );
+
+    return response;
+  }
+
   private buildBricsUrl(path: string): string {
     const normalizedRoot = this.BRICS_API_ROOT.replace(/\/+$/, '');
     const rootWithInternetBanking = /\/InternetBanking$/i.test(normalizedRoot)
@@ -618,28 +669,32 @@ export class BricsService {
         Schedule: null,
       };
 
-      this.logger.verbose(
-        'Send createTransfer request',
-        transactionBody,
-      );
+      let response;
+      try {
+        response = await this.sendCreateTransferRequest(token, transactionBody);
+      } catch (error) {
+        const extractedMessage = axios.isAxiosError(error)
+          ? this.extractBricsErrorMessage(error.response?.data)
+          : null;
+        const shouldRetryWithSafeComment =
+          axios.isAxiosError(error)
+          && error.response?.status === 500
+          && this.isInvalidUri1023Error(extractedMessage);
 
-      const response = await this.axiosInstance.post(
-        this.buildBricsUrl('/ru-RU/Accounts/InternalTransaction'),
-        transactionBody,
-        {
-          withCredentials: true,
-          headers: {
-            __requestverificationtoken: token,
-            Cookie: this.cookies != null ? this.cookies : undefined,
-          },
-        },
-      );
+        if (!shouldRetryWithSafeComment) {
+          throw error;
+        }
 
-      this.updateCookies(response.headers['set-cookie']);
+        const fallbackComment = this.buildSafeAsciiComment(comment);
+        this.logger.warn(
+          `ABS create transfer failed with 1023 Invalid URI, retrying with safe comment. originalComment="${comment}" fallbackComment="${fallbackComment}"`,
+        );
 
-      this.logger.verbose(
-        `Received createTransfer response ${response.status} ${JSON.stringify(response.data)}`,
-      );
+        response = await this.sendCreateTransferRequest(
+          token,
+          { ...transactionBody, Comment: fallbackComment },
+        );
+      }
 
       const operationId = response.data.operationID;
       this.logger.log('Operation ID:', operationId);
