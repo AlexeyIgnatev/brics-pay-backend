@@ -858,21 +858,26 @@ export class PaymentsService {
     try {
       await adminBricsService.ensureTransferSourceAccountAccessible(sourceAccountNo);
     } catch (error) {
-      const details = this.errorDetails(error);
-      // ABS can reject with "account is not yours" if CT_ACCOUNT_NO does not belong to ADMIN_LOGIN user.
-      if (/не является вашим|not yours/i.test(details)) {
-        const adminSomAccount = await adminBricsService.getAccount();
-        if (!adminSomAccount?.AccountNo) {
-          throw new BadRequestException('ABS admin SOM source account not found');
-        }
-        sourceAccountNo = adminSomAccount.AccountNo;
-        await adminBricsService.ensureTransferSourceAccountAccessible(sourceAccountNo);
-        this.logger.warn(
-          `[cryptoToFiat] configured CT_ACCOUNT_NO is not owned by admin, fallback source account=${sourceAccountNo}`,
-        );
-      } else {
+      // If configured CT account is not accessible for current ADMIN_LOGIN,
+      // fallback to ADMIN_LOGIN's own SOM account from current BRICS session.
+      const adminSomAccount = await adminBricsService.getAccount();
+      if (!adminSomAccount?.AccountNo) {
         throw error;
       }
+      const fallbackSourceAccountNo = adminSomAccount.AccountNo;
+      if (
+        sourceAccountNo
+        && fallbackSourceAccountNo
+        && sourceAccountNo.trim() === fallbackSourceAccountNo.trim()
+      ) {
+        throw error;
+      }
+
+      sourceAccountNo = fallbackSourceAccountNo;
+      await adminBricsService.ensureTransferSourceAccountAccessible(sourceAccountNo);
+      this.logger.warn(
+        `[cryptoToFiat] configured CT_ACCOUNT_NO is not accessible, fallback source account=${sourceAccountNo}`,
+      );
     }
 
     const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
