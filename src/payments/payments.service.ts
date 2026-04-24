@@ -832,12 +832,6 @@ export class PaymentsService {
       throw new BadRequestException(this.antiFraudRejectMessage('ESOM->SOM', antiFraudDecision));
     }
 
-    const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
-    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
-    if (!ethTransaction?.success) {
-      throw new BadRequestException('Ethereum transaction failed');
-    }
-
     const adminBricsService = await this.moduleRef.create(BricsService);
 
     const adminAuth = await adminBricsService.auth(
@@ -846,6 +840,23 @@ export class PaymentsService {
     );
     if (!adminAuth) {
       throw new BadRequestException('Admin authentication failed');
+    }
+
+    // Pre-check destination SOM account before ESOM debit to prevent funds loss on ABS lookup errors.
+    const resolvedSomAccount = await adminBricsService.resolveCustomerSomAccount(
+      customer.customer_id.toString(),
+      customer.phone ?? undefined,
+    );
+    if (!resolvedSomAccount?.AccountNo) {
+      throw new BadRequestException(
+        `ABS SOM account not found for customer ${customer.customer_id}`,
+      );
+    }
+
+    const ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
+    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
+    if (!ethTransaction?.success) {
+      throw new BadRequestException('Ethereum transaction failed');
     }
 
     const ctAccountNo = this.configService.get<string>('CT_ACCOUNT_NO') || 'N/A';
@@ -859,6 +870,8 @@ export class PaymentsService {
       netAmount,
       customer.customer_id.toString(),
       paymentPurpose,
+      resolvedSomAccount.AccountNo,
+      customer.phone ?? undefined,
     );
     if (!bricsTransaction) {
       throw new BadRequestException('Brics transaction failed');

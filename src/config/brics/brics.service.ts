@@ -325,6 +325,64 @@ export class BricsService {
     }
   }
 
+  private buildPhoneLookupCandidates(phone?: string): string[] {
+    const raw = (phone || '').trim();
+    if (!raw) return [];
+
+    const digits = raw.replace(/\D/g, '');
+    const candidates = new Set<string>();
+    candidates.add(raw);
+    candidates.add(raw.replace(/\s+/g, ''));
+    if (digits) {
+      candidates.add(digits);
+      candidates.add(`+${digits}`);
+      if (digits.startsWith('996') && digits.length > 3) {
+        candidates.add(`0${digits.slice(3)}`);
+      }
+    }
+    return [...candidates].filter(Boolean);
+  }
+
+  async resolveCustomerSomAccount(
+    customerId: string,
+    fallbackPhone?: string,
+  ): Promise<BricsAccountDto> {
+    let integrationError: unknown;
+    try {
+      const account = await this.getCustomerAccount(customerId);
+      if (account?.AccountNo) return account;
+    } catch (error) {
+      integrationError = error;
+      const details = error instanceof Error ? error.message : 'unknown';
+      this.logger.warn(
+        `getCustomerAccount failed for customer=${customerId}: ${details}`,
+      );
+    }
+
+    const phoneCandidates = this.buildPhoneLookupCandidates(fallbackPhone);
+    for (const candidate of phoneCandidates) {
+      try {
+        const found = await this.findAccount(candidate);
+        if (found?.CurrencyID === 417 && found?.AccountNo) {
+          this.logger.warn(
+            `resolveCustomerSomAccount fallback by phone succeeded for customer=${customerId} using candidate=${candidate}`,
+          );
+          return found;
+        }
+      } catch (error) {
+        const details = error instanceof Error ? error.message : 'unknown';
+        this.logger.warn(
+          `findAccount fallback failed for customer=${customerId} candidate=${candidate}: ${details}`,
+        );
+      }
+    }
+
+    if (integrationError) throw integrationError;
+    throw new BadRequestException(
+      `ABS SOM account not found for customer ${customerId}. Fallback by phone did not return CurrencyID=417 account.`,
+    );
+  }
+
   async getSomBalance(): Promise<number> {
     try {
       this.logger.verbose('Send getSomBalance request');
@@ -377,11 +435,27 @@ export class BricsService {
     amount: number,
     customerId: string,
     paymentPurpose?: string,
+    resolvedCustomerAccountNo?: string,
+    fallbackPhone?: string,
   ): Promise<number> {
-    const customerAccount = await this.getCustomerAccount(customerId);
+    let customerAccountNo = resolvedCustomerAccountNo;
+    if (!customerAccountNo) {
+      const customerAccount = await this.resolveCustomerSomAccount(
+        customerId,
+        fallbackPhone,
+      );
+      customerAccountNo = customerAccount.AccountNo;
+    }
+
+    if (!customerAccountNo) {
+      throw new BadRequestException(
+        `Unable to resolve destination SOM account for customer ${customerId}`,
+      );
+    }
+
     return this.createTransfer(
       this.CT_ACCOUNT_NO,
-      customerAccount.AccountNo,
+      customerAccountNo,
       amount,
       paymentPurpose ?? customerId,
     );
