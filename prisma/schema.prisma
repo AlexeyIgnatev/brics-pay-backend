@@ -43,11 +43,17 @@ model Customer {
 
   balances    UserAssetBalance[]
   withdrawals WithdrawRequest[]
+  support_messages SupportMessage[]
 
   sender_transactions   Transaction[] @relation("tx_sender")
   receiver_transactions Transaction[] @relation("tx_receiver")
 
   @@map("customers")
+}
+
+enum SupportMessageRole {
+  USER
+  ASSISTANT
 }
 
 enum Asset {
@@ -237,6 +243,19 @@ model Notification {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("notifications")
+}
+
+model SupportMessage {
+  id          Int                @id @default(autoincrement()) @map("support_message_id")
+  customer_id Int
+  role        SupportMessageRole
+  text        String
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  customer Customer @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+
+  @@index([customer_id, createdAt])
+  @@map("support_messages")
 }
 
 model AdminActionLog {

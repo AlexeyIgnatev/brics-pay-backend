@@ -13,6 +13,7 @@ import { AntiFraudModule } from './antifraud/antifraud.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
 import { PrismaModule } from './config/prisma/prisma.module';
+import { SupportModule } from './support/support.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { PrismaModule } from './config/prisma/prisma.module';
     BlockchainConfigModule,
     AntiFraudModule,
     NotificationsModule,
+    SupportModule,
     AuditModule,
     PrismaModule,
   ],
