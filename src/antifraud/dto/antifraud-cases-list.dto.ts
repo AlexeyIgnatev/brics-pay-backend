@@ -79,8 +79,8 @@ export class AntifraudCasesListDto {
   @ApiPropertyOptional({ enum: ['OPEN', 'APPROVED', 'REJECTED'], description: 'Статус кейса', default: 'OPEN' })
   @IsOptional()
   @IsIn(['OPEN', 'APPROVED', 'REJECTED'])
-  @Transform(({ value }) => (value == null ? 'OPEN' : value))
-  case_status?: AntiFraudCaseStatus | 'OPEN' | 'APPROVED' | 'REJECTED' = 'OPEN';
+  @Transform(({ value }) => (value == null ? undefined : value))
+  case_status?: AntiFraudCaseStatus | 'OPEN' | 'APPROVED' | 'REJECTED';
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
