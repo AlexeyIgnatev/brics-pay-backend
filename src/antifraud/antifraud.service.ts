@@ -153,7 +153,13 @@ export class AntiFraudService {
       await tx.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' } });
       const senderId = c.transaction.sender_customer_id;
       if (senderId) {
-        await tx.customer.updateMany({ where: { customer_id: senderId, status: 'FRAUD' }, data: { status: 'ACTIVE' } });
+        await tx.customer.updateMany({
+          where: {
+            customer_id: senderId,
+            status: { in: ['FRAUD', 'BLOCKED'] },
+          },
+          data: { status: 'ACTIVE' },
+        });
       }
     });
     return { ok: true };
