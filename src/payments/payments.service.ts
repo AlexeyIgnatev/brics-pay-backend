@@ -396,7 +396,11 @@ export class PaymentsService {
     };
   }
 
-  async convert(dto: ConvertDto, customer_id: number): Promise<StatusOKDto> {
+  async convert(
+    dto: ConvertDto,
+    customer_id: number,
+    authContext?: { username?: string; password?: string },
+  ): Promise<StatusOKDto> {
     try {
       const me = await this.prisma.customer.findUnique({ where: { customer_id } });
       if (me && (me.status === 'BLOCKED' || me.status === 'FRAUD')) {
@@ -614,7 +618,7 @@ export class PaymentsService {
         return await this.fiatToCrypto({ amount: amountFrom }, customer_id);
       }
       if (from === 'ESOM' && to === 'SOM') {
-        return await this.cryptoToFiat({ amount: amountFrom }, customer_id);
+        return await this.cryptoToFiat({ amount: amountFrom }, customer_id, authContext);
       }
 
       return new StatusOKDto();
@@ -801,6 +805,7 @@ export class PaymentsService {
   async cryptoToFiat(
     paymentDto: PaymentDto,
     customer_id: number,
+    authContext?: { username?: string; password?: string },
   ): Promise<StatusOKDto> {
     const { amount } = paymentDto;
     const requestedAt = new Date();
@@ -843,11 +848,58 @@ export class PaymentsService {
     }
 
     // Pre-check destination SOM account before ESOM debit to prevent funds loss on ABS lookup errors.
-    const resolvedSomAccount = await adminBricsService.resolveCustomerSomAccount(
-      customer.customer_id.toString(),
-      customer.phone ?? undefined,
-    );
+    let resolvedSomAccount: { AccountNo?: string } | null = null;
+    let destinationResolveError: unknown;
+    try {
+      resolvedSomAccount = await adminBricsService.resolveCustomerSomAccount(
+        customer.customer_id.toString(),
+        customer.phone ?? undefined,
+      );
+    } catch (error) {
+      destinationResolveError = error;
+      const details = error instanceof Error ? error.message : 'unknown';
+      this.logger.warn(
+        `[cryptoToFiat] resolveCustomerSomAccount failed for customer=${customer.customer_id}: ${details}`,
+      );
+    }
+
+    // Fallback: use the authenticated InternetBanking user's own SOM account from live session.
+    if (
+      !resolvedSomAccount?.AccountNo
+      && authContext?.username
+      && authContext?.password
+    ) {
+      try {
+        const userBricsService = await this.moduleRef.create(BricsService);
+        const authOk = await userBricsService.auth(
+          authContext.username,
+          authContext.password,
+        );
+        if (authOk) {
+          const userSomAccount = await userBricsService.getAccount();
+          if (userSomAccount?.AccountNo) {
+            resolvedSomAccount = userSomAccount;
+            this.logger.warn(
+              `[cryptoToFiat] destination account fallback via IB session succeeded for customer=${customer.customer_id}, account=${userSomAccount.AccountNo}`,
+            );
+          }
+        } else {
+          this.logger.warn(
+            `[cryptoToFiat] destination account fallback via IB session auth failed for customer=${customer.customer_id}, login=${authContext.username}`,
+          );
+        }
+      } catch (error) {
+        const details = error instanceof Error ? error.message : 'unknown';
+        this.logger.warn(
+          `[cryptoToFiat] destination account fallback via IB session failed for customer=${customer.customer_id}: ${details}`,
+        );
+      }
+    }
+
     if (!resolvedSomAccount?.AccountNo) {
+      if (destinationResolveError) {
+        throw destinationResolveError;
+      }
       throw new BadRequestException(
         `ABS SOM account not found for customer ${customer.customer_id}`,
       );

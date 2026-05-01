@@ -32,9 +32,26 @@ export class PaymentsController {
   @UseGuards(BasicAuthGuard)
   async convert(
     @Body() dto: ConvertDto,
-    @Req() req: { user: UserInfoDto },
+    @Req() req: { user: UserInfoDto; headers?: { authorization?: string } },
   ): Promise<StatusOKDto> {
-    return this.paymentsService.convert(dto, req?.user.customer_id);
+    const authHeader = req?.headers?.authorization;
+    let authContext: { username?: string; password?: string } | undefined;
+    if (authHeader?.startsWith('Basic ')) {
+      try {
+        const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
+        const separatorIndex = decoded.indexOf(':');
+        if (separatorIndex > 0) {
+          authContext = {
+            username: decoded.slice(0, separatorIndex),
+            password: decoded.slice(separatorIndex + 1),
+          };
+        }
+      } catch {
+        // Ignore parse errors: guard already validated credentials.
+      }
+    }
+
+    return this.paymentsService.convert(dto, req?.user.customer_id, authContext);
   }
 
   @Post('history')
