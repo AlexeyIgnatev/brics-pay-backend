@@ -5,12 +5,14 @@ export class SupportMessageDto {
   id: number;
 
   @ApiProperty()
+  ticket_id: number;
+
+  @ApiProperty()
   text: string;
 
-  @ApiProperty({ enum: ['USER', 'ASSISTANT'] })
+  @ApiProperty({ enum: ['USER', 'ASSISTANT', 'ADMIN'] })
   role: string;
 
   @ApiProperty()
   created_at: number;
 }
-

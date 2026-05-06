@@ -32,6 +32,7 @@ model Customer {
   last_name   String?
   phone       String?
   email       String?
+  push_enabled Boolean @default(true)
   status      UserStatus @default(ACTIVE)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -41,9 +42,11 @@ model Customer {
   last_login_ip     String?
   last_login_device String?
 
-  balances    UserAssetBalance[]
-  withdrawals WithdrawRequest[]
+  balances         UserAssetBalance[]
+  withdrawals      WithdrawRequest[]
   support_messages SupportMessage[]
+  support_tickets  SupportTicket[]
+  push_tokens      UserPushToken[]
 
   sender_transactions   Transaction[] @relation("tx_sender")
   receiver_transactions Transaction[] @relation("tx_receiver")
@@ -54,6 +57,17 @@ model Customer {
 enum SupportMessageRole {
   USER
   ASSISTANT
+  ADMIN
+}
+
+enum SupportTicketStatus {
+  OPEN
+  CLOSED
+}
+
+enum PushPlatform {
+  ANDROID
+  IOS
 }
 
 enum Asset {
@@ -231,7 +245,8 @@ model Admin {
   role          AdminRole        @default(SUPER_ADMIN)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
-  logs          AdminActionLog[]
+  logs                   AdminActionLog[]
+  closed_support_tickets SupportTicket[] @relation("support_ticket_closed_by_admin")
 
   @@map("admins")
 }
@@ -248,14 +263,52 @@ model Notification {
 model SupportMessage {
   id          Int                @id @default(autoincrement()) @map("support_message_id")
   customer_id Int
+  ticket_id   Int
   role        SupportMessageRole
   text        String
   createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
 
   customer Customer @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+  ticket   SupportTicket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
 
   @@index([customer_id, createdAt])
+  @@index([ticket_id, createdAt])
   @@map("support_messages")
+}
+
+model SupportTicket {
+  id                Int                 @id @default(autoincrement()) @map("support_ticket_id")
+  customer_id       Int
+  status            SupportTicketStatus @default(OPEN)
+  closed_by_admin_id Int?
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  closedAt          DateTime?           @map("closed_at") @db.Timestamptz(6)
+  lastMessageAt     DateTime            @default(now()) @map("last_message_at") @db.Timestamptz(6)
+
+  customer        Customer       @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+  closed_by_admin Admin?         @relation("support_ticket_closed_by_admin", fields: [closed_by_admin_id], references: [id], onDelete: SetNull)
+  messages        SupportMessage[]
+
+  @@index([customer_id, status])
+  @@index([status, lastMessageAt])
+  @@map("support_tickets")
+}
+
+model UserPushToken {
+  id          Int          @id @default(autoincrement())
+  customer_id Int
+  token       String       @unique
+  platform    PushPlatform
+  is_active   Boolean      @default(true)
+  last_error  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  customer Customer @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+
+  @@index([customer_id, is_active])
+  @@map("user_push_tokens")
 }
 
 model AdminActionLog {

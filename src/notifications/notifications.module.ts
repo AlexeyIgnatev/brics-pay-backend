@@ -9,11 +9,13 @@ import { UsersModule } from '../users/users.module';
 import { ConfigModule } from '@nestjs/config';
 import { UserManagementModule } from '../user-management/user-management.module';
 import { AntiFraudModule } from '../antifraud/antifraud.module';
+import { FirebasePushService } from './firebase-push.service';
+import { AdminManagementModule } from '../admin-management/admin-management.module';
 
 @Module({
-  imports: [BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule, UserManagementModule, AntiFraudModule],
+  imports: [BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule, UserManagementModule, AntiFraudModule, AdminManagementModule],
   controllers: [NotificationsController],
-  providers: [NotificationsService, PrismaClient],
+  providers: [NotificationsService, FirebasePushService, PrismaClient],
 })
 export class NotificationsModule {
 }

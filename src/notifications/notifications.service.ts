@@ -1,21 +1,23 @@
-import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
-import { NotificationDto } from './dto/notification.dto';
-import { PrismaClient } from '@prisma/client';
+﻿import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaClient, PushPlatform } from '@prisma/client';
 import * as nodemailer from 'nodemailer';
-import { SendFinancialReportRequestDto, SendFinancialReportResponseDto } from './dto/financial-report.dto';
 import { UserInfoDto } from '../users/dto/user-info.dto';
+import { PushDataPayloadDto } from './dto/push-test.dto';
+import { SendFinancialReportRequestDto, SendFinancialReportResponseDto } from './dto/financial-report.dto';
+import { FirebasePushService } from './firebase-push.service';
+import { NotificationDto } from './dto/notification.dto';
 
 @Injectable()
 export class NotificationsService {
   constructor(
     private readonly prismaService: PrismaClient,
     private readonly configService: ConfigService,
-  ) {
-  }
+    private readonly firebasePushService: FirebasePushService,
+  ) {}
 
   async getNotifications(
-    userId: number,
+    _userId: number,
     take: number,
     skip: number,
   ): Promise<NotificationDto[]> {
@@ -23,18 +25,16 @@ export class NotificationsService {
       orderBy: {
         createdAt: 'desc',
       },
-      take: take,
-      skip: skip,
+      take,
+      skip,
     });
 
-    return notifications.map((t) => {
-      return {
-        id: t.id,
-        text: t.text,
-        created_at: t.createdAt.getTime(),
-        title: t.title,
-      };
-    });
+    return notifications.map((t) => ({
+      id: t.id,
+      text: t.text,
+      created_at: t.createdAt.getTime(),
+      title: t.title,
+    }));
   }
 
   async sendFinancialReport(
@@ -43,20 +43,20 @@ export class NotificationsService {
   ): Promise<SendFinancialReportResponseDto> {
     const recipientEmail = (body.email || user.email || '').trim();
     if (!recipientEmail) {
-      throw new BadRequestException('Email получателя не указан');
+      throw new BadRequestException('Recipient email is required');
     }
 
     const now = new Date();
-    const defaultFrom = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+    const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const fromDate = body.from_time ? new Date(body.from_time) : defaultFrom;
     const toDate = body.to_time ? new Date(body.to_time) : now;
 
     if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
-      throw new BadRequestException('Неверный формат периода отчета');
+      throw new BadRequestException('Invalid report period');
     }
 
     if (fromDate > toDate) {
-      throw new BadRequestException('from_time не может быть больше to_time');
+      throw new BadRequestException('from_time cannot be greater than to_time');
     }
 
     const me = await this.prismaService.customer.findUnique({
@@ -100,10 +100,10 @@ export class NotificationsService {
       return acc;
     }, {} as Record<string, number>);
 
-    const firstName = user.first_name || '';
-    const middleName = user.middle_name || '';
-    const lastName = user.last_name || '';
-    const fio = [lastName, firstName, middleName].filter(Boolean).join(' ').trim() || `Customer #${user.customer_id}`;
+    const fio = [user.last_name, user.first_name, user.middle_name]
+      .filter(Boolean)
+      .join(' ')
+      .trim() || `Customer #${user.customer_id}`;
 
     const rows = transactions.map((tx) => {
       const amountIn = Number(tx.amount_in);
@@ -120,14 +120,14 @@ export class NotificationsService {
     });
 
     const reportText = [
-      'ФИНАНСОВЫЙ ОТЧЕТ',
-      `Клиент: ${fio} (ID: ${user.customer_id})`,
-      `Период: ${fromDate.toISOString()} - ${toDate.toISOString()}`,
-      `Всего операций: ${transactions.length}`,
+      'FINANCIAL REPORT',
+      `Customer: ${fio} (ID: ${user.customer_id})`,
+      `Period: ${fromDate.toISOString()} - ${toDate.toISOString()}`,
+      `Total operations: ${transactions.length}`,
       `SUCCESS: ${statusStats.SUCCESS || 0}, PENDING: ${statusStats.PENDING || 0}, REJECTED: ${statusStats.REJECTED || 0}, FAILED: ${statusStats.FAILED || 0}`,
       '',
-      'Операции:',
-      ...(rows.length ? rows : ['Нет операций за выбранный период']),
+      'Operations:',
+      ...(rows.length ? rows : ['No operations for selected period']),
     ].join('\n');
 
     const emailHost = this.configService.get<string>('EMAIL_HOST');
@@ -138,7 +138,7 @@ export class NotificationsService {
     const fromEmail = this.configService.get<string>('EMAIL_FROM') || emailUser;
 
     if (!emailHost || !fromEmail) {
-      throw new InternalServerErrorException('Почтовый сервер не настроен (EMAIL_HOST/EMAIL_FROM)');
+      throw new InternalServerErrorException('Email server is not configured (EMAIL_HOST/EMAIL_FROM)');
     }
 
     const transporter = nodemailer.createTransport({
@@ -152,12 +152,46 @@ export class NotificationsService {
       await transporter.sendMail({
         from: fromEmail,
         to: recipientEmail,
-        subject: `Финансовый отчет Salam (${fromDate.toISOString().slice(0, 10)} - ${toDate.toISOString().slice(0, 10)})`,
+        subject: `Salam financial report (${fromDate.toISOString().slice(0, 10)} - ${toDate.toISOString().slice(0, 10)})`,
         text: reportText,
       });
       return { successful: true };
     } catch (error) {
-      throw new InternalServerErrorException(`Не удалось отправить отчет: ${(error as Error)?.message || 'unknown error'}`);
+      throw new InternalServerErrorException(`Failed to send report: ${(error as Error)?.message || 'unknown error'}`);
     }
+  }
+
+  async sendTestPushToToken(dto: { token: string } & PushDataPayloadDto) {
+    const result = await this.firebasePushService.sendToToken(dto.token, {
+      title: dto.title,
+      text: dto.text,
+      url: dto.url,
+    });
+
+    return {
+      successful: result.ok,
+      message_id: result.messageId,
+      error: result.error,
+    };
+  }
+
+  async sendTestPushToCustomer(customerId: number, dto: PushDataPayloadDto) {
+    const result = await this.firebasePushService.sendToCustomer(
+      customerId,
+      {
+        title: dto.title,
+        text: dto.text,
+        url: dto.url,
+      },
+      PushPlatform.ANDROID,
+    );
+
+    return {
+      successful: result.sent > 0 && result.failed === 0,
+      skipped: result.skipped,
+      sent: result.sent,
+      failed: result.failed,
+      details: result.details,
+    };
   }
 }

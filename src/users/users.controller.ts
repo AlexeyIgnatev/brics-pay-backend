@@ -1,6 +1,9 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { StatusOKDto } from '../common/dto/status.dto';
 import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
+import { SaveFcmTokenDto } from './dto/save-fcm-token.dto';
+import { UpdatePushSettingsDto } from './dto/update-push-settings.dto';
 import { UserDto, UserInfoDto } from './dto/user-info.dto';
 import { UsersService } from './users.service';
 
@@ -34,5 +37,27 @@ export class UsersController {
       ...req.user,
       wallets: wallets,
     };
+  }
+
+  @Post('fcm-token')
+  @ApiBearerAuth('Basic')
+  @UseGuards(BasicAuthGuard)
+  async saveFcmToken(
+    @Body() dto: SaveFcmTokenDto,
+    @Req() req: { user: UserInfoDto },
+  ): Promise<StatusOKDto> {
+    await this.usersService.saveFcmToken(req.user.customer_id, dto.token, dto.platform);
+    return { status: 'OK' };
+  }
+
+  @Patch('push-settings')
+  @ApiBearerAuth('Basic')
+  @UseGuards(BasicAuthGuard)
+  async updatePushSettings(
+    @Body() dto: UpdatePushSettingsDto,
+    @Req() req: { user: UserInfoDto },
+  ): Promise<StatusOKDto> {
+    await this.usersService.updatePushSettings(req.user.customer_id, dto.pushEnabled);
+    return { status: 'OK' };
   }
 }

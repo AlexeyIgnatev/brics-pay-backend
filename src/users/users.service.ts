@@ -1,5 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { PrismaClient, Asset } from '@prisma/client';
+import { PrismaClient, Asset, PushPlatform } from '@prisma/client';
 import { BricsService } from 'src/config/brics/brics.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { UserInfoDto } from './dto/user-info.dto';
@@ -20,6 +20,10 @@ export class UsersService {
     private readonly exchangeService: BybitExchangeService,
   ) {}
 
+  private toPushPlatform(platform: 'android' | 'ios'): PushPlatform {
+    return platform === 'ios' ? PushPlatform.IOS : PushPlatform.ANDROID;
+  }
+
   async updateLastLogin(customerId: number, ip?: string, device?: string) {
     try {
       await this.prisma.customer.update({
@@ -29,6 +33,34 @@ export class UsersService {
     } catch (_) {
       // ignore if user not created yet; getUserInfo will handle creation
     }
+  }
+
+  async saveFcmToken(customerId: number, token: string, platform: 'android' | 'ios'): Promise<void> {
+    const trimmedToken = token.trim();
+    const pushPlatform = this.toPushPlatform(platform);
+
+    await this.prisma.userPushToken.upsert({
+      where: { token: trimmedToken },
+      create: {
+        customer_id: customerId,
+        token: trimmedToken,
+        platform: pushPlatform,
+        is_active: true,
+      },
+      update: {
+        customer_id: customerId,
+        platform: pushPlatform,
+        is_active: true,
+        last_error: null,
+      },
+    });
+  }
+
+  async updatePushSettings(customerId: number, pushEnabled: boolean): Promise<void> {
+    await this.prisma.customer.update({
+      where: { customer_id: customerId },
+      data: { push_enabled: pushEnabled },
+    });
   }
 
   async getUserInfo(
