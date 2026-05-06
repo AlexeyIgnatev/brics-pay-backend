@@ -143,4 +143,48 @@ export class FirebasePushService {
 
     return { sent, failed, skipped: false, details };
   }
+
+  async sendBroadcastToActiveAndroid(
+    content: PushContent,
+  ): Promise<{ sent: number; failed: number; skipped: boolean; details: string[] }> {
+    const activeTokens = await this.prisma.userPushToken.findMany({
+      where: {
+        is_active: true,
+        platform: PushPlatform.ANDROID,
+        customer: {
+          push_enabled: true,
+        },
+      },
+      select: { token: true },
+    });
+
+    if (!activeTokens.length) {
+      return { sent: 0, failed: 0, skipped: true, details: ['no_active_tokens'] };
+    }
+
+    let sent = 0;
+    let failed = 0;
+    const details: string[] = [];
+
+    const chunkSize = 100;
+    for (let i = 0; i < activeTokens.length; i += chunkSize) {
+      const chunk = activeTokens.slice(i, i + chunkSize);
+      const results = await Promise.all(chunk.map((row) => this.sendToToken(row.token, content)));
+
+      for (let j = 0; j < chunk.length; j += 1) {
+        const token = chunk[j].token;
+        const result = results[j];
+
+        if (result.ok) {
+          sent += 1;
+          if (details.length < 200) details.push(`ok:${token.slice(0, 12)}`);
+        } else {
+          failed += 1;
+          if (details.length < 200) details.push(`fail:${token.slice(0, 12)}:${result.error}`);
+        }
+      }
+    }
+
+    return { sent, failed, skipped: false, details };
+  }
 }

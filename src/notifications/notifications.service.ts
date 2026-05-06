@@ -194,4 +194,20 @@ export class NotificationsService {
       details: result.details,
     };
   }
+
+  async sendBroadcastPush(dto: PushDataPayloadDto) {
+    const result = await this.firebasePushService.sendBroadcastToActiveAndroid({
+      title: dto.title,
+      text: dto.text,
+      url: dto.url,
+    });
+
+    return {
+      successful: result.sent > 0 && result.failed === 0,
+      skipped: result.skipped,
+      sent: result.sent,
+      failed: result.failed,
+      details: result.details,
+    };
+  }
 }

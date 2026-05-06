@@ -57,4 +57,13 @@ export class NotificationsController {
   ) {
     return this.notificationsService.sendTestPushToCustomer(customerId, dto);
   }
+
+  @Post('push/broadcast')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(AdminAuthGuard)
+  async broadcastPush(
+    @Body() dto: PushDataPayloadDto,
+  ) {
+    return this.notificationsService.sendBroadcastPush(dto);
+  }
 }
