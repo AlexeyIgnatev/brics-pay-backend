@@ -120,7 +120,26 @@ export class AdminManagementService {
   async validateAdmin(email: string, password: string) {
     const admin = await this.prisma.admin.findUnique({ where: { email } });
     if (!admin) throw new UnauthorizedException('Неверные учетные данные');
-    const ok = await bcrypt.compare(password, admin.password_hash);
+    let ok = false;
+    const storedPassword = admin.password_hash;
+
+    if (storedPassword && storedPassword.startsWith('$2')) {
+      try {
+        ok = await bcrypt.compare(password, storedPassword);
+      } catch (_) {
+        ok = false;
+      }
+    } else if (storedPassword) {
+      // Legacy fallback: support plain-text/legacy values and migrate to bcrypt.
+      ok = password === storedPassword;
+      if (ok) {
+        const newHash = await bcrypt.hash(password, 10);
+        await this.prisma.admin.update({
+          where: { id: admin.id },
+          data: { password_hash: newHash },
+        });
+      }
+    }
     if (!ok) throw new UnauthorizedException('Неверные учетные данные');
     return admin;
   }
