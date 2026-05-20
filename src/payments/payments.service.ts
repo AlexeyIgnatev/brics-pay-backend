@@ -13,6 +13,7 @@ import { ConvertDto } from './dto/convert.dto';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 import { BalanceFetchService } from '../user-management/balance-fetch.service';
+import { CryptoService } from '../config/crypto/crypto.service';
 
 import { GetTransactions } from './dto/get-transactions.dto';
 import { ReceiptConversionSide, TransactionReceiptDto, TransactionReceiptRequestDto } from './dto/transaction-receipt.dto';
@@ -31,6 +32,7 @@ export class PaymentsService {
     private readonly exchangeService: BybitExchangeService,
     private readonly balanceFetchService: BalanceFetchService,
     private readonly antiFraud: AntiFraudService,
+    private readonly cryptoService: CryptoService,
   ) {
   }
 
@@ -1076,6 +1078,104 @@ export class PaymentsService {
     return new StatusOKDto();
   }
 
+  private normalizeWalletAddress(asset: Asset, address: string): string {
+    const trimmed = address.trim();
+    if (asset === 'USDT_TRC20') return trimmed;
+    return trimmed.toLowerCase();
+  }
+
+  private async findInternalRecipientByAddress(asset: Asset, address: string, excludeCustomerId: number): Promise<{ customer_id: number; walletAddress: string } | null> {
+    const target = this.normalizeWalletAddress(asset, address);
+    const customers = await this.prisma.customer.findMany({
+      where: { customer_id: { not: excludeCustomerId } },
+      select: { customer_id: true, address: true, private_key: true },
+    });
+
+    for (const customer of customers) {
+      try {
+        let candidate = '';
+        if (asset === 'ESOM') {
+          candidate = customer.address;
+        } else if (asset === 'ETH') {
+          candidate = this.cryptoService.ethAddressFromPrivateKey(customer.private_key);
+        } else if (asset === 'BTC') {
+          candidate = this.cryptoService.btcBech32AddressFromPrivateKey(customer.private_key);
+        } else if (asset === 'USDT_TRC20') {
+          candidate = this.cryptoService.trxAddressFromPrivateKey(customer.private_key);
+        }
+
+        if (!candidate) continue;
+        const normalizedCandidate = this.normalizeWalletAddress(asset, candidate);
+        if (normalizedCandidate === target) {
+          return { customer_id: customer.customer_id, walletAddress: candidate };
+        }
+      } catch {
+        // Skip corrupted customer records.
+      }
+    }
+
+    return null;
+  }
+
+  private async transferCryptoInternal(
+    asset: Asset,
+    amount: number,
+    sender_id: number,
+    receiver_id: number,
+    comment: string,
+    receiverWalletAddress?: string,
+  ): Promise<StatusOKDto> {
+    const allowed = await this.antiFraud.shouldAllowTransaction({
+      kind: TransactionKind.WALLET_TO_WALLET,
+      amount_in: amount,
+      asset_in: asset,
+      asset_out: asset,
+      sender_customer_id: sender_id,
+      receiver_customer_id: receiver_id,
+      receiver_wallet_address: receiverWalletAddress ?? null,
+      comment,
+    });
+    if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+
+    await this.prisma.$transaction(async (tx) => {
+      const bal = await tx.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: sender_id,
+            asset,
+          },
+        },
+      });
+      const current = Number(bal?.balance ?? 0);
+      if (current < amount) throw new BadRequestException('Insufficient balance');
+      await tx.userAssetBalance.update({
+        where: { customer_id_asset: { customer_id: sender_id, asset } },
+        data: { balance: { decrement: amount.toString() } },
+      });
+      await tx.userAssetBalance.upsert({
+        where: { customer_id_asset: { customer_id: receiver_id, asset } },
+        create: { customer_id: receiver_id, asset, balance: amount.toString() },
+        update: { balance: { increment: amount.toString() } },
+      });
+      await tx.transaction.create({
+        data: {
+          kind: TransactionKind.WALLET_TO_WALLET,
+          status: TransactionStatus.SUCCESS,
+          amount_in: amount.toString(),
+          asset_in: asset,
+          amount_out: amount.toString(),
+          asset_out: asset,
+          sender_customer_id: sender_id,
+          receiver_customer_id: receiver_id,
+          receiver_wallet_address: receiverWalletAddress,
+          comment,
+        },
+      });
+    });
+
+    return new StatusOKDto();
+  }
+
   async transfer(
     transferDto: TransferDto,
     customer_id: number,
@@ -1096,12 +1196,23 @@ export class PaymentsService {
     ) {
       const asset = transferDto.currency as unknown as Asset;
       if (transferDto.address) {
+        const internalRecipient = await this.findInternalRecipientByAddress(asset, transferDto.address, customer_id);
+        if (internalRecipient) {
+          return this.transferCryptoInternal(
+            asset,
+            transferDto.amount,
+            customer_id,
+            internalRecipient.customer_id,
+            `Crypto transfer by wallet address (${asset})`,
+            internalRecipient.walletAddress,
+          );
+        }
         return this.withdrawCrypto(asset, transferDto.address, transferDto.amount, customer_id);
       }
       if (transferDto.phone_number) {
         return this.transferCryptoByPhone(asset, transferDto.amount, transferDto.phone_number, customer_id);
       }
-      throw new Error('Either address or phone_number is required for crypto transfer');
+      throw new BadRequestException('Either address or phone_number is required for crypto transfer');
     } else {
       return new StatusOKDto();
     }
@@ -1262,28 +1373,14 @@ export class PaymentsService {
   private async transferCryptoByPhone(asset: Asset, amount: number, phone: string, sender_id: number): Promise<StatusOKDto> {
     this.logger.verbose(`[transferCryptoByPhone] asset=${asset} amount=${amount} phone=${phone} sender=${sender_id}`);
     const sender = await this.prisma.customer.findUnique({ where: { customer_id: sender_id } });
-    if (!sender) throw new Error('Sender not found');
+    if (!sender) throw new BadRequestException('Sender not found');
 
     const bricsRecipient = await this.bricsService.findAccount(phone);
-    if (!bricsRecipient) throw new Error('Recipient not found');
+    if (!bricsRecipient) throw new BadRequestException('Recipient not found');
     const receiver_id = bricsRecipient.CustomerID;
 
-    // Антифрод-предчек (без ончейн операций)
-    const allowed = await this.antiFraud.shouldAllowTransaction({
-      kind: TransactionKind.WALLET_TO_WALLET,
-      amount_in: amount,
-      asset_in: asset,
-      asset_out: asset,
-      sender_customer_id: sender_id,
-      receiver_customer_id: receiver_id,
-      comment: `Crypto transfer by phone (${asset})`,
-    });
-    if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
-
-    // Обеспечиваем наличие записи получателя в нашей БД (кошелек может быть не нужен, но Customer обязателен)
     let recipient = await this.prisma.customer.findUnique({ where: { customer_id: receiver_id } });
     if (!recipient) {
-      // создаем техн. запись с пустым кошельком? У нас address обязательный. Сгенерируем, как в ESOM переводе.
       const recipientAddress = this.ethereumService.generateAddress();
       recipient = await this.prisma.customer.create({
         data: {
@@ -1294,42 +1391,13 @@ export class PaymentsService {
       });
     }
 
-    // Атомарно списываем у отправителя и начисляем получателю в таблице кеш-балансов
-    await this.prisma.$transaction(async (tx) => {
-      const bal = await tx.userAssetBalance.findUnique({
-        where: {
-          customer_id_asset: {
-            customer_id: sender_id,
-            asset,
-          },
-        },
-      });
-      const current = Number(bal?.balance ?? 0);
-      if (current < amount) throw new Error('Insufficient balance');
-      await tx.userAssetBalance.update({
-        where: { customer_id_asset: { customer_id: sender_id, asset } },
-        data: { balance: { decrement: amount.toString() } },
-      });
-      await tx.userAssetBalance.upsert({
-        where: { customer_id_asset: { customer_id: receiver_id, asset } },
-        create: { customer_id: receiver_id, asset, balance: amount.toString() },
-        update: { balance: { increment: amount.toString() } },
-      });
-      await tx.transaction.create({
-        data: {
-          kind: TransactionKind.WALLET_TO_WALLET,
-          status: TransactionStatus.SUCCESS,
-          amount_in: amount.toString(),
-          asset_in: asset,
-          amount_out: amount.toString(),
-          asset_out: asset,
-          sender_customer_id: sender_id,
-          receiver_customer_id: receiver_id,
-          comment: `Crypto transfer by phone (${asset})`,
-        },
-      });
-    });
-
-    return new StatusOKDto();
+    return this.transferCryptoInternal(
+      asset,
+      amount,
+      sender_id,
+      receiver_id,
+      `Crypto transfer by phone (${asset})`,
+      recipient.address,
+    );
   }
 }

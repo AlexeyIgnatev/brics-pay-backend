@@ -10,9 +10,10 @@ import { SettingsModule } from '../config/settings/settings.module';
 import { ExchangeModule } from '../config/exchange/exchange.module';
 import { UserManagementModule } from '../user-management/user-management.module';
 import { AntiFraudModule } from '../antifraud/antifraud.module';
+import { CryptoModule } from '../config/crypto/crypto.module';
 
 @Module({
-  imports: [EthereumModule, BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule, UserManagementModule, AntiFraudModule],
+  imports: [EthereumModule, BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule, UserManagementModule, AntiFraudModule, CryptoModule],
   controllers: [PaymentsController],
   providers: [PaymentsService, PrismaClient],
 })
