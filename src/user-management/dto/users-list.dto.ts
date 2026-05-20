@@ -85,7 +85,6 @@ export class AdminUpdateUserDto {
 
   @ApiPropertyOptional()
   @IsString()
-  @IsNotEmpty()
   @IsOptional()
   middle_name?: string;
 
