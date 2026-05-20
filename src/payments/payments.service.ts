@@ -101,12 +101,12 @@ export class PaymentsService {
     return fullName || `Client #${customer?.customer_id ?? 'N/A'}`;
   }
 
-  // Business format requested by ABS task: SS:MM:HH.
+  // ABS payment purpose time format: HH:MM:SS.
   private formatAbsTime(date: Date): string {
     const hh = String(date.getHours()).padStart(2, '0');
     const mm = String(date.getMinutes()).padStart(2, '0');
     const ss = String(date.getSeconds()).padStart(2, '0');
-    return `${ss}:${mm}:${hh}`;
+    return `${hh}:${mm}:${ss}`;
   }
 
   private buildAbsTransactionRef(): string {
