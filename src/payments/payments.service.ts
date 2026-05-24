@@ -164,6 +164,8 @@ export class PaymentsService {
       case 'WALLET_TO_BANK':
         return TransactionType.CONVERSION;
       case 'WALLET_TO_WALLET':
+        if (t.sender_customer_id === customer_id) return TransactionType.EXPENSE;
+        if (t.receiver_customer_id === customer_id) return TransactionType.INCOME;
         return TransactionType.TRANSFER;
       case 'CONVERSION':
         return TransactionType.CONVERSION;
