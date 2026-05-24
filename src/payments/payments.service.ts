@@ -315,11 +315,15 @@ export class PaymentsService {
 
     for (const t of items) {
       const inCurrency = (t.asset_in || 'SOM') as unknown as Currency;
+      const baseType = this.mapType(t, customer_id);
+      const inSideType = (t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK')
+        ? TransactionType.EXPENSE
+        : baseType;
       const baseRow: TransactionDto = {
         id: t.id,
         currency: inCurrency,
         amount: Number(t.amount_in),
-        type: this.mapType(t, customer_id),
+        type: inSideType,
         successful: t.status === 'SUCCESS',
         created_at: t.createdAt.getTime(),
       };
@@ -334,7 +338,7 @@ export class PaymentsService {
             id: t.id,
             currency: outCurrency,
             amount: Number(t.amount_out),
-            type: this.mapType(t, customer_id),
+            type: TransactionType.INCOME,
             successful: true,
             created_at: t.createdAt.getTime(),
           });
