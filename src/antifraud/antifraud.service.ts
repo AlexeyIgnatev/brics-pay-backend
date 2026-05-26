@@ -103,7 +103,12 @@ export class AntiFraudService {
       }),
     ]);
 
-    const caseItems = items.map((c: any) => ({
+    const caseItems = items.map((c: any) => {
+      const amountOut = Number(c.transaction.amount_out ?? 0);
+      const amountIn = Number(c.transaction.amount_in ?? 0);
+      const useOutSide = amountOut > 0;
+
+      return ({
       id: c.id,
       status: c.status,
       rule_key: c.rule_key,
@@ -114,8 +119,8 @@ export class AntiFraudService {
         id: c.transaction.id,
         kind: c.transaction.kind,
         status: c.transaction.status,
-        amount: Number(c.transaction.amount_out),
-        asset: c.transaction.asset_out,
+        amount: useOutSide ? amountOut : amountIn,
+        asset: useOutSide ? c.transaction.asset_out : c.transaction.asset_in,
         tx_hash: c.transaction.tx_hash ?? undefined,
         bank_op_id: c.transaction.bank_op_id ?? undefined,
         sender_customer_id: c.transaction.sender_customer_id ?? undefined,
@@ -141,7 +146,7 @@ export class AntiFraudService {
           email: c.transaction.receiver_customer.email ?? undefined,
         } : undefined,
       },
-    }));
+    })});
 
     return { total, offset: query.offset ?? 0, limit: query.limit ?? 20, items: caseItems };
   }
