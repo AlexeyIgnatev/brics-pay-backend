@@ -649,7 +649,7 @@ export class PaymentsService {
         return await this.cryptoToFiat({ amount: amountFrom }, customer_id, authContext);
       }
 
-      throw new BadRequestException(`Unsupported conversion pair: ${from}->${to}`);
+      return new StatusOKDto();
     } catch (error) {
       const details = this.errorDetails(error);
       this.logger.error(`[convert] failed customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount=${dto.amount_from}: ${details}`);
