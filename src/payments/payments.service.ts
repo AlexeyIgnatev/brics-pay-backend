@@ -314,7 +314,13 @@ export class PaymentsService {
     const filterSet = body.currency?.length ? new Set(body.currency) : null;
 
     for (const t of items) {
-      if (t.kind === 'CONVERSION') {
+      const isConversionLike =
+        (t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK')
+        && t.asset_in
+        && t.asset_out
+        && t.asset_in !== t.asset_out;
+
+      if (isConversionLike) {
         const outCurrency = (t.asset_out || t.asset_in || 'SOM') as unknown as Currency;
         const outAmount = Number(t.amount_out ?? 0);
         const conversionRow: TransactionDto = {
