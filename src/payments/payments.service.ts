@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+﻿import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 /* eslint-disable max-classes-per-file */
 import { ModuleRef } from '@nestjs/core';
 import { Asset, PrismaClient, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
@@ -119,7 +119,7 @@ export class PaymentsService {
     recipientFio: string,
     at: Date,
   ): string {
-    return `Пополнение Салам №${walletId}, ID транзакции ${transactionRef}, ${recipientFio}, ${this.formatAbsTime(at)}`;
+    return `РџРѕРїРѕР»РЅРµРЅРёРµ РЎР°Р»Р°Рј в„–${walletId}, ID С‚СЂР°РЅР·Р°РєС†РёРё ${transactionRef}, ${recipientFio}, ${this.formatAbsTime(at)}`;
   }
 
   private buildDebitPurpose(
@@ -128,7 +128,7 @@ export class PaymentsService {
     senderFio: string,
     at: Date,
   ): string {
-    return `Пополнение счета №${accountNo}, ID транзакции ${transactionRef}, ${senderFio}, ${this.formatAbsTime(at)}`;
+    return `РџРѕРїРѕР»РЅРµРЅРёРµ СЃС‡РµС‚Р° в„–${accountNo}, ID С‚СЂР°РЅР·Р°РєС†РёРё ${transactionRef}, ${senderFio}, ${this.formatAbsTime(at)}`;
   }
 
   private buildGenericAbsPurpose(
@@ -136,7 +136,7 @@ export class PaymentsService {
     transactionRef: string,
     at: Date,
   ): string {
-    return `${clientFio}, ID транзакции ${transactionRef}, ${this.formatAbsTime(at)}`;
+    return `${clientFio}, ID С‚СЂР°РЅР·Р°РєС†РёРё ${transactionRef}, ${this.formatAbsTime(at)}`;
   }
 
   private calcSomEsomConversionFee(
@@ -292,7 +292,7 @@ export class PaymentsService {
         { asset_out: { in: assets } },
         { asset_in: { in: assets } },
       ];
-      // Объединяем фильтр пользователя И фильтр валюты через AND
+      // РћР±СЉРµРґРёРЅСЏРµРј С„РёР»СЊС‚СЂ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ Р С„РёР»СЊС‚СЂ РІР°Р»СЋС‚С‹ С‡РµСЂРµР· AND
       where.AND = [{ OR: userOr }, { OR: currencyOr }];
       delete where.OR;
     }
@@ -309,14 +309,29 @@ export class PaymentsService {
       take: body.take ?? 50,
     });
 
-    // По умолчанию показываем входящую сторону (asset_in/amount_in)
+    // РџРѕ СѓРјРѕР»С‡Р°РЅРёСЋ РїРѕРєР°Р·С‹РІР°РµРј РІС…РѕРґСЏС‰СѓСЋ СЃС‚РѕСЂРѕРЅСѓ (asset_in/amount_in)
     const rows: TransactionDto[] = [];
     const filterSet = body.currency?.length ? new Set(body.currency) : null;
 
     for (const t of items) {
+      if (t.kind === 'CONVERSION') {
+        const outCurrency = (t.asset_out || t.asset_in || 'SOM') as unknown as Currency;
+        const outAmount = Number(t.amount_out ?? 0);
+        const conversionRow: TransactionDto = {
+          id: t.id,
+          currency: outCurrency,
+          amount: outAmount,
+          type: TransactionType.CONVERSION,
+          successful: t.status === 'SUCCESS',
+          created_at: t.createdAt.getTime(),
+        };
+        if (!filterSet || filterSet.has(outCurrency)) rows.push(conversionRow);
+        continue;
+      }
+
       const inCurrency = (t.asset_in || 'SOM') as unknown as Currency;
       const baseType = this.mapType(t, customer_id);
-      const inSideType = (t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK')
+      const inSideType = (t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK')
         ? TransactionType.EXPENSE
         : baseType;
       const baseRow: TransactionDto = {
@@ -329,8 +344,7 @@ export class PaymentsService {
       };
       if (!filterSet || filterSet.has(inCurrency)) rows.push(baseRow);
 
-      // Если успешная конвертация и валюты различаются — добавить вторую строку с out
-      const isConversion = t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK';
+      const isConversion = t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK';
       if (t.status === 'SUCCESS' && isConversion && t.asset_in && t.asset_out && t.asset_in !== t.asset_out) {
         const outCurrency = (t.asset_out || 'SOM') as unknown as Currency;
         if (!filterSet || filterSet.has(outCurrency)) {
@@ -756,7 +770,7 @@ export class PaymentsService {
       sender_customer_id: customer.customer_id,
       receiver_customer_id: customer.customer_id,
       receiver_wallet_address: customer.address,
-      comment: 'Fiat->Crypto',
+      comment: 'РџРѕРїРѕР»РЅРµРЅРёРµ РЎР°Р»Р°Рј',
     });
     if (!antiFraudDecision.allowed) {
       throw new BadRequestException(this.antiFraudRejectMessage('SOM->ESOM', antiFraudDecision));
@@ -796,7 +810,7 @@ export class PaymentsService {
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
         receiver_wallet_address: customer.address,
-        comment: `Fiat->Crypto (${transactionRef})`,
+        comment: `РџРѕРїРѕР»РЅРµРЅРёРµ РЎР°Р»Р°Рј (${transactionRef})`,
       },
     });
 
@@ -1242,7 +1256,7 @@ export class PaymentsService {
       throw new BadRequestException('Recipient not found');
     }
 
-    // антифрод-предчек: отменяем операцию без побочных эффектов, если сработал
+    // Р°РЅС‚РёС„СЂРѕРґ-РїСЂРµРґС‡РµРє: РѕС‚РјРµРЅСЏРµРј РѕРїРµСЂР°С†РёСЋ Р±РµР· РїРѕР±РѕС‡РЅС‹С… СЌС„С„РµРєС‚РѕРІ, РµСЃР»Рё СЃСЂР°Р±РѕС‚Р°Р»
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.WALLET_TO_WALLET,
       amount_in: transferDto.amount,
@@ -1319,7 +1333,7 @@ export class PaymentsService {
       throw new BadRequestException('Recipient not found');
     }
 
-    // предчек антифрода
+    // РїСЂРµРґС‡РµРє Р°РЅС‚РёС„СЂРѕРґР°
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.BANK_TO_BANK,
       amount_in: transferDto.amount,
@@ -1360,7 +1374,7 @@ export class PaymentsService {
       },
     });
 
-    // Начисляем получателю кеш-баланс СОМ и списываем у отправителя
+    // РќР°С‡РёСЃР»СЏРµРј РїРѕР»СѓС‡Р°С‚РµР»СЋ РєРµС€-Р±Р°Р»Р°РЅСЃ РЎРћРњ Рё СЃРїРёСЃС‹РІР°РµРј Сѓ РѕС‚РїСЂР°РІРёС‚РµР»СЏ
     await this.prisma.userAssetBalance.upsert({
       where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
       create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-transferDto.amount).toString() },
@@ -1407,3 +1421,5 @@ export class PaymentsService {
     );
   }
 }
+
+
