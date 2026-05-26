@@ -649,7 +649,65 @@ export class PaymentsService {
         return await this.cryptoToFiat({ amount: amountFrom }, customer_id, authContext);
       }
 
-      return new StatusOKDto();
+      // SOM <-> CRYPTO bridge via ESOM
+      // This guarantees real operations and transaction rows instead of silent success.
+      if (from === 'SOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
+        // 1) SOM -> ESOM
+        await this.fiatToCrypto({ amount: amountFrom }, customer_id);
+
+        // 2) Take net ESOM amount from the latest successful SOM->ESOM transaction
+        const somToEsomTx = await this.prisma.transaction.findFirst({
+          where: {
+            kind: TransactionKind.BANK_TO_WALLET,
+            status: TransactionStatus.SUCCESS,
+            sender_customer_id: customer_id,
+            asset_in: 'SOM',
+            asset_out: 'ESOM',
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        const esomAmount = Number(somToEsomTx?.amount_out ?? 0);
+        if (esomAmount <= 0) {
+          throw new BadRequestException('SOM->ESOM bridge failed');
+        }
+
+        // 3) ESOM -> target crypto
+        return await this.convert(
+          { asset_from: Currency.ESOM, asset_to: to as unknown as Currency, amount_from: esomAmount },
+          customer_id,
+          authContext,
+        );
+      }
+
+      if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'SOM') {
+        // 1) CRYPTO -> ESOM
+        await this.convert(
+          { asset_from: from as unknown as Currency, asset_to: Currency.ESOM, amount_from: amountFrom },
+          customer_id,
+          authContext,
+        );
+
+        // 2) Take net ESOM amount from the latest successful CRYPTO->ESOM transaction
+        const cryptoToEsomTx = await this.prisma.transaction.findFirst({
+          where: {
+            kind: TransactionKind.CONVERSION,
+            status: TransactionStatus.SUCCESS,
+            sender_customer_id: customer_id,
+            asset_in: from,
+            asset_out: 'ESOM',
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        const esomAmount = Number(cryptoToEsomTx?.amount_out ?? 0);
+        if (esomAmount <= 0) {
+          throw new BadRequestException(`${from}->ESOM bridge failed`);
+        }
+
+        // 3) ESOM -> SOM
+        return await this.cryptoToFiat({ amount: esomAmount }, customer_id, authContext);
+      }
+
+      throw new BadRequestException(`Unsupported conversion pair: ${from}->${to}`);
     } catch (error) {
       const details = this.errorDetails(error);
       this.logger.error(`[convert] failed customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount=${dto.amount_from}: ${details}`);
