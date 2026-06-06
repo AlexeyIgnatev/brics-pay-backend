@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import { CustomerResidency, TariffCategory } from '@prisma/client';
 
 export enum UserStatusDtoEnum { ACTIVE = 'ACTIVE', FRAUD = 'FRAUD', BLOCKED = 'BLOCKED' }
 
@@ -60,6 +61,8 @@ export class UsersListItemDto {
   @ApiProperty({ required: false }) phone?: string;
   @ApiProperty({ required: false }) email?: string;
   @ApiProperty({ enum: UserStatusDtoEnum }) status: UserStatusDtoEnum;
+  @ApiProperty({ enum: TariffCategory }) tariff_category: TariffCategory;
+  @ApiProperty({ enum: CustomerResidency }) residency: CustomerResidency;
   @ApiProperty({ type: () => UserBalancesDto }) balances: UserBalancesDto;
   @ApiProperty({ description: 'Баланс СОМ', example: 0 }) som_balance: number;
   @ApiProperty({ description: 'Общий баланс (САЛАМ + СОМ + крипта в САЛАМ)', example: 0 }) total_balance: number;
@@ -111,4 +114,14 @@ export class AdminUpdateUserDto {
   @IsNotEmpty()
   @IsOptional()
   status?: UserStatusDtoEnum;
+
+  @ApiPropertyOptional({ enum: TariffCategory })
+  @IsEnum(TariffCategory)
+  @IsOptional()
+  tariff_category?: TariffCategory;
+
+  @ApiPropertyOptional({ enum: CustomerResidency })
+  @IsEnum(CustomerResidency)
+  @IsOptional()
+  residency?: CustomerResidency;
 }

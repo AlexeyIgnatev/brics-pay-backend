@@ -108,6 +108,8 @@ export class UserManagementService {
         phone: c.phone ?? undefined,
         email: c.email ?? undefined,
         status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : (c.status === 'FRAUD' ? UserStatusDtoEnum.FRAUD : UserStatusDtoEnum.ACTIVE),
+        tariff_category: c.tariff_category,
+        residency: c.residency,
         balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
         som_balance: SOM,
         total_balance: total_salam,
@@ -132,6 +134,8 @@ export class UserManagementService {
     if (dto.phone !== undefined) data.phone = dto.phone;
     if (dto.email !== undefined) data.email = dto.email;
     if (dto.status !== undefined) data.status = dto.status;
+    if (dto.tariff_category !== undefined) data.tariff_category = dto.tariff_category;
+    if (dto.residency !== undefined) data.residency = dto.residency;
 
     const c = await this.prisma.customer.update({ where: { customer_id: id }, data, include: { balances: true } });
     this.balanceCache.invalidate(id);
@@ -159,6 +163,8 @@ export class UserManagementService {
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
       status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : (c.status === 'FRAUD' ? UserStatusDtoEnum.FRAUD : UserStatusDtoEnum.ACTIVE),
+      tariff_category: c.tariff_category,
+      residency: c.residency,
       balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
       som_balance: SOM,
       total_balance: total_salam,
@@ -205,6 +211,8 @@ export class UserManagementService {
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
       status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : (c.status === 'FRAUD' ? UserStatusDtoEnum.FRAUD : UserStatusDtoEnum.ACTIVE),
+      tariff_category: c.tariff_category,
+      residency: c.residency,
       balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
       last_login_at: c.last_login_at ?? undefined,
       last_login_ip: c.last_login_ip ?? undefined,

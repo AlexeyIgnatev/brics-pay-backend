@@ -33,6 +33,8 @@ model Customer {
   phone       String?
   email       String?
   push_enabled Boolean @default(true)
+  tariff_category TariffCategory @default(K1)
+  residency CustomerResidency @default(RESIDENT)
   status      UserStatus @default(ACTIVE)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -52,6 +54,20 @@ model Customer {
   receiver_transactions Transaction[] @relation("tx_receiver")
 
   @@map("customers")
+}
+
+enum TariffCategory {
+  K1
+  K2
+  K3
+  K4
+  K5
+  K6
+}
+
+enum CustomerResidency {
+  RESIDENT
+  NON_RESIDENT
 }
 
 enum SupportMessageRole {
@@ -99,6 +115,19 @@ enum TransactionStatus {
   SUCCESS
   REJECTED
   FAILED
+}
+
+enum TariffOperation {
+  ESOM_TO_BTC
+  ESOM_TO_USDT_TRC20
+  ESOM_TO_ETH
+  BTC_TO_ETH
+  BTC_TO_USDT_TRC20
+  USDT_TRC20_TO_ETH
+  WALLET_TRANSFER_ESOM
+  WALLET_TRANSFER_BTC
+  WALLET_TRANSFER_ETH
+  WALLET_TRANSFER_USDT_TRC20
 }
 
 enum AntiFraudRuleKey {
@@ -166,6 +195,19 @@ model Settings {
   updatedAt DateTime @updatedAt
 
   @@map("settings")
+}
+
+model TariffSetting {
+  id          Int               @id @default(autoincrement())
+  category    TariffCategory
+  residency   CustomerResidency
+  operation   TariffOperation
+  percent_fee Decimal           @default(0) @db.Decimal(5, 2)
+  fixed_fee   Decimal           @default(0) @db.Decimal(38, 18)
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([category, residency, operation])
+  @@map("tariff_settings")
 }
 
 model UserAssetBalance {

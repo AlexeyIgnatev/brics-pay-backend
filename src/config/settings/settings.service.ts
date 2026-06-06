@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { CustomerResidency, PrismaClient, TariffCategory, TariffOperation } from '@prisma/client';
 import { SettingsPartialDto } from '../../blockchain-config/dto/settings-partial.dto';
 import { SettingsDto } from '../../blockchain-config/dto/settings.dto';
+import { TariffSettingDto, TariffSettingsUpdateDto } from '../../blockchain-config/dto/tariff-settings.dto';
 
 @Injectable()
 export class SettingsService {
@@ -10,8 +11,15 @@ export class SettingsService {
   constructor(private readonly prisma: PrismaClient) {
   }
 
-  async get(): Promise<SettingsDto> {
+  private readonly tariffCategories = Object.values(TariffCategory);
+  private readonly tariffResidencies = Object.values(CustomerResidency);
+  private readonly tariffOperations = Object.values(TariffOperation);
+
+  private async getOrCreateSettingsRow() {
     let s = await this.prisma.settings.findUnique({ where: { id: 1 } });
+    if (!s) {
+      s = await this.prisma.settings.findFirst({ orderBy: { id: 'asc' } });
+    }
     if (!s) {
       s = await this.prisma.settings.create({
         data: {
@@ -31,16 +39,20 @@ export class SettingsService {
         },
       });
     }
+    return s;
+  }
 
+  async get(): Promise<SettingsDto> {
+    const s = await this.getOrCreateSettingsRow();
     return this.mapToDto(s);
   }
 
   async update(partial: SettingsPartialDto): Promise<SettingsDto> {
-    await this.get();
+    const current = await this.getOrCreateSettingsRow();
 
     this.logger.debug(`Update settings ${JSON.stringify(partial, null, 2)}`);
     const s = await this.prisma.settings.update({
-      where: { id: 1 },
+      where: { id: current.id },
       data: partial,
     });
 
@@ -62,5 +74,73 @@ export class SettingsService {
       min_withdraw_eth: s.min_withdraw_eth.toString(),
       min_withdraw_usdt_trc20: s.min_withdraw_usdt_trc20.toString(),
     };
+  }
+
+  async getTariffs(): Promise<TariffSettingDto[]> {
+    await this.ensureTariffRows();
+    const rows = await this.prisma.tariffSetting.findMany({
+      orderBy: [{ category: 'asc' }, { residency: 'asc' }, { operation: 'asc' }],
+    });
+    return rows.map((row) => ({
+      category: row.category,
+      residency: row.residency,
+      operation: row.operation,
+      percent_fee: row.percent_fee.toString(),
+      fixed_fee: row.fixed_fee.toString(),
+    }));
+  }
+
+  async updateTariffs(dto: TariffSettingsUpdateDto): Promise<TariffSettingDto[]> {
+    await this.ensureTariffRows();
+    await this.prisma.$transaction(
+      (dto.items || []).map((item) => this.prisma.tariffSetting.upsert({
+        where: {
+          category_residency_operation: {
+            category: item.category,
+            residency: item.residency,
+            operation: item.operation,
+          },
+        },
+        create: {
+          category: item.category,
+          residency: item.residency,
+          operation: item.operation,
+          percent_fee: item.percent_fee,
+          fixed_fee: item.fixed_fee,
+        },
+        update: {
+          percent_fee: item.percent_fee,
+          fixed_fee: item.fixed_fee,
+        },
+      })),
+    );
+    return this.getTariffs();
+  }
+
+  private async ensureTariffRows(): Promise<void> {
+    const existing = await this.prisma.tariffSetting.findMany({
+      select: { category: true, residency: true, operation: true },
+    });
+    const seen = new Set(existing.map((row) => `${row.category}:${row.residency}:${row.operation}`));
+    const missing: {
+      category: TariffCategory;
+      residency: CustomerResidency;
+      operation: TariffOperation;
+      percent_fee: string;
+      fixed_fee: string;
+    }[] = [];
+    for (const category of this.tariffCategories) {
+      for (const residency of this.tariffResidencies) {
+        for (const operation of this.tariffOperations) {
+          const key = `${category}:${residency}:${operation}`;
+          if (!seen.has(key)) {
+            missing.push({ category, residency, operation, percent_fee: '0', fixed_fee: '0' });
+          }
+        }
+      }
+    }
+    if (missing.length) {
+      await this.prisma.tariffSetting.createMany({ data: missing, skipDuplicates: true });
+    }
   }
 }

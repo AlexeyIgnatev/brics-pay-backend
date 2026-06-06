@@ -1,7 +1,7 @@
 ﻿import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 /* eslint-disable max-classes-per-file */
 import { ModuleRef } from '@nestjs/core';
-import { Asset, PrismaClient, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
+import { Asset, PrismaClient, TariffOperation, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
 import { AntiFraudDecision, AntiFraudService } from '../antifraud/antifraud.service';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { EthereumService } from 'src/config/ethereum/ethereum.service';
@@ -151,6 +151,74 @@ export class PaymentsService {
     const fee = Math.max(feeByPct, safeMinFee);
     const net = Math.max(amount - fee, 0);
     return { fee, net, pct: safePct, minFee: safeMinFee };
+  }
+
+  private tariffOperationForConversion(from: Asset, to: Asset): TariffOperation | null {
+    const key = `${from}_TO_${to}`;
+    switch (key) {
+      case 'ESOM_TO_BTC':
+        return TariffOperation.ESOM_TO_BTC;
+      case 'ESOM_TO_USDT_TRC20':
+        return TariffOperation.ESOM_TO_USDT_TRC20;
+      case 'ESOM_TO_ETH':
+        return TariffOperation.ESOM_TO_ETH;
+      case 'BTC_TO_ETH':
+        return TariffOperation.BTC_TO_ETH;
+      case 'BTC_TO_USDT_TRC20':
+        return TariffOperation.BTC_TO_USDT_TRC20;
+      case 'USDT_TRC20_TO_ETH':
+        return TariffOperation.USDT_TRC20_TO_ETH;
+      default:
+        return null;
+    }
+  }
+
+  private tariffOperationForWalletTransfer(asset: Asset): TariffOperation | null {
+    switch (asset) {
+      case 'ESOM':
+        return TariffOperation.WALLET_TRANSFER_ESOM;
+      case 'BTC':
+        return TariffOperation.WALLET_TRANSFER_BTC;
+      case 'ETH':
+        return TariffOperation.WALLET_TRANSFER_ETH;
+      case 'USDT_TRC20':
+        return TariffOperation.WALLET_TRANSFER_USDT_TRC20;
+      default:
+        return null;
+    }
+  }
+
+  private async getCustomerTariffFee(
+    customerId: number,
+    operation: TariffOperation | null,
+    baseAmount: number,
+  ): Promise<{ percent: number; fixed: number; fee: number; configured: boolean }> {
+    if (!operation) return { percent: 0, fixed: 0, fee: 0, configured: false };
+    const customer = await this.prisma.customer.findUnique({
+      where: { customer_id: customerId },
+      select: { tariff_category: true, residency: true },
+    });
+    if (!customer) return { percent: 0, fixed: 0, fee: 0, configured: false };
+    const tariff = await this.prisma.tariffSetting.findUnique({
+      where: {
+        category_residency_operation: {
+          category: customer.tariff_category,
+          residency: customer.residency,
+          operation,
+        },
+      },
+    });
+    if (!tariff) return { percent: 0, fixed: 0, fee: 0, configured: false };
+    const percent = Number(tariff.percent_fee || 0);
+    const fixed = Number(tariff.fixed_fee || 0);
+    const safePercent = Number.isFinite(percent) && percent > 0 ? percent : 0;
+    const safeFixed = Number.isFinite(fixed) && fixed > 0 ? fixed : 0;
+    return {
+      percent: safePercent,
+      fixed: safeFixed,
+      fee: baseAmount * (safePercent / 100) + safeFixed,
+      configured: true,
+    };
   }
 
   private mapType(t: Transaction, customer_id: number): TransactionType {
@@ -470,8 +538,15 @@ export class PaymentsService {
       return Math.max(feePctForAsset(fromA), feePctForAsset(toA));
     };
 
-    const applyFee = (gross: number, pct: number) => {
-      const fee = gross * (pct / 100);
+    const tradeFeeFor = async (fromA: Asset, toA: Asset, gross: number) => {
+      const tariff = await this.getCustomerTariffFee(customer_id, this.tariffOperationForConversion(fromA, toA), gross);
+      if (tariff.configured) return tariff;
+      const pct = feePctForTrade(fromA, toA);
+      return { percent: pct, fixed: 0, fee: gross * (pct / 100), configured: false };
+    };
+
+    const applyFee = (gross: number, feeAmount: number) => {
+      const fee = Number.isFinite(feeAmount) && feeAmount > 0 ? feeAmount : 0;
       const net = Math.max(gross - fee, 0);
       return { net, fee };
     };
@@ -494,7 +569,6 @@ export class PaymentsService {
         throw new BadRequestException(this.antiFraudRejectMessage(`ESOM->${to}`, antiFraudDecision));
       }
 
-      const feePct = feePctForTrade(from, to);
       const usdtAmount = amountFrom / esomPerUsd;
       let grossOut = 0;
       let priceUsd = '1';
@@ -508,11 +582,12 @@ export class PaymentsService {
         notionalUsdt = buy.notional_usdt;
         this.logger.verbose(`[convert ESOM->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`);
       }
-      const { net, fee } = applyFee(grossOut, feePct);
+      const tradeFee = await tradeFeeFor(from, to, grossOut);
+      const { net, fee } = applyFee(grossOut, tradeFee.fee);
 
       await this.ethereumService.transferToFiat(amountFrom, user.private_key);
       await addBalance(to, net);
-      this.logger.verbose(`[convert ESOM->${to}] feePct=${feePct}% fee=${fee} net_out=${net}`);
+      this.logger.verbose(`[convert ESOM->${to}] feePct=${tradeFee.percent}% fixed=${tradeFee.fixed} fee=${fee} net_out=${net}`);
 
       await this.prisma.transaction.create({
         data: {
@@ -552,7 +627,6 @@ export class PaymentsService {
         throw new BadRequestException(this.antiFraudRejectMessage(`${from}->ESOM`, antiFraudDecision));
       }
 
-      const feePct = feePctForTrade(from, to);
       let notionalUsdt = 0;
       if (from === 'USDT_TRC20') {
         notionalUsdt = amountFrom;
@@ -562,7 +636,8 @@ export class PaymentsService {
         this.logger.verbose(`[convert ${from}->ESOM] marketSell notional_usdt=${notionalUsdt}`);
       }
       const grossEsom = notionalUsdt * esomPerUsd;
-      const { net: netEsom, fee: feeEsom } = applyFee(grossEsom, feePct);
+      const tradeFee = await tradeFeeFor(from, to, grossEsom);
+      const { net: netEsom, fee: feeEsom } = applyFee(grossEsom, tradeFee.fee);
 
       await this.ethereumService.transferFromFiat(user.address, netEsom);
       await addBalance(from, -amountFrom);
@@ -605,8 +680,6 @@ export class PaymentsService {
         throw new BadRequestException(this.antiFraudRejectMessage(`${from}->${to}`, antiFraudDecision));
       }
 
-      const feePct = feePctForTrade(from, to);
-
       let usdtIntermediate = 0;
       if (from === 'USDT_TRC20') {
         usdtIntermediate = amountFrom;
@@ -619,7 +692,8 @@ export class PaymentsService {
       this.logger.verbose(`[convert ${from}->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`);
 
       const grossTo = Number(buy.amount_asset);
-      const { net: netTo, fee: feeTo } = applyFee(grossTo, feePct);
+      const tradeFee = await tradeFeeFor(from, to, grossTo);
+      const { net: netTo, fee: feeTo } = applyFee(grossTo, tradeFee.fee);
 
       await addBalance(from, -amountFrom);
       await addBalance(to, netTo);
@@ -1209,9 +1283,16 @@ export class PaymentsService {
     comment: string,
     receiverWalletAddress?: string,
   ): Promise<StatusOKDto> {
+    const tariffFee = await this.getCustomerTariffFee(
+      sender_id,
+      this.tariffOperationForWalletTransfer(asset),
+      amount,
+    );
+    const fee = tariffFee.fee;
+    const totalDebit = amount + fee;
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.WALLET_TO_WALLET,
-      amount_in: amount,
+      amount_in: totalDebit,
       asset_in: asset,
       asset_out: asset,
       sender_customer_id: sender_id,
@@ -1231,10 +1312,10 @@ export class PaymentsService {
         },
       });
       const current = Number(bal?.balance ?? 0);
-      if (current < amount) throw new BadRequestException('Insufficient balance');
+      if (current < totalDebit) throw new BadRequestException('Insufficient balance');
       await tx.userAssetBalance.update({
         where: { customer_id_asset: { customer_id: sender_id, asset } },
-        data: { balance: { decrement: amount.toString() } },
+        data: { balance: { decrement: totalDebit.toString() } },
       });
       await tx.userAssetBalance.upsert({
         where: { customer_id_asset: { customer_id: receiver_id, asset } },
@@ -1249,6 +1330,7 @@ export class PaymentsService {
           asset_in: asset,
           amount_out: amount.toString(),
           asset_out: asset,
+          fee_amount: fee.toString(),
           sender_customer_id: sender_id,
           receiver_customer_id: receiver_id,
           receiver_wallet_address: receiverWalletAddress,
@@ -1332,6 +1414,13 @@ export class PaymentsService {
     });
     if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
+    const tariffFee = await this.getCustomerTariffFee(
+      customer.customer_id,
+      this.tariffOperationForWalletTransfer('ESOM' as Asset),
+      transferDto.amount,
+    );
+    const fee = tariffFee.fee;
+
     let recipient = await this.prisma.customer.findUnique({
       where: { customer_id: bricsRecipient.CustomerID },
     });
@@ -1354,6 +1443,12 @@ export class PaymentsService {
     if (!ethTransaction?.success) {
       throw new BadRequestException('Ethereum transaction failed');
     }
+    if (fee > 0) {
+      const feeTransaction = await this.ethereumService.transferToFiat(fee, customer.private_key);
+      if (!feeTransaction?.success) {
+        throw new BadRequestException('Ethereum fee transaction failed');
+      }
+    }
 
     await this.prisma.transaction.create({
       data: {
@@ -1363,6 +1458,7 @@ export class PaymentsService {
         asset_in: 'ESOM',
         amount_out: transferDto.amount.toString(),
         asset_out: 'ESOM',
+        fee_amount: fee.toString(),
         tx_hash: ethTransaction.txHash,
         sender_customer_id: customer.customer_id,
         receiver_customer_id: recipient.customer_id,

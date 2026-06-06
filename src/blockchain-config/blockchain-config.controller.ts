@@ -4,6 +4,7 @@ import { SettingsService } from '../config/settings/settings.service';
 import { SettingsDto } from './dto/settings.dto';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 import { SettingsPartialDto } from './dto/settings-partial.dto';
+import { TariffSettingDto, TariffSettingsUpdateDto } from './dto/tariff-settings.dto';
 
 @ApiTags('Конфигурация блокчейна')
 @Controller('blockchain-config')
@@ -25,5 +26,23 @@ export class BlockchainConfigController {
   @ApiResponse({ status: 200, type: SettingsDto })
   async updateSettings(@Body() dto: SettingsPartialDto): Promise<SettingsDto> {
     return await this.settingsService.update(dto);
+  }
+
+  @Get('tariffs')
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Получить тарифную сетку клиентов' })
+  @ApiResponse({ status: 200, type: [TariffSettingDto] })
+  async getTariffs(): Promise<TariffSettingDto[]> {
+    return await this.settingsService.getTariffs();
+  }
+
+  @Put('tariffs')
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Обновить тарифную сетку клиентов' })
+  @ApiResponse({ status: 200, type: [TariffSettingDto] })
+  async updateTariffs(@Body() dto: TariffSettingsUpdateDto): Promise<TariffSettingDto[]> {
+    return await this.settingsService.updateTariffs(dto);
   }
 }
