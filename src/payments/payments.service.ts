@@ -589,7 +589,7 @@ export class PaymentsService {
       await addBalance(to, net);
       this.logger.verbose(`[convert ESOM->${to}] feePct=${tradeFee.percent}% fixed=${tradeFee.fixed} fee=${fee} net_out=${net}`);
 
-      await this.prisma.transaction.create({
+      const createdTransaction = await this.prisma.transaction.create({
         data: {
           kind: TransactionKind.CONVERSION,
           status: TransactionStatus.SUCCESS,
@@ -606,7 +606,7 @@ export class PaymentsService {
       });
       // Refresh only ESOM balance to avoid overwriting exchange-held balances
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
-        return new StatusOKDto();
+        return new StatusOKDto(createdTransaction.id);
       }
 
       // CRYPTO -> ESOM
@@ -642,7 +642,7 @@ export class PaymentsService {
       await this.ethereumService.transferFromFiat(user.address, netEsom);
       await addBalance(from, -amountFrom);
 
-      await this.prisma.transaction.create({
+      const createdTransaction = await this.prisma.transaction.create({
         data: {
           kind: TransactionKind.CONVERSION,
           status: TransactionStatus.SUCCESS,
@@ -659,7 +659,7 @@ export class PaymentsService {
       });
       // Refresh only ESOM balance after mint
       await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
-        return new StatusOKDto();
+        return new StatusOKDto(createdTransaction.id);
       }
 
       // CRYPTO -> CRYPTO
@@ -698,7 +698,7 @@ export class PaymentsService {
       await addBalance(from, -amountFrom);
       await addBalance(to, netTo);
 
-      await this.prisma.transaction.create({
+      const createdTransaction = await this.prisma.transaction.create({
         data: {
           kind: TransactionKind.CONVERSION,
           status: TransactionStatus.SUCCESS,
@@ -713,7 +713,7 @@ export class PaymentsService {
           comment: `Convert ${from}->${to}`,
         },
       });
-        return new StatusOKDto();
+        return new StatusOKDto(createdTransaction.id);
       }
 
       if (from === 'SOM' && to === 'ESOM') {
@@ -834,6 +834,7 @@ export class PaymentsService {
     this.logger.verbose(`[withdrawCrypto] antifraud allowed=${allowed}`);
     if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
+    let transactionId: number | undefined;
     await this.prisma.$transaction(async (tx) => {
       const bal = await tx.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id, asset } } });
       const current = Number(bal?.balance ?? 0);
@@ -858,7 +859,7 @@ export class PaymentsService {
       const { txid } = await this.exchangeService.withdraw(asset, address, amount.toString());
       this.logger.verbose(`[withdrawCrypto] exchange.withdraw submitted txid=${txid}`);
       await tx.withdrawRequest.update({ where: { id: w.id }, data: { status: 'SUBMITTED', txid } });
-      await tx.transaction.create({
+      const createdTransaction = await tx.transaction.create({
         data: {
           kind: TransactionKind.WITHDRAW_CRYPTO,
           status: TransactionStatus.SUCCESS,
@@ -873,9 +874,10 @@ export class PaymentsService {
           comment: `Withdraw ${amount} ${asset}`,
         },
       });
+      transactionId = createdTransaction.id;
     });
 
-    return new StatusOKDto();
+    return new StatusOKDto(transactionId);
   }
 
   async fiatToCrypto(
@@ -935,7 +937,7 @@ export class PaymentsService {
       throw new BadRequestException('Ethereum transaction failed');
     }
 
-    await this.prisma.transaction.create({
+    const createdTransaction = await this.prisma.transaction.create({
       data: {
         kind: TransactionKind.BANK_TO_WALLET,
         status: TransactionStatus.SUCCESS,
@@ -959,7 +961,7 @@ export class PaymentsService {
       update: { balance: { decrement: amount.toString() } },
     });
 
-    return new StatusOKDto();
+    return new StatusOKDto(createdTransaction.id);
   }
 
   async cryptoToFiat(
@@ -1210,7 +1212,7 @@ export class PaymentsService {
       throw new BadRequestException('Brics transaction failed');
     }
 
-    await this.prisma.transaction.create({
+    const createdTransaction = await this.prisma.transaction.create({
       data: {
         kind: 'WALLET_TO_BANK',
         status: 'SUCCESS',
@@ -1233,7 +1235,7 @@ export class PaymentsService {
       update: { balance: { increment: netAmount.toString() } },
     });
 
-    return new StatusOKDto();
+    return new StatusOKDto(createdTransaction.id);
   }
 
   private normalizeWalletAddress(asset: Asset, address: string): string {
@@ -1302,6 +1304,7 @@ export class PaymentsService {
     });
     if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
+    let transactionId: number | undefined;
     await this.prisma.$transaction(async (tx) => {
       const bal = await tx.userAssetBalance.findUnique({
         where: {
@@ -1322,7 +1325,7 @@ export class PaymentsService {
         create: { customer_id: receiver_id, asset, balance: amount.toString() },
         update: { balance: { increment: amount.toString() } },
       });
-      await tx.transaction.create({
+      const createdTransaction = await tx.transaction.create({
         data: {
           kind: TransactionKind.WALLET_TO_WALLET,
           status: TransactionStatus.SUCCESS,
@@ -1337,9 +1340,10 @@ export class PaymentsService {
           comment,
         },
       });
+      transactionId = createdTransaction.id;
     });
 
-    return new StatusOKDto();
+    return new StatusOKDto(transactionId);
   }
 
   async transfer(
@@ -1450,7 +1454,7 @@ export class PaymentsService {
       }
     }
 
-    await this.prisma.transaction.create({
+    const createdTransaction = await this.prisma.transaction.create({
       data: {
         kind: TransactionKind.WALLET_TO_WALLET,
         status: TransactionStatus.SUCCESS,
@@ -1470,7 +1474,7 @@ export class PaymentsService {
     if (recipient?.customer_id && recipient.customer_id !== customer.customer_id) {
       await this.balanceFetchService.refreshAllBalancesForUser(recipient.customer_id, ['ESOM' as Asset]);
     }
-    return new StatusOKDto();
+    return new StatusOKDto(createdTransaction.id);
   }
 
   async transferSom(
@@ -1519,7 +1523,7 @@ export class PaymentsService {
     if (!bricsTransaction) {
       throw new BadRequestException('Brics transaction failed');
     }
-    await this.prisma.transaction.create({
+    const createdTransaction = await this.prisma.transaction.create({
       data: {
         kind: TransactionKind.BANK_TO_BANK,
         status: TransactionStatus.SUCCESS,
@@ -1546,7 +1550,7 @@ export class PaymentsService {
       update: { balance: { increment: transferDto.amount.toString() } },
     });
 
-    return new StatusOKDto();
+    return new StatusOKDto(createdTransaction.id);
   }
 
 
