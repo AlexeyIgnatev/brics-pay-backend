@@ -36,7 +36,7 @@ export class BybitExchangeService implements IExchangeService {
       if (data.retCode !== 0) {
         // If insufficient balance in Funding, bubble up a clear error.
         const msg: string = data.retMsg ?? 'Unknown transfer error';
-        if (/insufficient/i.test(msg)) throw new BadRequestException(`Bybit transfer error: ${msg}`);
+        if (/insufficient/i.test(msg)) throw new BadRequestException(this.bybitErrorMessage('transfer', msg));
         // Otherwise log and continue (maybe funds already on Spot)
         this.logger.warn(`Bybit transfer warning: ${msg}`);
       } else {
@@ -81,6 +81,27 @@ export class BybitExchangeService implements IExchangeService {
     }
   }
 
+  private bybitErrorMessage(operation: 'order' | 'withdraw' | 'transfer', retMsg?: string): string {
+    const msg = retMsg || 'Unknown error';
+    if (/insufficient/i.test(msg)) {
+      return operation === 'withdraw'
+        ? 'Недостаточно средств для вывода с учетом комиссии'
+        : 'Недостаточно средств для конвертации';
+    }
+    if (/permission denied|api key permissions/i.test(msg)) {
+      return operation === 'withdraw'
+        ? 'Нет разрешения на вывод средств. Проверьте права API-ключа Bybit'
+        : 'Нет разрешения на выполнение операции. Проверьте права API-ключа Bybit';
+    }
+    if (/minimum|min|too low|below/i.test(msg)) {
+      return 'Сумма меньше минимально допустимой';
+    }
+    if (/address|whitelist/i.test(msg)) {
+      return 'Адрес получателя не разрешен для вывода';
+    }
+    return `Ошибка биржи Bybit: ${msg}`;
+  }
+
   async getUsdPrices(assets: Asset[]): Promise<Record<string, string>> {
     const result: Record<string, string> = {};
     for (const a of assets) {
@@ -107,7 +128,7 @@ export class BybitExchangeService implements IExchangeService {
     // Enforce Bybit minimal notional for spot market orders (commonly 10 USDT)
     const MIN_NOTIONAL_USDT = 10;
     if (Number(usdtAmount) < MIN_NOTIONAL_USDT) {
-      throw new BadRequestException(`Order value below Bybit minimum: notional=${usdtAmount} USDT, min=${MIN_NOTIONAL_USDT} USDT`);
+      throw new BadRequestException('Сумма меньше минимально допустимой для конвертации');
     }
     const qtySide = 'Buy';
     const symbol = this.spotSymbol(asset);
@@ -127,7 +148,7 @@ export class BybitExchangeService implements IExchangeService {
       await this.transferFundingToSpotUsdt(topUp);
       ({ data } = await this.http.post('/v5/order/create', payload, { headers }));
     }
-    if (data.retCode !== 0) throw new BadRequestException(`Bybit order error: ${data.retMsg}`);
+    if (data.retCode !== 0) throw new BadRequestException(this.bybitErrorMessage('order', data.retMsg));
     const price = await this.getUsdPrices([asset]);
     const p = price[asset];
     const amount = (Number(usdtAmount) / Number(p)).toString();
@@ -149,7 +170,7 @@ export class BybitExchangeService implements IExchangeService {
     };
     const { headers, payload } = this.sign(params);
     const { data } = await this.http.post('/v5/order/create', payload, { headers });
-    if (data.retCode !== 0) throw new BadRequestException(`Bybit order error: ${data.retMsg}`);
+    if (data.retCode !== 0) throw new BadRequestException(this.bybitErrorMessage('order', data.retMsg));
     const price = await this.getUsdPrices([asset]);
     const p = price[asset];
     const notional = (Number(assetAmount) * Number(p)).toString();
@@ -174,7 +195,7 @@ export class BybitExchangeService implements IExchangeService {
     const params = { coin, chain, address, amount };
     const { headers, payload } = this.sign(params);
     const { data } = await this.http.post('/v5/asset/withdraw/create', payload, { headers });
-    if (data.retCode !== 0) throw new BadRequestException(`Bybit withdraw error: ${data.retMsg}`);
+    if (data.retCode !== 0) throw new BadRequestException(this.bybitErrorMessage('withdraw', data.retMsg));
     const txid = data?.result?.id?.toString() ?? '';
     return { txid };
   }
