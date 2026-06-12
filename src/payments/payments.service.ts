@@ -393,9 +393,11 @@ export class PaymentsService {
         const outAmount = Number(t.amount_out ?? 0);
         const conversionRow: TransactionDto = {
           id: t.id,
+          transaction_id: t.id,
           currency: outCurrency,
           amount: outAmount,
           type: TransactionType.CONVERSION,
+          conversion_side: ReceiptConversionSide.OUT,
           successful: t.status === 'SUCCESS',
           created_at: t.createdAt.getTime(),
         };
@@ -410,9 +412,11 @@ export class PaymentsService {
         : baseType;
       const baseRow: TransactionDto = {
         id: t.id,
+        transaction_id: t.id,
         currency: inCurrency,
         amount: Number(t.amount_in),
         type: inSideType,
+        conversion_side: inSideType === TransactionType.CONVERSION ? ReceiptConversionSide.IN : undefined,
         successful: t.status === 'SUCCESS',
         created_at: t.createdAt.getTime(),
       };
@@ -424,9 +428,11 @@ export class PaymentsService {
         if (!filterSet || filterSet.has(outCurrency)) {
           rows.push({
             id: t.id,
+            transaction_id: t.id,
             currency: outCurrency,
             amount: Number(t.amount_out),
             type: TransactionType.INCOME,
+            conversion_side: ReceiptConversionSide.OUT,
             successful: true,
             created_at: t.createdAt.getTime(),
           });

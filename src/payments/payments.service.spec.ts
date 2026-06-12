@@ -274,5 +274,52 @@ describe('PaymentsService', () => {
 
     expect(rows.length).toBe(1);
     expect(rows[0].id).toBe(77);
+    expect(rows[0].transaction_id).toBe(77);
+    expect(rows[0].conversion_side).toBe(ReceiptConversionSide.OUT);
+  });
+
+  it('returns output side for SOM to USDT bridge conversion history', async () => {
+    const createdAt = new Date('2026-06-12T10:00:00.000Z');
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xmy' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 325,
+            kind: 'CONVERSION',
+            status: TransactionStatus.SUCCESS,
+            amount_in: '100',
+            asset_in: 'ESOM',
+            amount_out: '0.9945',
+            asset_out: 'USDT_TRC20',
+            createdAt,
+            sender_customer_id: 7,
+            receiver_customer_id: null,
+          },
+        ]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const rows = await service.getHistory({
+      currency: ['USDT_TRC20'] as any,
+      take: 5,
+      skip: 0,
+    } as any, 7);
+
+    expect(rows).toEqual([
+      {
+        id: 325,
+        transaction_id: 325,
+        currency: 'USDT_TRC20',
+        amount: 0.9945,
+        type: TransactionType.CONVERSION,
+        conversion_side: ReceiptConversionSide.OUT,
+        successful: true,
+        created_at: createdAt.getTime(),
+      },
+    ]);
   });
 });
