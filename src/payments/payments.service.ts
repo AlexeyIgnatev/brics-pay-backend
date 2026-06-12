@@ -119,7 +119,7 @@ export class PaymentsService {
     recipientFio: string,
     at: Date,
   ): string {
-    return `РџРѕРїРѕР»РЅРµРЅРёРµ РЎР°Р»Р°Рј в„–${walletId}, ID С‚СЂР°РЅР·Р°РєС†РёРё ${transactionRef}, ${recipientFio}, ${this.formatAbsTime(at)}`;
+    return `Пополнение Салам №${walletId}, ID транзакции ${transactionRef}, ${recipientFio}, ${this.formatAbsTime(at)}`;
   }
 
   private buildDebitPurpose(
@@ -128,7 +128,7 @@ export class PaymentsService {
     senderFio: string,
     at: Date,
   ): string {
-    return `РџРѕРїРѕР»РЅРµРЅРёРµ СЃС‡РµС‚Р° в„–${accountNo}, ID С‚СЂР°РЅР·Р°РєС†РёРё ${transactionRef}, ${senderFio}, ${this.formatAbsTime(at)}`;
+    return `Пополнение счета №${accountNo}, ID транзакции ${transactionRef}, ${senderFio}, ${this.formatAbsTime(at)}`;
   }
 
   private buildGenericAbsPurpose(
@@ -136,7 +136,7 @@ export class PaymentsService {
     transactionRef: string,
     at: Date,
   ): string {
-    return `${clientFio}, ID С‚СЂР°РЅР·Р°РєС†РёРё ${transactionRef}, ${this.formatAbsTime(at)}`;
+    return `${clientFio}, ID транзакции ${transactionRef}, ${this.formatAbsTime(at)}`;
   }
 
   private calcSomEsomConversionFee(
@@ -360,7 +360,7 @@ export class PaymentsService {
         { asset_out: { in: assets } },
         { asset_in: { in: assets } },
       ];
-      // РћР±СЉРµРґРёРЅСЏРµРј С„РёР»СЊС‚СЂ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ Р С„РёР»СЊС‚СЂ РІР°Р»СЋС‚С‹ С‡РµСЂРµР· AND
+      // Объединяем фильтр пользователя и фильтр валюты через AND
       where.AND = [{ OR: userOr }, { OR: currencyOr }];
       delete where.OR;
     }
@@ -377,7 +377,7 @@ export class PaymentsService {
       take: body.take ?? 50,
     });
 
-    // РџРѕ СѓРјРѕР»С‡Р°РЅРёСЋ РїРѕРєР°Р·С‹РІР°РµРј РІС…РѕРґСЏС‰СѓСЋ СЃС‚РѕСЂРѕРЅСѓ (asset_in/amount_in)
+    // По умолчанию показываем входящую сторону (asset_in/amount_in)
     const rows: TransactionDto[] = [];
     const filterSet = body.currency?.length ? new Set(body.currency) : null;
 
@@ -508,6 +508,9 @@ export class PaymentsService {
       const from = dto.asset_from as unknown as Asset;
       const to = dto.asset_to as unknown as Asset;
       const amountFrom = dto.amount_from;
+      if (!Number.isFinite(amountFrom) || amountFrom <= 0) {
+        throw new BadRequestException('Amount must be positive');
+      }
       const esomPerUsd = Number(s.esom_per_usd);
       this.logger.verbose(`[convert] settings esom_per_usd=${esomPerUsd}`);
 
@@ -517,6 +520,18 @@ export class PaymentsService {
           create: { customer_id, asset, balance: delta.toString() },
           update: { balance: { increment: delta.toString() } },
         });
+      };
+
+      const ensureCryptoBalance = async (asset: Asset, required: number) => {
+        const balance = await this.prisma.userAssetBalance.findUnique({
+          where: { customer_id_asset: { customer_id, asset } },
+        });
+        const current = Number(balance?.balance ?? 0);
+        if (current + 1e-12 < required) {
+          throw new BadRequestException(
+            `Insufficient ${asset} balance. Required=${required}, available=${current}`,
+          );
+        }
       };
 
     const feePctForAsset = (asset: Asset): number => {
@@ -611,6 +626,7 @@ export class PaymentsService {
 
       // CRYPTO -> ESOM
       if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'ESOM') {
+        await ensureCryptoBalance(from, amountFrom);
       const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
@@ -664,6 +680,7 @@ export class PaymentsService {
 
       // CRYPTO -> CRYPTO
       if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
+        await ensureCryptoBalance(from, amountFrom);
       const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.CONVERSION,
         amount_in: amountFrom,
@@ -910,7 +927,7 @@ export class PaymentsService {
       sender_customer_id: customer.customer_id,
       receiver_customer_id: customer.customer_id,
       receiver_wallet_address: customer.address,
-      comment: 'РџРѕРїРѕР»РЅРµРЅРёРµ РЎР°Р»Р°Рј',
+      comment: 'Пополнение Салам',
     });
     if (!antiFraudDecision.allowed) {
       throw new BadRequestException(this.antiFraudRejectMessage('SOM->ESOM', antiFraudDecision));
@@ -950,7 +967,7 @@ export class PaymentsService {
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
         receiver_wallet_address: customer.address,
-        comment: `РџРѕРїРѕР»РЅРµРЅРёРµ РЎР°Р»Р°Рј (${transactionRef})`,
+        comment: `Пополнение Салам (${transactionRef})`,
       },
     });
 
@@ -1406,7 +1423,7 @@ export class PaymentsService {
       throw new BadRequestException('Recipient not found');
     }
 
-    // Р°РЅС‚РёС„СЂРѕРґ-РїСЂРµРґС‡РµРє: РѕС‚РјРµРЅСЏРµРј РѕРїРµСЂР°С†РёСЋ Р±РµР· РїРѕР±РѕС‡РЅС‹С… СЌС„С„РµРєС‚РѕРІ, РµСЃР»Рё СЃСЂР°Р±РѕС‚Р°Р»
+    // Антифрод-предчек: отменяем операцию без побочных эффектов, если сработал
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.WALLET_TO_WALLET,
       amount_in: transferDto.amount,
@@ -1497,7 +1514,7 @@ export class PaymentsService {
       throw new BadRequestException('Recipient not found');
     }
 
-    // РїСЂРµРґС‡РµРє Р°РЅС‚РёС„СЂРѕРґР°
+    // Предчек антифрода
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.BANK_TO_BANK,
       amount_in: transferDto.amount,
@@ -1538,7 +1555,7 @@ export class PaymentsService {
       },
     });
 
-    // РќР°С‡РёСЃР»СЏРµРј РїРѕР»СѓС‡Р°С‚РµР»СЋ РєРµС€-Р±Р°Р»Р°РЅСЃ РЎРћРњ Рё СЃРїРёСЃС‹РІР°РµРј Сѓ РѕС‚РїСЂР°РІРёС‚РµР»СЏ
+    // Начисляем получателю кеш-баланс СОМ и списываем у отправителя
     await this.prisma.userAssetBalance.upsert({
       where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
       create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-transferDto.amount).toString() },
