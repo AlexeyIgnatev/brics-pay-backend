@@ -15,6 +15,7 @@ describe('PaymentsService', () => {
     {} as any,
     {} as any,
     {} as any,
+    {} as any,
   );
 
   it('builds receipt by transaction_id and masks accounts', async () => {
@@ -57,8 +58,8 @@ describe('PaymentsService', () => {
     expect(receipt.currency).toBe('USDT_TRC20');
     expect(receipt.created_at).toBe(createdAt.getTime());
     expect(receipt.fee).toBe(0.5);
-    expect(receipt.account_details).toBe('****3333');
-    expect(receipt.paid_from_account).toBe('****7890');
+    expect(receipt.account_details).toBe('****22223333');
+    expect(receipt.paid_from_account).toBe('****34567890');
     expect(receipt.receipt_number).toBe(`TX-10-${createdAt.getTime()}`);
   });
 
@@ -103,6 +104,51 @@ describe('PaymentsService', () => {
 
     expect(receipt.fee).toBe(0);
     expect(receipt.recipient_full_name).toBe('Customer #55');
+    expect(receipt.account_details).toBe('****receiver');
+    expect(receipt.paid_from_account).toBe('****0xsender');
+  });
+
+  it('returns masked fallback accounts instead of bank operation labels', async () => {
+    const createdAt = new Date('2026-02-02T00:00:00.000Z');
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xmywallet' }),
+      },
+      transaction: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 12,
+          kind: 'BANK_TO_WALLET',
+          status: TransactionStatus.SUCCESS,
+          amount_in: '100',
+          asset_in: 'SOM',
+          amount_out: '100',
+          asset_out: 'ESOM',
+          fee_amount: '5.5',
+          tx_hash: null,
+          bank_op_id: 531938,
+          sender_customer_id: 7,
+          receiver_customer_id: null,
+          sender_wallet_address: null,
+          receiver_wallet_address: null,
+          external_address: null,
+          comment: null,
+          createdAt,
+          sender_customer: {
+            address: null,
+            first_name: 'Zalkar',
+            middle_name: null,
+            last_name: 'Tilenbaev',
+          },
+          receiver_customer: null,
+        }),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const receipt = await service.getReceipt({ transaction_id: 12 }, 7);
+
+    expect(receipt.account_details).toBe('****531938');
+    expect(receipt.paid_from_account).toBe('****7');
   });
 
   it('returns OUT side for conversion when conversion_side=OUT', async () => {
@@ -226,8 +272,7 @@ describe('PaymentsService', () => {
 
     const rows = await service.getHistory({} as any, 7);
 
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(1);
     expect(rows[0].id).toBe(77);
-    expect(rows[1].id).toBe(77);
   });
 });

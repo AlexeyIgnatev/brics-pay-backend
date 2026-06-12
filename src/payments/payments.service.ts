@@ -248,7 +248,7 @@ export class PaymentsService {
     if (value == null) return 'N/A';
     const raw = String(value).trim();
     if (!raw) return 'N/A';
-    return `****${raw.slice(-4)}`;
+    return `****${raw.slice(-8)}`;
   }
 
   private isBankKind(kind: TransactionKind): boolean {
@@ -322,8 +322,8 @@ export class PaymentsService {
   }): string {
     const senderWallet = t.sender_wallet_address || t.sender_customer?.address;
     if (senderWallet) return this.maskAccount(senderWallet);
-    if (this.isBankKind(t.kind) && t.sender_customer_id != null) return `Bank account of customer #${t.sender_customer_id}`;
-    if (t.bank_op_id != null) return `Bank operation #${t.bank_op_id}`;
+    if (this.isBankKind(t.kind) && t.sender_customer_id != null) return this.maskAccount(t.sender_customer_id);
+    if (t.bank_op_id != null) return this.maskAccount(t.bank_op_id);
     return 'N/A';
   }
 
@@ -337,8 +337,8 @@ export class PaymentsService {
   }): string {
     const targetWallet = t.external_address || t.receiver_wallet_address || t.receiver_customer?.address;
     if (targetWallet) return this.maskAccount(targetWallet);
-    if (this.isBankKind(t.kind) && t.receiver_customer_id != null) return `Bank account of customer #${t.receiver_customer_id}`;
-    if (t.bank_op_id != null) return `Bank operation #${t.bank_op_id}`;
+    if (this.isBankKind(t.kind) && t.receiver_customer_id != null) return this.maskAccount(t.receiver_customer_id);
+    if (t.bank_op_id != null) return this.maskAccount(t.bank_op_id);
     return 'N/A';
   }
 
