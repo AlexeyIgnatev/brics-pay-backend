@@ -322,4 +322,53 @@ describe('PaymentsService', () => {
       },
     ]);
   });
+
+  it('hides internal bridge transactions from history', async () => {
+    const createdAt = new Date('2026-06-12T10:00:00.000Z');
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xmy' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 326,
+            kind: 'BANK_TO_WALLET',
+            status: TransactionStatus.SUCCESS,
+            amount_in: '100',
+            asset_in: 'SOM',
+            amount_out: '100',
+            asset_out: 'ESOM',
+            createdAt,
+            sender_customer_id: 7,
+            receiver_customer_id: null,
+            comment: 'INTERNAL_BRIDGE SOM->ESOM for SOM->USDT_TRC20 (ABS-1)',
+          },
+          {
+            id: 327,
+            kind: 'CONVERSION',
+            status: TransactionStatus.SUCCESS,
+            amount_in: '100',
+            asset_in: 'ESOM',
+            amount_out: '1',
+            asset_out: 'USDT_TRC20',
+            createdAt,
+            sender_customer_id: 7,
+            receiver_customer_id: null,
+            comment: 'Convert ESOM->USDT_TRC20',
+          },
+        ]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const rows = await service.getHistory({
+      currency: ['ESOM', 'USDT_TRC20'] as any,
+      take: 10,
+      skip: 0,
+    } as any, 7);
+
+    expect(rows.map(row => row.id)).toEqual([327]);
+    expect(rows[0].currency).toBe('USDT_TRC20');
+  });
 });

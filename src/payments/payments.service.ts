@@ -153,6 +153,10 @@ export class PaymentsService {
     return { fee, net, pct: safePct, minFee: safeMinFee };
   }
 
+  private isInternalBridgeTransaction(t: { comment?: string | null }): boolean {
+    return typeof t.comment === 'string' && t.comment.startsWith('INTERNAL_BRIDGE');
+  }
+
   private tariffOperationForConversion(from: Asset, to: Asset): TariffOperation | null {
     const key = `${from}_TO_${to}`;
     switch (key) {
@@ -382,6 +386,10 @@ export class PaymentsService {
     const filterSet = body.currency?.length ? new Set(body.currency) : null;
 
     for (const t of items) {
+      if (this.isInternalBridgeTransaction(t)) {
+        continue;
+      }
+
       const isConversionLike =
         (t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK')
         && t.asset_in
@@ -750,7 +758,11 @@ export class PaymentsService {
       // This guarantees real operations and transaction rows instead of silent success.
       if (from === 'SOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
         // 1) SOM -> ESOM
-        await this.fiatToCrypto({ amount: amountFrom }, customer_id);
+        await this.fiatToCrypto(
+          { amount: amountFrom },
+          customer_id,
+          { internalBridge: true, bridgeTarget: to },
+        );
 
         // 2) Take net ESOM amount from the latest successful SOM->ESOM transaction
         const somToEsomTx = await this.prisma.transaction.findFirst({
@@ -801,7 +813,12 @@ export class PaymentsService {
         }
 
         // 3) ESOM -> SOM
-        return await this.cryptoToFiat({ amount: esomAmount }, customer_id, authContext);
+        return await this.cryptoToFiat(
+          { amount: esomAmount },
+          customer_id,
+          authContext,
+          { internalBridge: true, bridgeSource: from },
+        );
       }
 
       throw new BadRequestException(`Unsupported conversion pair: ${from}->${to}`);
@@ -906,8 +923,10 @@ export class PaymentsService {
   async fiatToCrypto(
     paymentDto: PaymentDto,
     customer_id: number,
+    options?: { internalBridge?: boolean; bridgeTarget?: Asset },
   ): Promise<StatusOKDto> {
     const { amount } = paymentDto;
+    const isInternalBridge = options?.internalBridge === true;
     const requestedAt = new Date();
     const transactionRef = this.buildAbsTransactionRef();
 
@@ -919,11 +938,16 @@ export class PaymentsService {
     }
 
     const s = await this.settingsService.get();
-    const { fee: conversionFee, net: netAmount, pct: feePct, minFee } = this.calcSomEsomConversionFee(amount, s);
+    const { fee: rawConversionFee, net: rawNetAmount, pct: feePct, minFee } = this.calcSomEsomConversionFee(amount, s);
+    const conversionFee = isInternalBridge ? 0 : rawConversionFee;
+    const netAmount = isInternalBridge ? amount : rawNetAmount;
     if (netAmount <= 0) {
       throw new BadRequestException('Amount is too low after conversion commission');
     }
-    this.logger.verbose(`[fiatToCrypto] conversion_fee pct=${feePct}% min=${minFee} fee=${conversionFee} net=${netAmount}`);
+    this.logger.verbose(
+      `[fiatToCrypto] conversion_fee pct=${isInternalBridge ? 0 : feePct}% min=${isInternalBridge ? 0 : minFee}`
+      + ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
+    );
 
     const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
       kind: TransactionKind.BANK_TO_WALLET,
@@ -973,7 +997,9 @@ export class PaymentsService {
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
         receiver_wallet_address: customer.address,
-        comment: `Пополнение Салам (${transactionRef})`,
+        comment: isInternalBridge
+          ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef})`
+          : `Пополнение Салам (${transactionRef})`,
       },
     });
 
@@ -991,8 +1017,10 @@ export class PaymentsService {
     paymentDto: PaymentDto,
     customer_id: number,
     authContext?: { username?: string; password?: string },
+    options?: { internalBridge?: boolean; bridgeSource?: Asset },
   ): Promise<StatusOKDto> {
     const { amount } = paymentDto;
+    const isInternalBridge = options?.internalBridge === true;
     const requestedAt = new Date();
     const transactionRef = this.buildAbsTransactionRef();
 
@@ -1004,11 +1032,16 @@ export class PaymentsService {
     }
 
     const s = await this.settingsService.get();
-    const { fee: conversionFee, net: netAmount, pct: feePct, minFee } = this.calcSomEsomConversionFee(amount, s);
+    const { fee: rawConversionFee, net: rawNetAmount, pct: feePct, minFee } = this.calcSomEsomConversionFee(amount, s);
+    const conversionFee = isInternalBridge ? 0 : rawConversionFee;
+    const netAmount = isInternalBridge ? amount : rawNetAmount;
     if (netAmount <= 0) {
       throw new BadRequestException('Amount is too low after conversion commission');
     }
-    this.logger.verbose(`[cryptoToFiat] conversion_fee pct=${feePct}% min=${minFee} fee=${conversionFee} net=${netAmount}`);
+    this.logger.verbose(
+      `[cryptoToFiat] conversion_fee pct=${isInternalBridge ? 0 : feePct}% min=${isInternalBridge ? 0 : minFee}`
+      + ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
+    );
 
     const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
       kind: TransactionKind.WALLET_TO_BANK,
@@ -1247,7 +1280,9 @@ export class PaymentsService {
         tx_hash: ethTransaction.txHash,
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
-        comment: `Crypto->Fiat (${transactionRef})`,
+        comment: isInternalBridge
+          ? `INTERNAL_BRIDGE ESOM->SOM for ${options?.bridgeSource ?? 'CRYPTO'}->SOM (${transactionRef})`
+          : `Crypto->Fiat (${transactionRef})`,
       },
     });
 
