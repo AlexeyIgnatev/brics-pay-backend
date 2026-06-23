@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { BlockchainConfigController } from './blockchain-config.controller';
+import { SettingsService } from '../config/settings/settings.service';
+import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 
 describe('BlockchainConfigController', () => {
   let controller: BlockchainConfigController;
@@ -7,6 +11,12 @@ describe('BlockchainConfigController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [BlockchainConfigController],
+      providers: [
+        { provide: SettingsService, useValue: {} },
+        { provide: AdminAuthGuard, useValue: { canActivate: jest.fn(() => true) } },
+        { provide: JwtService, useValue: { verifyAsync: jest.fn() } },
+        { provide: ConfigService, useValue: { get: jest.fn() } },
+      ],
     }).compile();
 
     controller = module.get<BlockchainConfigController>(BlockchainConfigController);

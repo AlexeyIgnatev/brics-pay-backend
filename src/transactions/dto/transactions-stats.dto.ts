@@ -49,7 +49,7 @@ export class TransactionsStatsQueryDto {
   @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))
   kind?: string[];
 
-  @ApiPropertyOptional({ type: [String], description: 'Валюты (Asset): SOM, ESOM, BTC, ETH, USDT_TRC20' })
+  @ApiPropertyOptional({ type: [String], description: 'Валюты (Asset): SOM, ESOM, USDT_TRC20' })
   @IsOptional()
   @IsArray()
   @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))

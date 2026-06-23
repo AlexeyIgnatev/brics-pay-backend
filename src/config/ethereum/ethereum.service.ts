@@ -73,12 +73,12 @@ export class EthereumService {
     }
   }
 
-  async getEthBalance(address: string): Promise<number> {
+  async getNativeBalance(address: string): Promise<number> {
     try {
       const wei = await this.web3.eth.getBalance(address);
       return Number(wei) / 10 ** 18;
     } catch (error) {
-      this.logger.error('Error getting ETH balance:', error);
+      this.logger.error('Error getting native balance:', error);
       throw error;
     }
   }

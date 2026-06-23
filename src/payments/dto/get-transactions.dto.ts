@@ -4,7 +4,7 @@ import { Currency } from '../../users/enums/currency';
 
 export class GetTransactions {
   @ApiProperty({
-    enum: Currency,
+    enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20],
     isArray: true,
     enumName: 'Currency',
   })

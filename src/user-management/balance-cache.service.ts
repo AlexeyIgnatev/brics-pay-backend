@@ -4,8 +4,6 @@ import { ConfigService } from '@nestjs/config';
 export type UserAssetBalances = {
   ESOM: number;
   SOM: number;
-  BTC: number;
-  ETH: number;
   USDT_TRC20: number;
 };
 

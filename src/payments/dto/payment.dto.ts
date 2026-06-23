@@ -27,7 +27,7 @@ export class TransferDto {
   @IsOptional()
   address?: string;
 
-  @ApiProperty({ enum: Currency })
+  @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
   @IsEnum(Currency)
   currency: Currency;
 }

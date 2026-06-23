@@ -165,7 +165,7 @@ describe('PaymentsService', () => {
           amount_in: '1000',
           asset_in: 'ESOM',
           amount_out: '0.002',
-          asset_out: 'BTC',
+          asset_out: 'USDT_TRC20',
           fee_amount: '0.00001',
           tx_hash: null,
           bank_op_id: null,
@@ -189,7 +189,7 @@ describe('PaymentsService', () => {
     }, 7);
 
     expect(receipt.amount).toBe(0.002);
-    expect(receipt.currency).toBe('BTC');
+    expect(receipt.currency).toBe('USDT_TRC20');
   });
 
   it('throws NotFoundException when transaction does not exist', async () => {
@@ -260,7 +260,7 @@ describe('PaymentsService', () => {
             amount_in: '10',
             asset_in: 'ESOM',
             amount_out: '0.001',
-            asset_out: 'BTC',
+            asset_out: 'USDT_TRC20',
             createdAt,
             sender_customer_id: 7,
             receiver_customer_id: null,

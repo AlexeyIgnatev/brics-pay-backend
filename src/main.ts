@@ -12,6 +12,7 @@ else if (!g.crypto.randomUUID && (nodeCrypto as any).randomUUID) g.crypto.random
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log', 'verbose', 'debug'],
+    rawBody: true,
   });
 
   app.enableVersioning({

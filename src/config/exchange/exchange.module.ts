@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
-import { BybitExchangeService } from './bybit.service';
+import { ShkeeperExchangeService } from './shkeeper.service';
+import { ShkeeperWalletService } from './shkeeper-wallet.service';
 
 @Module({
-  providers: [BybitExchangeService],
-  exports: [BybitExchangeService],
+  providers: [ShkeeperExchangeService, ShkeeperWalletService],
+  exports: [ShkeeperExchangeService, ShkeeperWalletService],
 })
 export class ExchangeModule {}

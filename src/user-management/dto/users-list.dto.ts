@@ -48,8 +48,6 @@ export class UsersListQueryDto {
 export class UserBalancesDto {
   @ApiProperty({ example: 0 }) ESOM: number;
   @ApiProperty({ example: 0 }) SOM: number;
-  @ApiProperty({ example: 0 }) BTC: number;
-  @ApiProperty({ example: 0 }) ETH: number;
   @ApiProperty({ example: 0 }) USDT_TRC20: number;
 }
 

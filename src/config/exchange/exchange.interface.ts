@@ -1,15 +1,33 @@
 import { Asset } from '@prisma/client';
 
-export interface MarketOrderResult {
-  asset: Asset;
-  amount_asset: string;
-  price_usd: string;
-  notional_usdt: string;
-}
-
 export interface IExchangeService {
   getUsdPrices(assets: Asset[]): Promise<Record<string, string>>;
-  marketBuy(asset: Asset, usdtAmount: string): Promise<MarketOrderResult>;
-  marketSell(asset: Asset, assetAmount: string): Promise<MarketOrderResult>;
-  withdraw(asset: Asset, address: string, amount: string): Promise<{ txid: string }>;
+  createPaymentRequest(
+    params: {
+      asset: Asset;
+      externalId: string;
+      fiat: string;
+      amount: string;
+      callbackUrl?: string;
+    },
+  ): Promise<{
+    status?: string;
+    message?: string;
+    id?: string | number;
+    invoice_id?: string | number;
+    request_id?: string | number;
+    external_id?: string | number;
+    address?: string;
+    wallet?: string;
+    payment_address?: string;
+    fiat?: string;
+    amount?: string;
+    amount_fiat?: string;
+  }>;
+  withdraw(
+    asset: Asset,
+    address: string,
+    amount: string,
+    options?: { externalId?: string; callbackUrl?: string; fee?: string },
+  ): Promise<{ txid: string }>;
 }

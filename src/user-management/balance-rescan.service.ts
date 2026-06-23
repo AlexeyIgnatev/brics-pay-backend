@@ -14,10 +14,10 @@ export class BalanceRescanService {
 
   @Cron(CronExpression.EVERY_DAY_AT_1AM)
   async dailyRescan() {
-    this.logger.log('Starting daily balances rescan (ESOM, ETH, BTC, USDT_TRC20)');
+    this.logger.log('Starting daily balances rescan (ESOM, USDT_TRC20)');
     const customers = await this.prisma.customer.findMany({ select: { customer_id: true } });
     for (const c of customers) {
-      await this.fetcher.refreshAllBalancesForUser(c.customer_id, ['ESOM' as Asset]);
+      await this.fetcher.refreshAllBalancesForUser(c.customer_id, ['ESOM' as Asset, 'USDT_TRC20' as Asset]);
     }
     this.logger.log('Daily balances rescan finished');
   }

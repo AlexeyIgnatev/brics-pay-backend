@@ -32,7 +32,7 @@ export class CryptoService {
     return TronWeb.TronWeb.address.fromPrivateKey(pk) as string;
   }
 
-  btcBech32AddressFromPrivateKey(priv: string): string {
+  bech32AddressFromPrivateKey(priv: string): string {
     const pk = Buffer.from(this.normalizeHexPriv(priv), 'hex');
     const keyPair: ECPairInterface = ECPair.fromPrivateKey(pk, { compressed: true });
 
@@ -44,7 +44,7 @@ export class CryptoService {
       pubkey: pubkey,
       network: bitcoin.networks.bitcoin,
     });
-    if (!address) throw new BadRequestException('Failed to derive BTC address');
+    if (!address) throw new BadRequestException('Failed to derive address');
     return address;
   }
 }
