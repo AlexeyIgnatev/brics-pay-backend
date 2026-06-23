@@ -9,6 +9,7 @@ import { TransactionDto } from './dto/transaction.dto';
 import { StatusOKDto } from '../common/dto/status.dto';
 import { ConvertDto } from './dto/convert.dto';
 import { TransactionReceiptDto, TransactionReceiptRequestDto } from './dto/transaction-receipt.dto';
+import { UsdtFeeQuoteDto } from './dto/fee-quote.dto';
 
 @Controller('payments')
 export class PaymentsController {
@@ -25,6 +26,16 @@ export class PaymentsController {
     @Req() req: { user: UserInfoDto },
   ): Promise<StatusOKDto> {
     return this.paymentsService.transfer(transferDto, req?.user.customer_id);
+  }
+
+  @Post('usdt-fee')
+  @ApiBearerAuth('Basic')
+  @UseGuards(BasicAuthGuard)
+  async quoteUsdtFee(
+    @Body() dto: PaymentDto,
+    @Req() req: { user: UserInfoDto },
+  ): Promise<UsdtFeeQuoteDto> {
+    return this.paymentsService.quoteUsdtTransferFee(req?.user.customer_id, dto.amount);
   }
 
   @Post('convert')
