@@ -1197,13 +1197,14 @@ export class PaymentsService {
       where: {
         customer_id: { not: excludeCustomerId },
       },
-      select: { customer_id: true, address: true },
+      select: { customer_id: true },
     });
 
     for (const wallet of wallets) {
-      const normalizedCandidate = this.normalizeWalletAddress(asset, wallet.address || '');
+      const ensuredWallet = await this.shkeeperWalletService.ensureUsdtWallet(wallet.customer_id);
+      const normalizedCandidate = this.normalizeWalletAddress(asset, ensuredWallet.address || '');
       if (normalizedCandidate === target) {
-        return { customer_id: wallet.customer_id, walletAddress: wallet.address || '' };
+        return { customer_id: wallet.customer_id, walletAddress: ensuredWallet.address || '' };
       }
     }
 
@@ -1231,6 +1232,9 @@ export class PaymentsService {
     if (receiverAmount <= 0) {
       throw new BadRequestException('Amount is too low after fee');
     }
+    this.logger.verbose(
+      `[transferCryptoInternal] asset=${asset} sender=${sender_id} receiver=${receiver_id} gross=${amount} fee=${fee} receiver_net=${receiverAmount}`,
+    );
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.WALLET_TO_WALLET,
       amount_in: amount,
