@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
 import { ShkeeperExchangeService } from './shkeeper.service';
 
@@ -27,6 +28,7 @@ export class ShkeeperWalletService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly exchange: ShkeeperExchangeService,
+    private readonly config: ConfigService,
   ) {}
 
   private normalizeAddress(value?: string | null): string {
@@ -63,6 +65,7 @@ export class ShkeeperWalletService {
       externalId: this.buildExternalId(customerId),
       fiat: 'USD',
       amount: '0',
+      callbackUrl: this.config.get<string>('SHKEEPER_CALLBACK_URL') || 'http://192.168.255.121:8000/shkeeper/webhook',
     };
     this.logger.log(`ensureUsdtWallet requesting SHKeeper payment_request customer=${customerId} externalId=${payload.externalId}`);
 
