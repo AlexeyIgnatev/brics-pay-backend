@@ -17,16 +17,43 @@ export class BalanceFetchService {
     private readonly balanceCache: BalanceCacheService,
   ) {}
 
+  private resolveEthereumAddress(customer: { address?: string | null; private_key?: string | null }): string {
+    const storedAddress = (customer.address || '').trim();
+    if (!customer.private_key) {
+      return storedAddress;
+    }
+
+    const signerAddress = this.eth.getAddressFromPrivateKey(customer.private_key);
+    if (!storedAddress) {
+      return signerAddress;
+    }
+
+    if (storedAddress.toLowerCase() !== signerAddress.toLowerCase()) {
+      return signerAddress;
+    }
+
+    return storedAddress;
+  }
+
   async refreshAllBalancesForUser(customer_id: number, assets?: Asset[]): Promise<void> {
     const customer = await this.prisma.customer.findUnique({ where: { customer_id } });
     if (!customer) return;
+
+    const ethereumAddress = this.resolveEthereumAddress(customer);
+    if (ethereumAddress && customer.address !== ethereumAddress) {
+      await this.prisma.customer.update({
+        where: { customer_id },
+        data: { address: ethereumAddress },
+      });
+      customer.address = ethereumAddress;
+    }
 
     const allow = (a: Asset) => !assets || assets.includes(a);
 
     // ESOM (ERC-20)
     if (allow('ESOM')) {
       try {
-        const esom = await this.eth.getEsomBalance(customer.address);
+        const esom = await this.eth.getEsomBalance(ethereumAddress || customer.address);
         await this.upsertBalance(customer_id, 'ESOM', esom);
       } catch (e) {
         this.logger.warn(`ESOM balance fetch failed for ${customer_id}: ${e}`);

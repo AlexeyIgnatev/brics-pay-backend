@@ -38,6 +38,24 @@ export class PaymentsService {
 
   private readonly logger = new (Logger as any)('PaymentsService');
 
+  private resolveEthereumAddress(customer: { address?: string | null; private_key?: string | null }): string {
+    const storedAddress = (customer.address || '').trim();
+    if (!customer.private_key) {
+      return storedAddress;
+    }
+
+    const signerAddress = this.ethereumService.getAddressFromPrivateKey(customer.private_key);
+    if (!storedAddress) {
+      return signerAddress;
+    }
+
+    if (storedAddress.toLowerCase() !== signerAddress.toLowerCase()) {
+      return signerAddress;
+    }
+
+    return storedAddress;
+  }
+
   private antiFraudRejectMessage(flow: string, decision: AntiFraudDecision): string {
     const parts: string[] = [`flow=${flow}`];
     if (decision.rule_key) parts.push(`rule=${decision.rule_key}`);
@@ -831,7 +849,7 @@ export class PaymentsService {
       asset_out: 'ESOM',
       sender_customer_id: customer.customer_id,
       receiver_customer_id: customer.customer_id,
-      receiver_wallet_address: customer.address,
+      receiver_wallet_address: this.resolveEthereumAddress(customer),
       comment: 'Пополнение Салам',
     });
     if (!antiFraudDecision.allowed) {
@@ -853,7 +871,8 @@ export class PaymentsService {
       throw new BadRequestException('Brics transaction failed');
     }
 
-    const ethTransaction = await this.ethereumService.transferFromFiat(customer.address, netAmount);
+    const ethereumAddress = this.resolveEthereumAddress(customer);
+    const ethTransaction = await this.ethereumService.transferFromFiat(ethereumAddress, netAmount);
     await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
     if (!ethTransaction?.success) {
       throw new BadRequestException('Ethereum transaction failed');
@@ -871,7 +890,7 @@ export class PaymentsService {
         tx_hash: ethTransaction.txHash,
         bank_op_id: bricsTransaction,
         sender_customer_id: customer.customer_id,
-        receiver_wallet_address: customer.address,
+        receiver_wallet_address: ethereumAddress,
         comment: isInternalBridge
           ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef})`
           : `Пополнение Салам (${transactionRef})`,
@@ -1025,15 +1044,7 @@ export class PaymentsService {
       );
     }
 
-    const signerAddress = this.ethereumService.getAddressFromPrivateKey(customer.private_key);
-    if (
-      !customer.address
-      || customer.address.trim().toLowerCase() !== signerAddress.toLowerCase()
-    ) {
-      throw new BadRequestException(
-        `Wallet mismatch for customer ${customer.customer_id}: profile address=${customer.address ?? 'N/A'}, signer address=${signerAddress}`,
-      );
-    }
+    const signerAddress = this.resolveEthereumAddress(customer);
 
     const signerEsomBalance = await this.ethereumService.getEsomBalance(signerAddress);
     if (signerEsomBalance + 1e-12 < amount) {
@@ -1107,7 +1118,7 @@ export class PaymentsService {
       try {
         // Compensation path: refund the exact ESOM amount that was already debited.
         const compensationTx = await this.ethereumService.transferFromFiat(
-          customer.address,
+          signerAddress,
           amount,
           false,
         );

@@ -24,6 +24,24 @@ export class UsersService {
     return platform === 'ios' ? PushPlatform.IOS : PushPlatform.ANDROID;
   }
 
+  private resolveEthereumAddress(customer: { address?: string | null; private_key?: string | null }): string {
+    const storedAddress = (customer.address || '').trim();
+    if (!customer.private_key) {
+      return storedAddress;
+    }
+
+    const signerAddress = this.ethereumService.getAddressFromPrivateKey(customer.private_key);
+    if (!storedAddress) {
+      return signerAddress;
+    }
+
+    if (storedAddress.toLowerCase() !== signerAddress.toLowerCase()) {
+      return signerAddress;
+    }
+
+    return storedAddress;
+  }
+
   async updateLastLogin(customerId: number, ip?: string, device?: string) {
     try {
       await this.prisma.customer.update({
@@ -103,6 +121,11 @@ export class UsersService {
     } else {
       this.logger.log(`getUserInfo updating existing customer customerId=${customerInfo.CustomerID} storedAddress=${user.address}`);
       const data: any = {};
+      const ethereumAddress = this.resolveEthereumAddress(user);
+      if (ethereumAddress && user.address !== ethereumAddress) {
+        data.address = ethereumAddress;
+        this.logger.warn(`getUserInfo restoring Ethereum address customerId=${customerInfo.CustomerID} restoredAddress=${ethereumAddress}`);
+      }
       if (!user.first_name && first_name) data.first_name = first_name;
       if (!user.middle_name && middle_name) data.middle_name = middle_name;
       if (!user.last_name && last_name) data.last_name = last_name;
@@ -139,6 +162,14 @@ export class UsersService {
     const user = await this.prisma.customer.findUniqueOrThrow({
       where: { customer_id: userInfo.customer_id },
     });
+    const ethereumAddress = this.resolveEthereumAddress(user);
+    if (ethereumAddress && user.address !== ethereumAddress) {
+      await this.prisma.customer.update({
+        where: { customer_id: user.customer_id },
+        data: { address: ethereumAddress },
+      });
+      user.address = ethereumAddress;
+    }
 
     const usdtWallet = await this.shkeeperWalletService.ensureUsdtWallet(user.customer_id);
     if (usdtWallet.created) {
@@ -151,7 +182,7 @@ export class UsersService {
 
     const [somLive, esomBalance, settings, usdtBalanceRec] = await Promise.all([
       this.bricsService.getSomBalance(),
-      this.ethereumService.getEsomBalance(user.address),
+      this.ethereumService.getEsomBalance(ethereumAddress || user.address),
       this.settingsService.get(),
       this.prisma.userAssetBalance.findUnique({
         where: {
@@ -189,7 +220,7 @@ export class UsersService {
       },
       {
         currency: Currency.ESOM,
-        address: user.address,
+        address: ethereumAddress || user.address,
         balance: esomBalance,
         buy_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,
         sell_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,

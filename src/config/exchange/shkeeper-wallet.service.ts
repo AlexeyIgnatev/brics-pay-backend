@@ -35,10 +35,6 @@ export class ShkeeperWalletService {
     return (value || '').trim();
   }
 
-  private isTronAddress(value?: string | null): boolean {
-    return /^T[1-9A-HJ-NP-Za-km-z]{20,}$/.test(this.normalizeAddress(value));
-  }
-
   private buildExternalId(customerId: number): string {
     return `customer:${customerId}`;
   }
@@ -48,17 +44,21 @@ export class ShkeeperWalletService {
       where: { customer_id: customerId },
       select: { customer_id: true, address: true },
     });
+    const existingWallet = await this.prisma.userAssetBalance.findUnique({
+      where: {
+        customer_id_asset: {
+          customer_id: customerId,
+          asset: 'USDT_TRC20',
+        },
+      },
+      select: { balance: true },
+    });
 
     if (!customer) {
       throw new Error(`Customer ${customerId} not found`);
     }
 
     this.logger.log(`ensureUsdtWallet start customer=${customerId} currentAddress=${customer.address || '<empty>'}`);
-
-    if (this.isTronAddress(customer.address)) {
-      this.logger.log(`ensureUsdtWallet skip customer=${customerId} reason=already_tron_address address=${customer.address}`);
-      return { customer_id: customer.customer_id, address: customer.address, created: false };
-    }
 
     const payload = {
       asset: 'USDT_TRC20' as const,
@@ -89,13 +89,7 @@ export class ShkeeperWalletService {
       throw new Error(`SHKeeper did not return a wallet address for customer=${customerId}`);
     }
 
-    const created = customer.address !== address;
-    if (created) {
-      await this.prisma.customer.update({
-        where: { customer_id: customerId },
-        data: { address },
-      });
-    }
+    const created = !existingWallet;
 
     this.logger.log(`Ensured SHKeeper wallet for customer=${customerId} address=${address}`);
     return { customer_id: customerId, address, created };
@@ -107,7 +101,7 @@ export class ShkeeperWalletService {
       select: { customer_id: true, address: true },
     });
     if (!customer) return null;
-    return { customer_id: customer.customer_id, address: customer.address, created: false };
+    return this.ensureUsdtWallet(customer.customer_id);
   }
 
   async findCustomerByAddress(address: string): Promise<CustomerWallet | null> {
