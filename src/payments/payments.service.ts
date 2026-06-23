@@ -1227,10 +1227,13 @@ export class PaymentsService {
       amount,
     );
     const fee = tariffFee.fee;
-    const totalDebit = amount + fee;
+    const receiverAmount = amount - fee;
+    if (receiverAmount <= 0) {
+      throw new BadRequestException('Amount is too low after fee');
+    }
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.WALLET_TO_WALLET,
-      amount_in: totalDebit,
+      amount_in: amount,
       asset_in: asset,
       asset_out: asset,
       sender_customer_id: sender_id,
@@ -1251,15 +1254,15 @@ export class PaymentsService {
         },
       });
       const current = Number(bal?.balance ?? 0);
-      if (current < totalDebit) throw new BadRequestException('Insufficient balance');
+      if (current < amount) throw new BadRequestException('Insufficient balance');
       await tx.userAssetBalance.update({
         where: { customer_id_asset: { customer_id: sender_id, asset } },
-        data: { balance: { decrement: totalDebit.toString() } },
+        data: { balance: { decrement: amount.toString() } },
       });
       await tx.userAssetBalance.upsert({
         where: { customer_id_asset: { customer_id: receiver_id, asset } },
-        create: { customer_id: receiver_id, asset, balance: amount.toString() },
-        update: { balance: { increment: amount.toString() } },
+        create: { customer_id: receiver_id, asset, balance: receiverAmount.toString() },
+        update: { balance: { increment: receiverAmount.toString() } },
       });
       const createdTransaction = await tx.transaction.create({
         data: {
@@ -1267,7 +1270,7 @@ export class PaymentsService {
           status: TransactionStatus.SUCCESS,
           amount_in: amount.toString(),
           asset_in: asset,
-          amount_out: amount.toString(),
+          amount_out: receiverAmount.toString(),
           asset_out: asset,
           fee_amount: fee.toString(),
           sender_customer_id: sender_id,
