@@ -3,6 +3,7 @@ import { CustomerResidency, PrismaClient, TariffCategory, TariffOperation } from
 import { SettingsPartialDto } from '../../blockchain-config/dto/settings-partial.dto';
 import { SettingsDto } from '../../blockchain-config/dto/settings.dto';
 import { TariffSettingDto, TariffSettingsUpdateDto } from '../../blockchain-config/dto/tariff-settings.dto';
+import { PaymentFeeDto } from '../../payments/dto/payment-fee.dto';
 
 @Injectable()
 export class SettingsService {
@@ -78,6 +79,29 @@ export class SettingsService {
     return rows.map((row) => ({
       category: row.category,
       residency: row.residency,
+      operation: row.operation,
+      percent_fee: row.percent_fee.toString(),
+      fixed_fee: row.fixed_fee.toString(),
+    }));
+  }
+
+  async getTariffsForCustomer(customerId: number): Promise<PaymentFeeDto[]> {
+    await this.ensureTariffRows();
+    const customer = await this.prisma.customer.findUnique({
+      where: { customer_id: customerId },
+      select: { tariff_category: true, residency: true },
+    });
+    if (!customer) return [];
+
+    const rows = await this.prisma.tariffSetting.findMany({
+      where: {
+        category: customer.tariff_category,
+        residency: customer.residency,
+      },
+      orderBy: [{ operation: 'asc' }],
+    });
+
+    return rows.map((row) => ({
       operation: row.operation,
       percent_fee: row.percent_fee.toString(),
       fixed_fee: row.fixed_fee.toString(),

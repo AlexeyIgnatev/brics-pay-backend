@@ -1,5 +1,5 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
-import { PaymentDto, TransferDto } from './dto/payment.dto';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { TransferDto } from './dto/payment.dto';
 import { PaymentsService } from './payments.service';
 import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
 import { ApiBearerAuth } from '@nestjs/swagger';
@@ -9,12 +9,14 @@ import { TransactionDto } from './dto/transaction.dto';
 import { StatusOKDto } from '../common/dto/status.dto';
 import { ConvertDto } from './dto/convert.dto';
 import { TransactionReceiptDto, TransactionReceiptRequestDto } from './dto/transaction-receipt.dto';
-import { UsdtFeeQuoteDto } from './dto/fee-quote.dto';
+import { SettingsService } from '../config/settings/settings.service';
+import { PaymentFeeDto } from './dto/payment-fee.dto';
 
 @Controller('payments')
 export class PaymentsController {
   constructor(
     private readonly paymentsService: PaymentsService,
+    private readonly settingsService: SettingsService,
   ) {
   }
 
@@ -28,14 +30,13 @@ export class PaymentsController {
     return this.paymentsService.transfer(transferDto, req?.user.customer_id);
   }
 
-  @Post('usdt-fee')
+  @Get('fees')
   @ApiBearerAuth('Basic')
   @UseGuards(BasicAuthGuard)
-  async quoteUsdtFee(
-    @Body() dto: PaymentDto,
+  async getFees(
     @Req() req: { user: UserInfoDto },
-  ): Promise<UsdtFeeQuoteDto> {
-    return this.paymentsService.quoteUsdtTransferFee(req?.user.customer_id, dto.amount);
+  ): Promise<PaymentFeeDto[]> {
+    return this.settingsService.getTariffsForCustomer(req?.user.customer_id);
   }
 
   @Post('convert')

@@ -16,7 +16,6 @@ import { ShkeeperWalletService } from '../config/exchange/shkeeper-wallet.servic
 import { BalanceFetchService } from '../user-management/balance-fetch.service';
 
 import { GetTransactions } from './dto/get-transactions.dto';
-import { UsdtFeeQuoteDto } from './dto/fee-quote.dto';
 import { ReceiptConversionSide, TransactionReceiptDto, TransactionReceiptRequestDto } from './dto/transaction-receipt.dto';
 import { TransactionDto } from './dto/transaction.dto';
 import { TransactionType } from './enums/transaction-type';
@@ -1288,32 +1287,6 @@ export class PaymentsService {
     });
 
     return new StatusOKDto(transactionId);
-  }
-
-  async quoteUsdtTransferFee(customer_id: number, amount: number): Promise<UsdtFeeQuoteDto> {
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('Amount must be positive');
-    }
-
-    const tariff = await this.getCustomerTariffFee(
-      customer_id,
-      this.tariffOperationForWalletTransfer('USDT_TRC20' as Asset),
-      amount,
-    );
-    const fee = tariff.fee;
-    const netAmount = amount - fee;
-    if (netAmount <= 0) {
-      throw new BadRequestException('Amount is too low after fee');
-    }
-
-    return {
-      currency: Currency.USDT_TRC20,
-      amount,
-      percent_fee: tariff.percent,
-      fixed_fee: tariff.fixed,
-      fee,
-      net_amount: netAmount,
-    };
   }
 
   async transfer(
