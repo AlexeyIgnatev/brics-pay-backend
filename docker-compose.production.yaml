@@ -22,6 +22,9 @@ services:
     depends_on:
       - postgres
       - tron-node
+    secrets:
+      - usdt_treasury_private_key
+      - usdt_webhook_secret
     networks:
       - postgres
 
@@ -51,6 +54,12 @@ services:
 volumes:
   postgres_data:
   tron_data:
+
+secrets:
+  usdt_treasury_private_key:
+    file: ./secrets/usdt_treasury_private_key
+  usdt_webhook_secret:
+    file: ./secrets/usdt_webhook_secret
 
 networks:
   postgres:

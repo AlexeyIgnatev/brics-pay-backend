@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Asset, PaymentOperation, PaymentOperationStatus, PaymentOperationType, PrismaClient, TransactionKind, TransactionStatus } from '@prisma/client';
 import TronWeb from 'tronweb';
 import { createHash } from 'crypto';
+import { existsSync, readFileSync } from 'fs';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
@@ -52,7 +53,32 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     return Boolean(
       (this.configService.get<string>('USDT_RPC_URL') || this.configService.get<string>('RPC_URL'))
       && (this.configService.get<string>('USDT_TOKEN_ADDRESS') || this.configService.get<string>('TOKEN_ADDRESS'))
-      && this.configService.get<string>('USDT_TREASURY_PRIVATE_KEY'),
+      && this.getTreasuryPrivateKey(),
+    );
+  }
+
+  private readSecretFromFile(envKey: string, defaultPath?: string): string | undefined {
+    const configuredPath = this.configService.get<string>(envKey)?.trim();
+    const path = configuredPath || defaultPath;
+    if (!path || !existsSync(path)) {
+      return undefined;
+    }
+
+    const value = readFileSync(path, 'utf8').trim();
+    return value || undefined;
+  }
+
+  private getTreasuryPrivateKey(): string | undefined {
+    return (
+      this.configService.get<string>('USDT_TREASURY_PRIVATE_KEY')?.trim()
+      || this.readSecretFromFile('USDT_TREASURY_PRIVATE_KEY_FILE', '/run/secrets/usdt_treasury_private_key')
+    );
+  }
+
+  private getWebhookSecret(): string | undefined {
+    return (
+      this.configService.get<string>('USDT_WEBHOOK_SECRET')?.trim()
+      || this.readSecretFromFile('USDT_WEBHOOK_SECRET_FILE', '/run/secrets/usdt_webhook_secret')
     );
   }
 
@@ -61,7 +87,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
     const rpcUrl = this.configService.get<string>('USDT_RPC_URL') || this.configService.get<string>('RPC_URL');
     const tokenAddress = this.configService.get<string>('USDT_TOKEN_ADDRESS') || this.configService.get<string>('TOKEN_ADDRESS');
-    const treasuryPrivateKey = this.configService.get<string>('USDT_TREASURY_PRIVATE_KEY');
+    const treasuryPrivateKey = this.getTreasuryPrivateKey();
     if (!rpcUrl || !tokenAddress || !treasuryPrivateKey) {
       throw new BadRequestException('USDT treasury runtime config is missing');
     }
@@ -598,7 +624,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     idempotency_key?: string;
     payload?: UsdtPaymentPayload;
   }, webhookSecret?: string): Promise<StatusOKDto> {
-    const expectedSecret = this.configService.get<string>('USDT_WEBHOOK_SECRET');
+    const expectedSecret = this.getWebhookSecret();
     if (expectedSecret && webhookSecret !== expectedSecret) {
       throw new UnauthorizedException('Invalid webhook secret');
     }
