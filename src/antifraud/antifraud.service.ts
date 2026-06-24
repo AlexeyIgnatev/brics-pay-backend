@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 /* eslint-disable max-classes-per-file */
 import { AntiFraudRuleKey, Asset, PrismaClient, TransactionKind } from '@prisma/client';
 import { SettingsService } from '../config/settings/settings.service';
-import { ShkeeperExchangeService } from '../config/exchange/shkeeper.service';
+import { BybitExchangeService } from '../config/exchange/bybit.service';
 
 
 export interface AntiFraudContext {
@@ -188,15 +188,15 @@ export class AntiFraudService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly settings: SettingsService,
-    private readonly exchange: ShkeeperExchangeService,
+    private readonly exchange: BybitExchangeService,
   ) {
   }
 
   private async toSom(asset: Asset, amount: number): Promise<number> {
     if (asset === 'SOM' || asset === 'ESOM') return amount;
-    const prices = await this.exchange.getUsdPrices(['USDT_TRC20' as Asset]);
+    const prices = await this.exchange.getUsdPrices(['BTC', 'ETH', 'USDT_TRC20'] as unknown as Asset[]);
     const esomPerUsd = Number((await this.settings.get()).esom_per_usd);
-    const usd = asset === 'USDT_TRC20' ? amount * Number(prices.USDT_TRC20 || 1) : 0;
+    const usd = amount * Number(prices[asset] || 0);
     return usd * esomPerUsd;
   }
 

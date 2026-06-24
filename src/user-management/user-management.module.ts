@@ -11,12 +11,11 @@ import { BalanceRescanService } from './balance-rescan.service';
 import { BalanceCacheService } from './balance-cache.service';
 import { CryptoModule } from '../config/crypto/crypto.module';
 import { BalanceFetchService } from './balance-fetch.service';
-import { ShkeeperPayoutSyncService } from './shkeeper-payout-sync.service';
 
 @Module({
   imports: [AdminManagementModule, ExchangeModule, EthereumModule, CryptoModule, ScheduleModule.forRoot()],
   controllers: [UserManagementController],
-  providers: [UserManagementService, PrismaClient, PriceCacheService, BalanceRescanService, BalanceCacheService, BalanceFetchService, ShkeeperPayoutSyncService],
+  providers: [UserManagementService, PrismaClient, PriceCacheService, BalanceRescanService, BalanceCacheService, BalanceFetchService],
   exports: [BalanceRescanService, BalanceCacheService, BalanceFetchService],
 })
 export class UserManagementModule {}

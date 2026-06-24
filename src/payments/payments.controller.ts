@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Req, UseGuards } from '@nestjs/common';
 import { TransferDto } from './dto/payment.dto';
 import { PaymentsService } from './payments.service';
 import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
@@ -11,12 +11,15 @@ import { ConvertDto } from './dto/convert.dto';
 import { TransactionReceiptDto, TransactionReceiptRequestDto } from './dto/transaction-receipt.dto';
 import { SettingsService } from '../config/settings/settings.service';
 import { PaymentFeeDto } from './dto/payment-fee.dto';
+import { UsdtDepositWebhookDto } from './dto/usdt-deposit.dto';
+import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
 
 @Controller('payments')
 export class PaymentsController {
   constructor(
     private readonly paymentsService: PaymentsService,
     private readonly settingsService: SettingsService,
+    private readonly usdtTreasuryOrchestrator: UsdtTreasuryOrchestratorService,
   ) {
   }
 
@@ -26,7 +29,11 @@ export class PaymentsController {
   async transfer(
     @Body() transferDto: TransferDto,
     @Req() req: { user: UserInfoDto },
+    @Headers('x-idempotency-key') idempotencyKey?: string,
   ): Promise<StatusOKDto> {
+    if (idempotencyKey) {
+      transferDto.idempotency_key = idempotencyKey;
+    }
     return this.paymentsService.transfer(transferDto, req?.user.customer_id);
   }
 
@@ -36,7 +43,7 @@ export class PaymentsController {
   async getFees(
     @Req() req: { user: UserInfoDto },
   ): Promise<PaymentFeeDto[]> {
-    return this.settingsService.getTariffsForCustomer(req?.user.customer_id);
+    return this.settingsService.getTariffs();
   }
 
   @Post('convert')
@@ -84,5 +91,18 @@ export class PaymentsController {
     @Req() req: { user: UserInfoDto },
   ): Promise<TransactionReceiptDto> {
     return this.paymentsService.getReceipt(dto, req?.user.customer_id);
+  }
+
+  @Post('usdt/deposit-webhook')
+  async usdtDepositWebhook(
+    @Body() dto: UsdtDepositWebhookDto,
+    @Headers('x-webhook-secret') webhookSecret?: string,
+  ): Promise<StatusOKDto> {
+    return this.usdtTreasuryOrchestrator.handleUsdtDepositWebhook(dto, webhookSecret);
+  }
+
+  @Post('usdt/reconcile')
+  async reconcileUsdtTreasury(): Promise<StatusOKDto> {
+    return this.usdtTreasuryOrchestrator.reconcileUsdtOperations();
   }
 }

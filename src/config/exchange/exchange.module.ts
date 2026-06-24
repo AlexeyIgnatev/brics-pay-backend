@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
-import { ShkeeperExchangeService } from './shkeeper.service';
-import { ShkeeperWalletService } from './shkeeper-wallet.service';
+import { BybitExchangeService } from './bybit.service';
 
 @Module({
-  providers: [PrismaClient, ShkeeperExchangeService, ShkeeperWalletService],
-  exports: [ShkeeperExchangeService, ShkeeperWalletService],
+  providers: [BybitExchangeService],
+  exports: [BybitExchangeService],
 })
 export class ExchangeModule {}

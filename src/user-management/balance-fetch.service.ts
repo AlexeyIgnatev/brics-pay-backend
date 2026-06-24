@@ -1,73 +1,52 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaClient, Asset } from '@prisma/client';
 import { EthereumService } from '../config/ethereum/ethereum.service';
+import { CryptoService } from '../config/crypto/crypto.service';
 import { TronService } from '../config/crypto/tron.service';
-import { ShkeeperWalletService } from '../config/exchange/shkeeper-wallet.service';
-import { BalanceCacheService } from './balance-cache.service';
+import { BitcoinService } from '../config/crypto/bitcoin.service';
 
 @Injectable()
 export class BalanceFetchService {
   private readonly logger = new Logger(BalanceFetchService.name);
-
   constructor(
     private readonly prisma: PrismaClient,
     private readonly eth: EthereumService,
+    private readonly crypto: CryptoService,
     private readonly tron: TronService,
-    private readonly shkeeperWallets: ShkeeperWalletService,
-    private readonly balanceCache: BalanceCacheService,
+    private readonly btc: BitcoinService,
   ) {}
-
-  private resolveEthereumAddress(customer: { address?: string | null; private_key?: string | null }): string {
-    const storedAddress = (customer.address || '').trim();
-    if (!customer.private_key) {
-      return storedAddress;
-    }
-
-    const signerAddress = this.eth.getAddressFromPrivateKey(customer.private_key);
-    if (!storedAddress) {
-      return signerAddress;
-    }
-
-    if (storedAddress.toLowerCase() !== signerAddress.toLowerCase()) {
-      return signerAddress;
-    }
-
-    return storedAddress;
-  }
 
   async refreshAllBalancesForUser(customer_id: number, assets?: Asset[]): Promise<void> {
     const customer = await this.prisma.customer.findUnique({ where: { customer_id } });
     if (!customer) return;
-
-    const ethereumAddress = this.resolveEthereumAddress(customer);
-    if (ethereumAddress && customer.address !== ethereumAddress) {
-      await this.prisma.customer.update({
-        where: { customer_id },
-        data: { address: ethereumAddress },
-      });
-      customer.address = ethereumAddress;
-    }
 
     const allow = (a: Asset) => !assets || assets.includes(a);
 
     // ESOM (ERC-20)
     if (allow('ESOM')) {
       try {
-        const esom = await this.eth.getEsomBalance(ethereumAddress || customer.address);
+        const esom = await this.eth.getEsomBalance(customer.address);
         await this.upsertBalance(customer_id, 'ESOM', esom);
       } catch (e) {
         this.logger.warn(`ESOM balance fetch failed for ${customer_id}: ${e}`);
       }
     }
 
+    // ETH native
+    if (allow('ETH')) {
+      try {
+        const ethAddress = this.crypto.ethAddressFromPrivateKey(customer.private_key);
+        const ethBal = await this.eth.getNativeBalance(ethAddress);
+        await this.upsertBalance(customer_id, 'ETH', ethBal);
+      } catch (e) {
+        this.logger.warn(`ETH balance fetch failed for ${customer_id}: ${e}`);
+      }
+    }
+
     // TRON USDT (TRC-20)
     if (allow('USDT_TRC20')) {
       try {
-        const shkeeperWallet = await this.shkeeperWallets.ensureUsdtWallet(customer_id);
-        const tronAddress = shkeeperWallet.address;
-        if (!tronAddress) {
-          throw new Error('SHKeeper wallet address is empty');
-        }
+        const tronAddress = this.crypto.trxAddressFromPrivateKey(customer.private_key);
         const usdtContract = process.env.TRON_USDT_CONTRACT || 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj'; // Mainnet USDT contract
         const usdt = await this.tron.getTrc20Balance(tronAddress, usdtContract);
         await this.upsertBalance(customer_id, 'USDT_TRC20', usdt);
@@ -76,9 +55,18 @@ export class BalanceFetchService {
       }
     }
 
-    this.balanceCache.invalidate(customer_id);
+    // BTC
+    if (allow('BTC')) {
+      try {
+        const btcAddress = this.crypto.bech32AddressFromPrivateKey(customer.private_key);
+        const btcBal = await this.btc.getBtcBalance(btcAddress);
+        await this.upsertBalance(customer_id, 'BTC', btcBal);
+      } catch (e) {
+        this.logger.warn(`BTC balance fetch failed for ${customer_id}: ${e}`);
+      }
+    }
 
-    // SOM fiat is stored in the external system; if a local cache exists, skip it.
+    // SOM фиат хранится во внешней системе; если у нас есть локальный кеш — пропускаем
   }
 
   private async upsertBalance(customer_id: number, asset: Asset, amt: number) {

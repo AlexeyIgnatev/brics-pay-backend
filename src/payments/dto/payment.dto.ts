@@ -37,4 +37,10 @@ export class TransferDto {
   @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
   @IsEnum(Currency)
   currency: Currency;
+
+  @ApiProperty({ description: 'Optional idempotency key for safe retries', required: false })
+  @IsString()
+  @IsOptional()
+  @Transform(emptyStringToUndefined)
+  idempotency_key?: string;
 }

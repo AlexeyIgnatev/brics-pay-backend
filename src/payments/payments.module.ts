@@ -11,12 +11,12 @@ import { ExchangeModule } from '../config/exchange/exchange.module';
 import { UserManagementModule } from '../user-management/user-management.module';
 import { AntiFraudModule } from '../antifraud/antifraud.module';
 import { CryptoModule } from '../config/crypto/crypto.module';
-import { ShkeeperController } from './shkeeper.controller';
+import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
 
 @Module({
   imports: [EthereumModule, BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule, UserManagementModule, AntiFraudModule, CryptoModule],
-  controllers: [PaymentsController, ShkeeperController],
-  providers: [PaymentsService, PrismaClient],
+  controllers: [PaymentsController],
+  providers: [PaymentsService, UsdtTreasuryOrchestratorService, PrismaClient],
 })
 export class PaymentsModule {
 }

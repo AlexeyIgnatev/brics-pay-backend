@@ -16,6 +16,7 @@ describe('PaymentsService', () => {
     {} as any,
     {} as any,
     {} as any,
+    { processInternalTransfer: jest.fn(), processWithdraw: jest.fn() } as any,
   );
 
   it('builds receipt by transaction_id and masks accounts', async () => {

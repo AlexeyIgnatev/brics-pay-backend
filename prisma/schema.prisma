@@ -27,28 +27,30 @@ model Customer {
   address     String
   private_key String
 
-  first_name  String?
-  middle_name String?
-  last_name   String?
-  phone       String?
-  email       String?
-  push_enabled Boolean @default(true)
-  tariff_category TariffCategory @default(K1)
-  residency CustomerResidency @default(RESIDENT)
-  status      UserStatus @default(ACTIVE)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  first_name      String?
+  middle_name     String?
+  last_name       String?
+  phone           String?
+  email           String?
+  push_enabled    Boolean           @default(true)
+  tariff_category TariffCategory    @default(K1)
+  residency       CustomerResidency @default(RESIDENT)
+  status          UserStatus        @default(ACTIVE)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   // last login metadata
   last_login_at     DateTime?
   last_login_ip     String?
   last_login_device String?
 
-  balances         UserAssetBalance[]
-  withdrawals      WithdrawRequest[]
-  support_messages SupportMessage[]
-  support_tickets  SupportTicket[]
-  push_tokens      UserPushToken[]
+  balances                        UserAssetBalance[]
+  withdrawals                     WithdrawRequest[]
+  payment_operations              PaymentOperation[] @relation("payment_operation_customer")
+  counterparty_payment_operations PaymentOperation[] @relation("payment_operation_counterparty")
+  support_messages                SupportMessage[]
+  support_tickets                 SupportTicket[]
+  push_tokens                     UserPushToken[]
 
   sender_transactions   Transaction[] @relation("tx_sender")
   receiver_transactions Transaction[] @relation("tx_receiver")
@@ -99,6 +101,24 @@ enum WithdrawStatus {
   SUBMITTED
   SUCCESS
   FAILED
+}
+
+enum PaymentOperationType {
+  DEPOSIT
+  INTERNAL_TRANSFER
+  WITHDRAW
+  SWEEP
+  COMPENSATION
+}
+
+enum PaymentOperationStatus {
+  NEW
+  RESERVED
+  DB_COMMITTED
+  BROADCASTED
+  CONFIRMED
+  FAILED
+  COMPENSATED
 }
 
 enum TransactionKind {
@@ -278,17 +298,46 @@ model WithdrawRequest {
   @@map("withdraw_requests")
 }
 
+model PaymentOperation {
+  id                       Int                    @id @default(autoincrement())
+  operation_type           PaymentOperationType
+  status                   PaymentOperationStatus @default(NEW)
+  idempotency_key          String                 @unique
+  customer_id              Int
+  counterparty_customer_id Int?
+  from_address             String
+  to_address               String
+  asset                    Asset
+  amount                   Decimal                @db.Decimal(38, 18)
+  tx_hash                  String?                @unique
+  attempt_count            Int                    @default(0)
+  last_error               String?
+  payload                  Json?
+  reversal_of_id           Int?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  customer              Customer           @relation("payment_operation_customer", fields: [customer_id], references: [customer_id])
+  counterparty_customer Customer?          @relation("payment_operation_counterparty", fields: [counterparty_customer_id], references: [customer_id])
+  reversal_of           PaymentOperation?  @relation("payment_operation_reversal", fields: [reversal_of_id], references: [id])
+  reversals             PaymentOperation[] @relation("payment_operation_reversal")
+
+  @@index([customer_id, status])
+  @@index([operation_type, status])
+  @@map("payment_operations")
+}
+
 model Admin {
-  id            Int              @id @default(autoincrement())
-  email         String           @unique
-  password_hash String
-  first_name    String
-  last_name     String
-  role          AdminRole        @default(SUPER_ADMIN)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  id                     Int              @id @default(autoincrement())
+  email                  String           @unique
+  password_hash          String
+  first_name             String
+  last_name              String
+  role                   AdminRole        @default(SUPER_ADMIN)
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
   logs                   AdminActionLog[]
-  closed_support_tickets SupportTicket[] @relation("support_ticket_closed_by_admin")
+  closed_support_tickets SupportTicket[]  @relation("support_ticket_closed_by_admin")
 
   @@map("admins")
 }
@@ -310,7 +359,7 @@ model SupportMessage {
   text        String
   createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  customer Customer @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+  customer Customer      @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
   ticket   SupportTicket @relation(fields: [ticket_id], references: [id], onDelete: Cascade)
 
   @@index([customer_id, createdAt])
@@ -319,17 +368,17 @@ model SupportMessage {
 }
 
 model SupportTicket {
-  id                Int                 @id @default(autoincrement()) @map("support_ticket_id")
-  customer_id       Int
-  status            SupportTicketStatus @default(OPEN)
+  id                 Int                 @id @default(autoincrement()) @map("support_ticket_id")
+  customer_id        Int
+  status             SupportTicketStatus @default(OPEN)
   closed_by_admin_id Int?
-  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
-  closedAt          DateTime?           @map("closed_at") @db.Timestamptz(6)
-  lastMessageAt     DateTime            @default(now()) @map("last_message_at") @db.Timestamptz(6)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  closedAt           DateTime?           @map("closed_at") @db.Timestamptz(6)
+  lastMessageAt      DateTime            @default(now()) @map("last_message_at") @db.Timestamptz(6)
 
-  customer        Customer       @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
-  closed_by_admin Admin?         @relation("support_ticket_closed_by_admin", fields: [closed_by_admin_id], references: [id], onDelete: SetNull)
+  customer        Customer         @relation(fields: [customer_id], references: [customer_id], onDelete: Cascade)
+  closed_by_admin Admin?           @relation("support_ticket_closed_by_admin", fields: [closed_by_admin_id], references: [id], onDelete: SetNull)
   messages        SupportMessage[]
 
   @@index([customer_id, status])

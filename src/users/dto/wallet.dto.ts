@@ -2,7 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Currency } from '../enums/currency';
 
 export class WalletDto {
-  @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
+  @ApiProperty({ enum: Currency })
   currency: Currency;
 
   address: string;

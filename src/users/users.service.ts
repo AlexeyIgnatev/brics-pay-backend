@@ -1,45 +1,27 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaClient, Asset, PushPlatform } from '@prisma/client';
 import { BricsService } from 'src/config/brics/brics.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { UserInfoDto } from './dto/user-info.dto';
 import { WalletDto } from './dto/wallet.dto';
 import { Currency } from './enums/currency';
+import { CryptoService } from '../config/crypto/crypto.service';
 import { SettingsService } from '../config/settings/settings.service';
-import { ShkeeperWalletService } from '../config/exchange/shkeeper-wallet.service';
+import { BybitExchangeService } from '../config/exchange/bybit.service';
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name);
-
   constructor(
     private readonly bricsService: BricsService,
     private readonly prisma: PrismaClient,
     private readonly ethereumService: EthereumService,
+    private readonly cryptoService: CryptoService,
     private readonly settingsService: SettingsService,
-    private readonly shkeeperWalletService: ShkeeperWalletService,
+    private readonly exchangeService: BybitExchangeService,
   ) {}
 
   private toPushPlatform(platform: 'android' | 'ios'): PushPlatform {
     return platform === 'ios' ? PushPlatform.IOS : PushPlatform.ANDROID;
-  }
-
-  private resolveEthereumAddress(customer: { address?: string | null; private_key?: string | null }): string {
-    const storedAddress = (customer.address || '').trim();
-    if (!customer.private_key) {
-      return storedAddress;
-    }
-
-    const signerAddress = this.ethereumService.getAddressFromPrivateKey(customer.private_key);
-    if (!storedAddress) {
-      return signerAddress;
-    }
-
-    if (storedAddress.toLowerCase() !== signerAddress.toLowerCase()) {
-      return signerAddress;
-    }
-
-    return storedAddress;
   }
 
   async updateLastLogin(customerId: number, ip?: string, device?: string) {
@@ -81,12 +63,12 @@ export class UsersService {
     });
   }
 
-  async getUserInfo(username: string, password: string): Promise<UserInfoDto> {
-    this.logger.log(`getUserInfo start username=${username}`);
-
+  async getUserInfo(
+    username: string,
+    password: string,
+  ): Promise<UserInfoDto> {
     const auth = await this.bricsService.auth(username, password);
     if (!auth) {
-      this.logger.warn(`getUserInfo auth failed username=${username}`);
       throw new UnauthorizedException('Неверный логин или пароль');
     }
 
@@ -104,7 +86,6 @@ export class UsersService {
     const email = customerInfo.EMail || '';
 
     if (!user) {
-      this.logger.log(`getUserInfo creating customer customerId=${customerInfo.CustomerID}`);
       const userAddress = this.ethereumService.generateAddress();
       await this.prisma.customer.create({
         data: {
@@ -119,13 +100,8 @@ export class UsersService {
         },
       });
     } else {
-      this.logger.log(`getUserInfo updating existing customer customerId=${customerInfo.CustomerID} storedAddress=${user.address}`);
+      // Обновлять только пустые поля — если админ ранее отредактировал, не перезаписываем
       const data: any = {};
-      const ethereumAddress = this.resolveEthereumAddress(user);
-      if (ethereumAddress && user.address !== ethereumAddress) {
-        data.address = ethereumAddress;
-        this.logger.warn(`getUserInfo restoring Ethereum address customerId=${customerInfo.CustomerID} restoredAddress=${ethereumAddress}`);
-      }
       if (!user.first_name && first_name) data.first_name = first_name;
       if (!user.middle_name && middle_name) data.middle_name = middle_name;
       if (!user.last_name && last_name) data.last_name = last_name;
@@ -134,18 +110,6 @@ export class UsersService {
       if (Object.keys(data).length) {
         await this.prisma.customer.update({ where: { customer_id: customerInfo.CustomerID }, data });
       }
-    }
-
-    this.logger.log(`getUserInfo syncing SHKeeper wallet customerId=${customerInfo.CustomerID}`);
-    const usdtWallet = await this.shkeeperWalletService.ensureUsdtWallet(customerInfo.CustomerID);
-    this.logger.log(`getUserInfo SHKeeper wallet result customerId=${customerInfo.CustomerID} address=${usdtWallet.address} created=${usdtWallet.created}`);
-    if (usdtWallet.created) {
-      await this.prisma.userAssetBalance.upsert({
-        where: { customer_id_asset: { customer_id: customerInfo.CustomerID, asset: 'USDT_TRC20' as Asset } },
-        create: { customer_id: customerInfo.CustomerID, asset: 'USDT_TRC20' as Asset, balance: '0' },
-        update: { balance: '0' },
-      });
-      this.logger.log(`getUserInfo reset USDT balance to 0 customerId=${customerInfo.CustomerID}`);
     }
 
     return {
@@ -162,36 +126,12 @@ export class UsersService {
     const user = await this.prisma.customer.findUniqueOrThrow({
       where: { customer_id: userInfo.customer_id },
     });
-    const ethereumAddress = this.resolveEthereumAddress(user);
-    if (ethereumAddress && user.address !== ethereumAddress) {
-      await this.prisma.customer.update({
-        where: { customer_id: user.customer_id },
-        data: { address: ethereumAddress },
-      });
-      user.address = ethereumAddress;
-    }
 
-    const usdtWallet = await this.shkeeperWalletService.ensureUsdtWallet(user.customer_id);
-    if (usdtWallet.created) {
-      await this.prisma.userAssetBalance.upsert({
-        where: { customer_id_asset: { customer_id: user.customer_id, asset: 'USDT_TRC20' as Asset } },
-        create: { customer_id: user.customer_id, asset: 'USDT_TRC20' as Asset, balance: '0' },
-        update: { balance: '0' },
-      });
-    }
-
-    const [somLive, esomBalance, settings, usdtBalanceRec] = await Promise.all([
+    const [somLive, esomBalance, settings, pricesUsd] = await Promise.all([
       this.bricsService.getSomBalance(),
-      this.ethereumService.getEsomBalance(ethereumAddress || user.address),
+      this.ethereumService.getEsomBalance(user.address),
       this.settingsService.get(),
-      this.prisma.userAssetBalance.findUnique({
-        where: {
-          customer_id_asset: {
-            customer_id: user.customer_id,
-            asset: 'USDT_TRC20' as Asset,
-          },
-        },
-      }),
+      this.exchangeService.getUsdPrices(['BTC' as Asset, 'ETH' as Asset, 'USDT_TRC20' as Asset]),
     ]);
 
     await this.prisma.userAssetBalance.upsert({
@@ -201,14 +141,51 @@ export class UsersService {
     });
 
     const esomPerUsd = Number(settings.esom_per_usd);
+    const btcUsd = Number(pricesUsd['BTC'] || 0);
+    const ethUsd = Number(pricesUsd['ETH'] || 0);
     const usdtUsd = 1;
 
+    const btcBaseEsom = btcUsd * esomPerUsd;
+    const ethBaseEsom = ethUsd * esomPerUsd;
     const usdtBaseEsom = usdtUsd * esomPerUsd;
 
+    const btcFee = Number(settings.btc_trade_fee_pct) / 100;
+    const ethFee = Number(settings.eth_trade_fee_pct) / 100;
     const usdtFee = Number(settings.usdt_trade_fee_pct) / 100;
 
+    const btcBuy = btcBaseEsom * (1 + btcFee);
+    const btcSell = btcBaseEsom * (1 - btcFee);
+    const ethBuy = ethBaseEsom * (1 + ethFee);
+    const ethSell = ethBaseEsom * (1 - ethFee);
     const usdtBuy = usdtBaseEsom * (1 + usdtFee);
     const usdtSell = usdtBaseEsom * (1 - usdtFee);
+
+    const [btcBalanceRec, ethBalanceRec, usdtBalanceRec] = await Promise.all([
+      this.prisma.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: user.customer_id,
+            asset: 'BTC' as Asset,
+          },
+        },
+      }),
+      this.prisma.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: user.customer_id,
+            asset: 'ETH' as Asset,
+          },
+        },
+      }),
+      this.prisma.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: user.customer_id,
+            asset: 'USDT_TRC20' as Asset,
+          },
+        },
+      }),
+    ]);
 
     return [
       {
@@ -220,14 +197,28 @@ export class UsersService {
       },
       {
         currency: Currency.ESOM,
-        address: ethereumAddress || user.address,
+        address: user.address,
         balance: esomBalance,
         buy_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,
         sell_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,
       },
       {
+        currency: Currency.BTC,
+        address: this.cryptoService.bech32AddressFromPrivateKey(user.private_key),
+        balance: Number(btcBalanceRec?.balance ?? 0),
+        buy_rate: btcBuy,
+        sell_rate: btcSell,
+      },
+      {
+        currency: Currency.ETH,
+        address: this.cryptoService.ethAddressFromPrivateKey(user.private_key),
+        balance: Number(ethBalanceRec?.balance ?? 0),
+        buy_rate: ethBuy,
+        sell_rate: ethSell,
+      },
+      {
         currency: Currency.USDT_TRC20,
-        address: usdtWallet.address,
+        address: this.cryptoService.trxAddressFromPrivateKey(user.private_key),
         balance: Number(usdtBalanceRec?.balance ?? 0),
         buy_rate: usdtBuy,
         sell_rate: usdtSell,

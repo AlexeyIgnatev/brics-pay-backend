@@ -3,14 +3,14 @@ import { Asset, Prisma, PrismaClient, TransactionKind, TransactionStatus } from 
 import { TransactionsListDto, TransactionsListResponseDto } from './dto/transactions-list.dto';
 import { TransactionsStatsQueryDto, TransactionsStatsResponseDto, TransactionsStatsSeriesPointDto, TransactionsStatsSummaryDto, TransactionsStatsTodayDto } from './dto/transactions-stats.dto';
 import { SettingsService } from '../config/settings/settings.service';
-import { ShkeeperExchangeService } from '../config/exchange/shkeeper.service';
+import { BybitExchangeService } from '../config/exchange/bybit.service';
 
 @Injectable()
 export class TransactionsService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly settings: SettingsService,
-    private readonly exchange: ShkeeperExchangeService,
+    private readonly exchange: BybitExchangeService,
   ) {}
 
   async list(query: TransactionsListDto): Promise<TransactionsListResponseDto> {
@@ -140,13 +140,13 @@ export class TransactionsService {
     });
 
     // prices for crypto now
-    const prices = await this.exchange.getUsdPrices(['USDT_TRC20' as Asset]);
+    const prices = await this.exchange.getUsdPrices(['BTC', 'ETH', 'USDT_TRC20'] as Asset[]);
     const esomPerUsd = Number((await this.settings.get()).esom_per_usd);
     const toSom = (asset: Asset, amount: string | number): number => {
       const amt = Number(amount || 0);
       if (!amt) return 0;
       if (asset === 'SOM' || asset === 'ESOM') return amt;
-      const usd = asset === 'USDT_TRC20' ? amt * Number(prices.USDT_TRC20 ?? 1) : 0;
+      const usd = amt * Number(prices[asset] ?? 0);
       return usd * esomPerUsd;
     };
 

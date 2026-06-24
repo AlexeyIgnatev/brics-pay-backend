@@ -1,4 +1,17 @@
 services:
+  tron-node:
+    container_name: brics_tron_node
+    image: tronprotocol/java-tron:latest
+    restart: unless-stopped
+    ports:
+      - 8090:8090
+      - 18888:18888
+      - 50051:50051
+    volumes:
+      - tron_data:/java-tron/data
+    networks:
+      - postgres
+
   brics:
     build:
       context: .
@@ -8,6 +21,7 @@ services:
       - 8000:8000
     depends_on:
       - postgres
+      - tron-node
     networks:
       - postgres
 
@@ -36,6 +50,7 @@ services:
 
 volumes:
   postgres_data:
+  tron_data:
 
 networks:
   postgres:
