@@ -18,6 +18,8 @@ import {
 import TronWeb from 'tronweb';
 import { createHash } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
+import { request as httpRequest } from 'http';
+import { request as httpsRequest } from 'https';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
@@ -362,15 +364,10 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     }
 
     try {
-      const response = await fetch(
+      const rawText = await this.postJsonRaw(
         `${this.getRuntime().rpcUrl.replace(/\/+$/, '')}/wallet/gettransactioninfobyid`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: txHash }),
-        },
+        { value: txHash },
       );
-      const rawText = await response.text();
       const info = rawText.trim()
         ? (JSON.parse(rawText) as Record<string, unknown>)
         : {};
@@ -387,6 +384,44 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     }
 
     return false;
+  }
+
+  private async postJsonRaw(url: string, body: Record<string, unknown>) {
+    const target = new URL(url);
+    const payload = JSON.stringify(body);
+    const requestImpl =
+      target.protocol === 'https:' ? httpsRequest : httpRequest;
+
+    return new Promise<string>((resolve, reject) => {
+      const req = requestImpl(
+        target,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+          },
+          timeout: 10_000,
+        },
+        (res) => {
+          let data = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            resolve(data);
+          });
+        },
+      );
+
+      req.on('timeout', () => {
+        req.destroy(new Error(`request timeout for ${url}`));
+      });
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
   }
 
   private async finalizeDepositOperation(
