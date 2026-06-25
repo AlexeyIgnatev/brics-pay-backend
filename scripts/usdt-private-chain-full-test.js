@@ -274,7 +274,6 @@ async function main() {
         amount: true,
         tx_hash: true,
         attempt_count: true,
-        last_error: true,
         payload: true,
         reversal_of_id: true,
         createdAt: true,

@@ -362,7 +362,6 @@ model PaymentOperation {
   tx_hash                  String?                @unique
   attempt_count            Int                    @default(0)
   initiator_type           OperationInitiatorType @default(SYSTEM)
-  last_error               String?
   last_error_code          String?
   last_error_message       String?
   payload                  Json?

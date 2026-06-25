@@ -92,7 +92,6 @@ async function main() {
         amount: true,
         tx_hash: true,
         attempt_count: true,
-        last_error: true,
         payload: true,
         createdAt: true,
         updatedAt: true,

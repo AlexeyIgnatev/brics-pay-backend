@@ -779,7 +779,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             transaction_id: transactionRecord.id,
             confirmed: true,
           },
-          last_error: null,
           last_error_code: null,
           last_error_message: null,
         },
@@ -900,7 +899,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     const details = this.getErrorDetails(error);
     return this.updateOperation(op.id, {
       status: PaymentOperationStatus.FAILED,
-      last_error: details.message,
       last_error_code: details.code ?? null,
       last_error_message: details.message,
       failed_at: new Date(),
@@ -922,7 +920,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         ...((op.payload as UsdtPaymentPayload | undefined) ?? {}),
       } as any,
       attempt_count: op.attempt_count + 1,
-      last_error: null,
     });
   }
 
@@ -936,7 +933,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       payload: (payload ??
         (op.payload as UsdtPaymentPayload | undefined) ??
         undefined) as any,
-      last_error: null,
       last_error_code: null,
       last_error_message: null,
     });
@@ -1197,7 +1193,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
               confirmed: true,
             },
             attempt_count: op.attempt_count + 1,
-            last_error: null,
             last_error_code: null,
             last_error_message: null,
           },
@@ -1290,7 +1285,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
               db_committed: true,
               debit_ledger_entry_id: debitEntry.id,
             },
-            last_error: null,
             last_error_code: null,
             last_error_message: null,
           },
@@ -1371,7 +1365,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
                   blockchain_transaction_id: blockchainTransaction.id,
                   debit_ledger_entry_id: debitLedgerEntryId || undefined,
                 },
-                last_error: null,
                 last_error_code: null,
                 last_error_message: null,
               },
@@ -1546,7 +1539,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             blockchain_transaction_id: blockchainTransaction.id,
             debit_ledger_entry_id: debitLedgerEntryId || undefined,
           },
-          last_error: null,
           last_error_code: null,
           last_error_message: null,
         },
