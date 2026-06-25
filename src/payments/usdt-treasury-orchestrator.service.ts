@@ -308,17 +308,52 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   }
 
   private async isConfirmedTx(txHash: string): Promise<boolean> {
+    const isConfirmedPayload = (
+      info: Record<string, unknown> | null | undefined,
+    ) => {
+      if (!info || typeof info !== 'object') return false;
+
+      const receipt = info.receipt as Record<string, unknown> | undefined;
+      if (receipt?.result === 'SUCCESS') return true;
+
+      const blockNumber = Number(info.blockNumber ?? 0);
+      if (Number.isFinite(blockNumber) && blockNumber > 0) {
+        return true;
+      }
+
+      const blockTimeStamp = Number(info.blockTimeStamp ?? 0);
+      const minedTxId =
+        typeof info.id === 'string'
+          ? info.id
+          : typeof info.txID === 'string'
+            ? info.txID
+            : undefined;
+      if (
+        minedTxId === txHash &&
+        Number.isFinite(blockTimeStamp) &&
+        blockTimeStamp > 0
+      ) {
+        return true;
+      }
+
+      if (Object.keys(info).length > 0 && !('result' in info)) {
+        return true;
+      }
+
+      return false;
+    };
+
     try {
       const info = (await this.getTronWeb().trx.getTransactionInfo(
         txHash,
       )) as Record<string, unknown> | null;
-      const receipt = info?.receipt as Record<string, unknown> | undefined;
-      if (receipt?.result === 'SUCCESS') return true;
-      if (typeof info?.blockNumber === 'number' && info.blockNumber > 0) {
+      if (isConfirmedPayload(info)) {
         return true;
       }
-      if (info && Object.keys(info).length > 0 && !info?.result) {
-        return true;
+      if (info && Object.keys(info).length > 0) {
+        this.logger.warn(
+          `TronWeb confirmation payload for tx=${txHash} was not treated as confirmed: ${JSON.stringify(info)}`,
+        );
       }
     } catch (error) {
       this.logger.warn(
@@ -335,19 +370,16 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           body: JSON.stringify({ value: txHash }),
         },
       );
-      const info = (await response.json()) as Record<string, unknown>;
-      if (
-        (info?.receipt as Record<string, unknown> | undefined)?.result ===
-        'SUCCESS'
-      ) {
+      const rawText = await response.text();
+      const info = rawText.trim()
+        ? (JSON.parse(rawText) as Record<string, unknown>)
+        : {};
+      if (isConfirmedPayload(info)) {
         return true;
       }
-      if (typeof info?.blockNumber === 'number' && info.blockNumber > 0) {
-        return true;
-      }
-      if (Object.keys(info).length > 0 && !('result' in info)) {
-        return true;
-      }
+      this.logger.warn(
+        `Raw RPC confirmation payload for tx=${txHash} was not treated as confirmed: ${rawText}`,
+      );
     } catch (error) {
       this.logger.warn(
         `Raw RPC confirmation lookup failed for tx=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
