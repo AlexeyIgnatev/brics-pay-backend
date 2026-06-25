@@ -36,6 +36,16 @@ interface UsdtRuntime {
   tronWeb: any;
 }
 
+interface DepositFinalizeInput {
+  customerId: number;
+  fromAddress: string;
+  toAddress: string;
+  amount: number;
+  txHash: string;
+  operationId: number;
+  payload?: UsdtPaymentPayload;
+}
+
 @Injectable()
 export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private readonly logger = new Logger(UsdtTreasuryOrchestratorService.name);
@@ -67,12 +77,19 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
   private hasRuntimeConfig(): boolean {
     return Boolean(
-      (this.configService.get<string>('USDT_RPC_URL') ||
-        this.configService.get<string>('RPC_URL')) &&
+      this.getUsdtRpcUrl() &&
         (this.configService.get<string>('USDT_TOKEN_ADDRESS') ||
           this.configService.get<string>('TOKEN_ADDRESS')) &&
         this.getTreasuryPrivateKey(),
     );
+  }
+
+  private getUsdtRpcUrl(): string | undefined {
+    return (
+      this.configService.get<string>('USDT_RPC_URL') ||
+      this.configService.get<string>('TRON_FULL_NODE') ||
+      this.configService.get<string>('RPC_URL')
+    )?.trim();
   }
 
   private readSecretFromFile(
@@ -112,9 +129,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private getRuntime(): UsdtRuntime {
     if (this.runtime) return this.runtime;
 
-    const rpcUrl =
-      this.configService.get<string>('USDT_RPC_URL') ||
-      this.configService.get<string>('RPC_URL');
+    const rpcUrl = this.getUsdtRpcUrl();
     const tokenAddress =
       this.configService.get<string>('USDT_TOKEN_ADDRESS') ||
       this.configService.get<string>('TOKEN_ADDRESS');
@@ -293,11 +308,127 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
   private async isConfirmedTx(txHash: string): Promise<boolean> {
     try {
-      const info = await this.getTronWeb().trx.getTransactionInfo(txHash);
-      return info?.receipt?.result === 'SUCCESS' || !info?.result;
-    } catch {
-      return false;
+      const info = (await this.getTronWeb().trx.getTransactionInfo(
+        txHash,
+      )) as Record<string, unknown> | null;
+      const receipt = info?.receipt as Record<string, unknown> | undefined;
+      if (receipt?.result === 'SUCCESS') return true;
+      if (typeof info?.blockNumber === 'number' && info.blockNumber > 0) {
+        return true;
+      }
+      if (info && Object.keys(info).length > 0 && !info?.result) {
+        return true;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `TronWeb confirmation lookup failed for tx=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
+
+    try {
+      const response = await fetch(
+        `${this.getRuntime().rpcUrl.replace(/\/+$/, '')}/wallet/gettransactioninfobyid`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: txHash }),
+        },
+      );
+      const info = (await response.json()) as Record<string, unknown>;
+      if (
+        (info?.receipt as Record<string, unknown> | undefined)?.result ===
+        'SUCCESS'
+      ) {
+        return true;
+      }
+      if (typeof info?.blockNumber === 'number' && info.blockNumber > 0) {
+        return true;
+      }
+      if (Object.keys(info).length > 0 && !('result' in info)) {
+        return true;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Raw RPC confirmation lookup failed for tx=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return false;
+  }
+
+  private async finalizeDepositOperation(
+    input: DepositFinalizeInput,
+  ): Promise<number> {
+    const transaction = await this.prisma.$transaction(async (tx) => {
+      const currentOp = await tx.paymentOperation.findUnique({
+        where: { id: input.operationId },
+      });
+      if (!currentOp) {
+        throw new BadRequestException('USDT deposit operation not found');
+      }
+
+      const existingTransaction = await tx.transaction.findFirst({
+        where: {
+          tx_hash: input.txHash,
+          receiver_customer_id: input.customerId,
+          comment: 'USDT deposit',
+        },
+        orderBy: { id: 'asc' },
+      });
+
+      if (!existingTransaction) {
+        await tx.userAssetBalance.upsert({
+          where: {
+            customer_id_asset: {
+              customer_id: input.customerId,
+              asset: 'USDT_TRC20',
+            },
+          },
+          create: {
+            customer_id: input.customerId,
+            asset: 'USDT_TRC20',
+            balance: input.amount.toString(),
+          },
+          update: { balance: { increment: input.amount.toString() } },
+        });
+      }
+
+      const transactionRecord =
+        existingTransaction ??
+        (await tx.transaction.create({
+          data: {
+            kind: TransactionKind.WALLET_TO_WALLET,
+            status: TransactionStatus.SUCCESS,
+            amount_in: input.amount.toString(),
+            asset_in: 'USDT_TRC20',
+            amount_out: input.amount.toString(),
+            asset_out: 'USDT_TRC20',
+            tx_hash: input.txHash,
+            sender_wallet_address: input.fromAddress,
+            receiver_customer_id: input.customerId,
+            receiver_wallet_address: input.toAddress,
+            comment: 'USDT deposit',
+          },
+        }));
+
+      await tx.paymentOperation.update({
+        where: { id: currentOp.id },
+        data: {
+          status: PaymentOperationStatus.CONFIRMED,
+          payload: {
+            ...((currentOp.payload as UsdtPaymentPayload | undefined) ?? {}),
+            ...(input.payload ?? {}),
+            transaction_id: transactionRecord.id,
+            confirmed: true,
+          },
+          last_error: null,
+        },
+      });
+
+      return transactionRecord;
+    });
+
+    return transaction.id;
   }
 
   private async waitForConfirmation(
@@ -412,9 +543,10 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     return this.updateOperation(op.id, {
       status: PaymentOperationStatus.BROADCASTED,
       tx_hash: txHash,
-      payload: (payload ??
-        (op.payload as UsdtPaymentPayload | undefined) ??
-        undefined) as any,
+      payload: {
+        ...(payload ?? {}),
+        ...((op.payload as UsdtPaymentPayload | undefined) ?? {}),
+      } as any,
       attempt_count: op.attempt_count + 1,
       last_error: null,
     });
@@ -900,7 +1032,12 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       (await this.findOperationByIdempotencyKey(idempotencyKey)) ??
       (await this.findOperationByTxHash(dto.tx_hash));
     if (existing?.status === PaymentOperationStatus.CONFIRMED) {
-      return new StatusOKDto(existing.id);
+      return new StatusOKDto(
+        Number(
+          (existing.payload as UsdtPaymentPayload | undefined)
+            ?.transaction_id ?? existing.id,
+        ),
+      );
     }
     if (
       existing?.payload &&
@@ -933,50 +1070,14 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       return new StatusOKDto(op.id);
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.userAssetBalance.upsert({
-        where: {
-          customer_id_asset: {
-            customer_id: customer.customer_id,
-            asset: 'USDT_TRC20',
-          },
-        },
-        create: {
-          customer_id: customer.customer_id,
-          asset: 'USDT_TRC20',
-          balance: dto.amount.toString(),
-        },
-        update: { balance: { increment: dto.amount.toString() } },
-      });
-
-      const transaction = await tx.transaction.create({
-        data: {
-          kind: TransactionKind.WALLET_TO_WALLET,
-          status: TransactionStatus.SUCCESS,
-          amount_in: dto.amount.toString(),
-          asset_in: 'USDT_TRC20',
-          amount_out: dto.amount.toString(),
-          asset_out: 'USDT_TRC20',
-          tx_hash: dto.tx_hash,
-          sender_wallet_address: dto.from_address,
-          receiver_customer_id: customer.customer_id,
-          receiver_wallet_address: dto.to_address,
-          comment: 'USDT deposit',
-        },
-      });
-
-      await tx.paymentOperation.update({
-        where: { id: op.id },
-        data: {
-          status: PaymentOperationStatus.CONFIRMED,
-          payload: {
-            ...(dto.payload ?? {}),
-            transaction_id: transaction.id,
-            confirmed: true,
-          },
-          last_error: null,
-        },
-      });
+    const transactionId = await this.finalizeDepositOperation({
+      customerId: customer.customer_id,
+      fromAddress: dto.from_address,
+      toAddress: dto.to_address,
+      amount: dto.amount,
+      txHash: dto.tx_hash,
+      operationId: op.id,
+      payload: dto.payload ?? {},
     });
 
     try {
@@ -986,7 +1087,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         `USDT post-deposit sweep failed for customer=${customer.customer_id}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    return new StatusOKDto(op.id);
+    return new StatusOKDto(transactionId);
   }
 
   async reconcileUsdtOperations(): Promise<StatusOKDto> {
@@ -1027,25 +1128,15 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
               if (op.status !== PaymentOperationStatus.CONFIRMED) {
                 const customer = await this.getCustomer(op.customer_id);
                 if (!customer) continue;
-                await this.prisma.$transaction(async (tx) => {
-                  await tx.userAssetBalance.upsert({
-                    where: {
-                      customer_id_asset: {
-                        customer_id: op.customer_id,
-                        asset: 'USDT_TRC20',
-                      },
-                    },
-                    create: {
-                      customer_id: op.customer_id,
-                      asset: 'USDT_TRC20',
-                      balance: op.amount.toString(),
-                    },
-                    update: { balance: { increment: op.amount.toString() } },
-                  });
-                  await tx.paymentOperation.update({
-                    where: { id: op.id },
-                    data: { status: PaymentOperationStatus.CONFIRMED },
-                  });
+                await this.finalizeDepositOperation({
+                  customerId: op.customer_id,
+                  fromAddress: op.from_address,
+                  toAddress: op.to_address,
+                  amount: Number(op.amount),
+                  txHash: op.tx_hash,
+                  operationId: op.id,
+                  payload:
+                    (op.payload as UsdtPaymentPayload | undefined) ?? undefined,
                 });
                 await this.maybeSweepCustomerWallet(op.customer_id, op.tx_hash);
               }
