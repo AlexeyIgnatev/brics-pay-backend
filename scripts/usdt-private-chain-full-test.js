@@ -14,6 +14,10 @@ const {
 } = require('../dist/payments/usdt-treasury-orchestrator.service');
 const TronWebModule = require('tronweb');
 
+if (!globalThis.crypto) {
+  globalThis.crypto = crypto.webcrypto;
+}
+
 function getTronWebCtor() {
   const candidate =
     TronWebModule.TronWeb ||
