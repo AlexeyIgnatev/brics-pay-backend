@@ -52,6 +52,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private runtime?: UsdtRuntime;
   private reconcileTimer?: NodeJS.Timeout;
   private reconcileRunning = false;
+  private reconcileStartedAt?: number;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -1092,9 +1093,23 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
   async reconcileUsdtOperations(): Promise<StatusOKDto> {
     if (this.reconcileRunning) {
-      return new StatusOKDto();
+      const startedAt = this.reconcileStartedAt ?? 0;
+      const elapsedMs = startedAt ? Date.now() - startedAt : 0;
+      if (elapsedMs > RECONCILE_INTERVAL_MS * 5) {
+        this.logger.warn(
+          `USDT reconcile lock was stale for ${elapsedMs}ms, resetting and retrying`,
+        );
+        this.reconcileRunning = false;
+        this.reconcileStartedAt = undefined;
+      } else {
+        this.logger.warn(
+          `USDT reconcile skipped because a previous run is still active (${elapsedMs}ms)`,
+        );
+        return new StatusOKDto();
+      }
     }
     this.reconcileRunning = true;
+    this.reconcileStartedAt = Date.now();
     try {
       const ops = await this.prisma.paymentOperation.findMany({
         where: {
@@ -1120,15 +1135,22 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         orderBy: { createdAt: 'asc' },
         take: 50,
       });
+      this.logger.log(`USDT reconcile picked ${ops.length} operation(s)`);
 
       for (const op of ops) {
         try {
           if (op.operation_type === PaymentOperationType.DEPOSIT) {
-            if (op.tx_hash && (await this.isConfirmedTx(op.tx_hash))) {
+            const confirmed = op.tx_hash
+              ? await this.isConfirmedTx(op.tx_hash)
+              : false;
+            this.logger.log(
+              `USDT reconcile deposit op=${op.id} status=${op.status} tx=${op.tx_hash ?? 'null'} confirmed=${confirmed}`,
+            );
+            if (op.tx_hash && confirmed) {
               if (op.status !== PaymentOperationStatus.CONFIRMED) {
                 const customer = await this.getCustomer(op.customer_id);
                 if (!customer) continue;
-                await this.finalizeDepositOperation({
+                const transactionId = await this.finalizeDepositOperation({
                   customerId: op.customer_id,
                   fromAddress: op.from_address,
                   toAddress: op.to_address,
@@ -1138,6 +1160,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
                   payload:
                     (op.payload as UsdtPaymentPayload | undefined) ?? undefined,
                 });
+                this.logger.log(
+                  `USDT reconcile finalized deposit op=${op.id} transaction=${transactionId}`,
+                );
                 await this.maybeSweepCustomerWallet(op.customer_id, op.tx_hash);
               }
             }
@@ -1198,6 +1223,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             }
           }
         } catch (error) {
+          this.logger.error(
+            `USDT reconcile failed for op=${op.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
           await this.markFailed(op, error);
           if (op.operation_type === PaymentOperationType.WITHDRAW) {
             await this.compensateWithdraw(
@@ -1213,6 +1241,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       return new StatusOKDto();
     } finally {
       this.reconcileRunning = false;
+      this.reconcileStartedAt = undefined;
     }
   }
 }
