@@ -129,9 +129,7 @@ enum Network {
 enum OperationInitiatorType {
   USER
   SYSTEM
-  RECONCILE
   WEBHOOK
-  ADMIN
 }
 
 enum OperationAddressKind {
@@ -148,32 +146,23 @@ enum BlockchainTransactionDirection {
 
 enum BlockchainTransactionStatus {
   CREATED
-  SIGNED
   BROADCASTED
   CONFIRMED
   FAILED
-  DROPPED
 }
 
 enum LedgerEntryType {
   DEBIT
   CREDIT
-  RESERVE
-  RELEASE
   COMPENSATION
 }
 
 enum LedgerAccountType {
   USER_AVAILABLE
-  USER_RESERVED
-  TREASURY_AVAILABLE
-  TREASURY_FEE
 }
 
 enum LedgerEntryStatus {
-  PENDING
   POSTED
-  REVERSED
 }
 
 enum TransactionKind {
