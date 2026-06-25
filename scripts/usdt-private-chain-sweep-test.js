@@ -3,9 +3,7 @@ const { NestFactory } = require('@nestjs/core');
 const { ConfigService } = require('@nestjs/config');
 const { PrismaClient } = require('@prisma/client');
 const { AppModule } = require('../dist/app.module');
-const {
-  CryptoService,
-} = require('../dist/config/crypto/crypto.service');
+const { CryptoService } = require('../dist/config/crypto/crypto.service');
 const {
   UsdtTreasuryOrchestratorService,
 } = require('../dist/payments/usdt-treasury-orchestrator.service');
@@ -57,9 +55,8 @@ async function main() {
       },
     });
 
-    const originalGetUsdtBalance = orchestrator.getUsdtBalance.bind(
-      orchestrator,
-    );
+    const originalGetUsdtBalance =
+      orchestrator.getUsdtBalance.bind(orchestrator);
     const originalSendUsdt = orchestrator.sendUsdt.bind(orchestrator);
     const originalWaitForConfirmation =
       orchestrator.waitForConfirmation.bind(orchestrator);
@@ -102,9 +99,32 @@ async function main() {
       },
     });
 
+    const blockchainTransactions = await prisma.blockchainTransaction.findMany({
+      where: {
+        payment_operation_id: { in: sweepOps.map((item) => item.id) },
+      },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        payment_operation_id: true,
+        direction: true,
+        tx_hash: true,
+        status: true,
+        amount: true,
+        fee_amount: true,
+        fee_asset: true,
+        confirmations: true,
+        createdAt: true,
+      },
+    });
+
     console.log('customer=', JSON.stringify(customer, null, 2));
     console.log('beforeOps=', JSON.stringify(beforeOps, null, 2));
     console.log('sweepOps=', JSON.stringify(sweepOps, null, 2));
+    console.log(
+      'blockchainTransactions=',
+      JSON.stringify(blockchainTransactions, null, 2),
+    );
     console.log('expectedSweepTxHash=', fakeSweepTxHash);
     console.log(
       'result=',

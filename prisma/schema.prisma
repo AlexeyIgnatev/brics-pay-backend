@@ -48,6 +48,7 @@ model Customer {
   withdrawals                     WithdrawRequest[]
   payment_operations              PaymentOperation[] @relation("payment_operation_customer")
   counterparty_payment_operations PaymentOperation[] @relation("payment_operation_counterparty")
+  ledger_entries                  LedgerEntry[]
   support_messages                SupportMessage[]
   support_tickets                 SupportTicket[]
   push_tokens                     UserPushToken[]
@@ -119,6 +120,60 @@ enum PaymentOperationStatus {
   CONFIRMED
   FAILED
   COMPENSATED
+}
+
+enum Network {
+  TRON
+}
+
+enum OperationInitiatorType {
+  USER
+  SYSTEM
+  RECONCILE
+  WEBHOOK
+  ADMIN
+}
+
+enum OperationAddressKind {
+  TREASURY
+  USER_WALLET
+  EXTERNAL
+  INTERNAL_LEDGER
+}
+
+enum BlockchainTransactionDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum BlockchainTransactionStatus {
+  CREATED
+  SIGNED
+  BROADCASTED
+  CONFIRMED
+  FAILED
+  DROPPED
+}
+
+enum LedgerEntryType {
+  DEBIT
+  CREDIT
+  RESERVE
+  RELEASE
+  COMPENSATION
+}
+
+enum LedgerAccountType {
+  USER_AVAILABLE
+  USER_RESERVED
+  TREASURY_AVAILABLE
+  TREASURY_FEE
+}
+
+enum LedgerEntryStatus {
+  PENDING
+  POSTED
+  REVERSED
 }
 
 enum TransactionKind {
@@ -272,6 +327,7 @@ model Transaction {
   sender_customer   Customer?      @relation("tx_sender", fields: [sender_customer_id], references: [customer_id])
   receiver_customer Customer?      @relation("tx_receiver", fields: [receiver_customer_id], references: [customer_id])
   anti_fraud_case   AntiFraudCase?
+  ledger_entries    LedgerEntry[]
 
   @@index([kind])
   @@index([status])
@@ -305,26 +361,115 @@ model PaymentOperation {
   idempotency_key          String                 @unique
   customer_id              Int
   counterparty_customer_id Int?
+  network                  Network                @default(TRON)
   from_address             String
   to_address               String
+  source_kind              OperationAddressKind?
+  destination_kind         OperationAddressKind?
   asset                    Asset
   amount                   Decimal                @db.Decimal(38, 18)
+  amount_raw               String                 @default("0")
+  decimals                 Int                    @default(6)
   tx_hash                  String?                @unique
   attempt_count            Int                    @default(0)
+  initiator_type           OperationInitiatorType @default(SYSTEM)
   last_error               String?
+  last_error_code          String?
+  last_error_message       String?
   payload                  Json?
+  webhook_received_at      DateTime?
+  broadcasted_at           DateTime?
+  confirmed_at             DateTime?
+  failed_at                DateTime?
+  last_reconciled_at       DateTime?
+  reference_operation_id   Int?
   reversal_of_id           Int?
   createdAt                DateTime               @default(now())
   updatedAt                DateTime               @updatedAt
 
-  customer              Customer           @relation("payment_operation_customer", fields: [customer_id], references: [customer_id])
-  counterparty_customer Customer?          @relation("payment_operation_counterparty", fields: [counterparty_customer_id], references: [customer_id])
-  reversal_of           PaymentOperation?  @relation("payment_operation_reversal", fields: [reversal_of_id], references: [id])
-  reversals             PaymentOperation[] @relation("payment_operation_reversal")
+  customer                Customer                @relation("payment_operation_customer", fields: [customer_id], references: [customer_id])
+  counterparty_customer   Customer?               @relation("payment_operation_counterparty", fields: [counterparty_customer_id], references: [customer_id])
+  reference_operation     PaymentOperation?       @relation("payment_operation_reference", fields: [reference_operation_id], references: [id])
+  referenced_by           PaymentOperation[]      @relation("payment_operation_reference")
+  reversal_of             PaymentOperation?       @relation("payment_operation_reversal", fields: [reversal_of_id], references: [id])
+  reversals               PaymentOperation[]      @relation("payment_operation_reversal")
+  blockchain_transactions BlockchainTransaction[]
+  ledger_entries          LedgerEntry[]
 
   @@index([customer_id, status])
   @@index([operation_type, status])
+  @@index([network, tx_hash])
   @@map("payment_operations")
+}
+
+model BlockchainTransaction {
+  id                   Int                            @id @default(autoincrement())
+  payment_operation_id Int
+  direction            BlockchainTransactionDirection
+  network              Network                        @default(TRON)
+  asset                Asset
+  token_contract       String?
+  tx_hash              String?
+  from_address         String
+  to_address           String
+  amount               Decimal                        @db.Decimal(38, 18)
+  amount_raw           String
+  decimals             Int                            @default(6)
+  status               BlockchainTransactionStatus    @default(CREATED)
+  block_number         Int?
+  block_hash           String?
+  block_timestamp      DateTime?
+  confirmations        Int                            @default(0)
+  nonce_or_sequence    String?
+  gas_payer_address    String?
+  fee_amount           Decimal?                       @db.Decimal(38, 18)
+  fee_amount_raw       String?
+  fee_asset            String?
+  energy_used          Int?
+  bandwidth_used       Int?
+  receipt_status       String?
+  raw_transaction      Json?
+  raw_receipt          Json?
+  raw_event_logs       Json?
+  createdAt            DateTime                       @default(now())
+  updatedAt            DateTime                       @updatedAt
+
+  payment_operation PaymentOperation @relation(fields: [payment_operation_id], references: [id])
+  ledger_entries    LedgerEntry[]
+
+  @@unique([network, tx_hash])
+  @@index([payment_operation_id, status])
+  @@map("blockchain_transactions")
+}
+
+model LedgerEntry {
+  id                        Int               @id @default(autoincrement())
+  payment_operation_id      Int
+  blockchain_transaction_id Int?
+  transaction_id            Int?
+  customer_id               Int
+  asset                     Asset
+  entry_type                LedgerEntryType
+  account_type              LedgerAccountType
+  amount                    Decimal           @db.Decimal(38, 18)
+  amount_raw                String
+  balance_before            Decimal?          @db.Decimal(38, 18)
+  balance_after             Decimal?          @db.Decimal(38, 18)
+  status                    LedgerEntryStatus @default(POSTED)
+  reference_entry_id        Int?
+  metadata                  Json?
+  createdAt                 DateTime          @default(now())
+
+  payment_operation      PaymentOperation       @relation(fields: [payment_operation_id], references: [id])
+  blockchain_transaction BlockchainTransaction? @relation(fields: [blockchain_transaction_id], references: [id])
+  transaction            Transaction?           @relation(fields: [transaction_id], references: [id])
+  customer               Customer               @relation(fields: [customer_id], references: [customer_id])
+  reference_entry        LedgerEntry?           @relation("ledger_entry_reference", fields: [reference_entry_id], references: [id])
+  referenced_entries     LedgerEntry[]          @relation("ledger_entry_reference")
+
+  @@index([payment_operation_id, status])
+  @@index([customer_id, asset, createdAt])
+  @@map("ledger_entries")
 }
 
 model Admin {

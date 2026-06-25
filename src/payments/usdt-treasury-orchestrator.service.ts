@@ -8,6 +8,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   Asset,
+  BlockchainTransactionDirection,
+  BlockchainTransactionStatus,
+  LedgerAccountType,
+  LedgerEntryStatus,
+  LedgerEntryType,
+  Network,
+  OperationAddressKind,
+  OperationInitiatorType,
   PaymentOperation,
   PaymentOperationStatus,
   PaymentOperationType,
@@ -45,6 +53,12 @@ interface DepositFinalizeInput {
   txHash: string;
   operationId: number;
   payload?: UsdtPaymentPayload;
+}
+
+interface ChainTransactionSnapshot {
+  receipt: Record<string, unknown>;
+  transaction: Record<string, unknown>;
+  currentBlockNumber: number;
 }
 
 @Injectable()
@@ -219,6 +233,256 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     } catch {
       return left.trim() === right.trim();
     }
+  }
+
+  private toRawAmount(amount: number, decimals = USDT_DECIMALS): string {
+    return BigInt(Math.floor(amount * 10 ** decimals)).toString();
+  }
+
+  private parseDateFromUnixMs(value: unknown): Date | null {
+    const parsed = Number(value ?? 0);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return null;
+    }
+    return new Date(parsed);
+  }
+
+  private getErrorDetails(error: unknown): {
+    code?: string;
+    message: string;
+  } {
+    if (error instanceof Error) {
+      const typed = error as Error & { code?: string };
+      return {
+        code: typed.code || error.name || undefined,
+        message: error.message,
+      };
+    }
+
+    return { message: String(error) };
+  }
+
+  private async fetchChainTransactionSnapshot(
+    txHash: string,
+  ): Promise<ChainTransactionSnapshot> {
+    const rpcUrl = this.getRuntime().rpcUrl.replace(/\/+$/, '');
+    const [receiptText, transactionText, currentBlockText] = await Promise.all([
+      this.postJsonRaw(`${rpcUrl}/wallet/gettransactioninfobyid`, {
+        value: txHash,
+      }),
+      this.postJsonRaw(`${rpcUrl}/wallet/gettransactionbyid`, {
+        value: txHash,
+      }),
+      this.postJsonRaw(`${rpcUrl}/wallet/getnowblock`, {}),
+    ]);
+
+    const receipt = receiptText.trim()
+      ? (JSON.parse(receiptText) as Record<string, unknown>)
+      : {};
+    const transaction = transactionText.trim()
+      ? (JSON.parse(transactionText) as Record<string, unknown>)
+      : {};
+    const currentBlock = currentBlockText.trim()
+      ? (JSON.parse(currentBlockText) as Record<string, unknown>)
+      : {};
+
+    const currentBlockNumber = Number(
+      (
+        currentBlock.block_header as
+          | { raw_data?: { number?: number } }
+          | undefined
+      )?.raw_data?.number ?? 0,
+    );
+
+    return { receipt, transaction, currentBlockNumber };
+  }
+
+  private async upsertBlockchainTransaction(
+    client: PrismaClient | any,
+    input: {
+      paymentOperationId: number;
+      direction: BlockchainTransactionDirection;
+      asset: Asset;
+      txHash?: string | null;
+      fromAddress: string;
+      toAddress: string;
+      amount: number;
+      status: BlockchainTransactionStatus;
+      gasPayerAddress?: string | null;
+      snapshot?: ChainTransactionSnapshot | null;
+    },
+  ) {
+    const existing = input.txHash
+      ? await client.blockchainTransaction.findFirst({
+          where: {
+            payment_operation_id: input.paymentOperationId,
+            tx_hash: input.txHash,
+          },
+          orderBy: { id: 'asc' },
+        })
+      : null;
+
+    const receipt = input.snapshot?.receipt ?? {};
+    const transaction = input.snapshot?.transaction ?? {};
+    const blockNumber = Number(receipt.blockNumber ?? 0) || null;
+    const blockTimestamp =
+      this.parseDateFromUnixMs(
+        receipt.blockTimeStamp ??
+          (transaction.raw_data as { timestamp?: number } | undefined)
+            ?.timestamp,
+      ) ?? null;
+    const feeRawNumber = Number(
+      receipt.fee ??
+        (receipt.receipt as { net_fee?: number } | undefined)?.net_fee ??
+        0,
+    );
+    const feeAmountRaw =
+      Number.isFinite(feeRawNumber) && feeRawNumber > 0
+        ? String(feeRawNumber)
+        : null;
+    const feeAmount =
+      feeAmountRaw !== null
+        ? (feeRawNumber / 10 ** USDT_DECIMALS).toString()
+        : null;
+    const confirmations =
+      blockNumber && input.snapshot?.currentBlockNumber
+        ? Math.max(input.snapshot.currentBlockNumber - blockNumber + 1, 0)
+        : 0;
+
+    const payload = {
+      payment_operation_id: input.paymentOperationId,
+      direction: input.direction,
+      network: Network.TRON,
+      asset: input.asset,
+      token_contract: this.getRuntime().tokenAddress,
+      tx_hash: input.txHash ?? null,
+      from_address: input.fromAddress,
+      to_address: input.toAddress,
+      amount: input.amount.toString(),
+      amount_raw: this.toRawAmount(input.amount),
+      decimals: USDT_DECIMALS,
+      status: input.status,
+      block_number: blockNumber,
+      block_hash: null,
+      block_timestamp: blockTimestamp,
+      confirmations,
+      nonce_or_sequence: null,
+      gas_payer_address: input.gasPayerAddress ?? null,
+      fee_amount: feeAmount,
+      fee_amount_raw: feeAmountRaw,
+      fee_asset: feeAmountRaw !== null ? 'TRX' : null,
+      energy_used:
+        Number(
+          (receipt.receipt as { energy_usage_total?: number } | undefined)
+            ?.energy_usage_total ??
+            (receipt.receipt as { energy_usage?: number } | undefined)
+              ?.energy_usage ??
+            0,
+        ) || null,
+      bandwidth_used:
+        Number(
+          (receipt.receipt as { net_usage?: number } | undefined)?.net_usage ??
+            receipt.net_usage ??
+            0,
+        ) || null,
+      receipt_status:
+        (receipt.receipt as { result?: string } | undefined)?.result ?? null,
+      raw_transaction: Object.keys(transaction).length ? transaction : null,
+      raw_receipt: Object.keys(receipt).length ? receipt : null,
+      raw_event_logs:
+        Array.isArray(receipt.log) && receipt.log.length > 0
+          ? receipt.log
+          : null,
+    };
+
+    if (existing) {
+      return client.blockchainTransaction.update({
+        where: { id: existing.id },
+        data: payload,
+      });
+    }
+
+    return client.blockchainTransaction.create({
+      data: {
+        ...payload,
+        tx_hash: input.txHash ?? null,
+      },
+    });
+  }
+
+  private async applyLedgerDelta(
+    client: PrismaClient | any,
+    input: {
+      paymentOperationId: number;
+      customerId: number;
+      asset: Asset;
+      delta: number;
+      entryType: LedgerEntryType;
+      accountType?: LedgerAccountType;
+      transactionId?: number | null;
+      blockchainTransactionId?: number | null;
+      referenceEntryId?: number | null;
+      metadata?: UsdtPaymentPayload;
+    },
+  ) {
+    const existingBalance = await client.userAssetBalance.findUnique({
+      where: {
+        customer_id_asset: {
+          customer_id: input.customerId,
+          asset: input.asset,
+        },
+      },
+    });
+
+    const before = Number(existingBalance?.balance ?? 0);
+    const after = before + input.delta;
+    if (after < -1e-12) {
+      throw new BadRequestException('Insufficient USDT balance');
+    }
+
+    if (existingBalance) {
+      await client.userAssetBalance.update({
+        where: {
+          customer_id_asset: {
+            customer_id: input.customerId,
+            asset: input.asset,
+          },
+        },
+        data: {
+          balance:
+            input.delta >= 0
+              ? { increment: input.delta.toString() }
+              : { decrement: Math.abs(input.delta).toString() },
+        },
+      });
+    } else {
+      await client.userAssetBalance.create({
+        data: {
+          customer_id: input.customerId,
+          asset: input.asset,
+          balance: after.toString(),
+        },
+      });
+    }
+
+    return client.ledgerEntry.create({
+      data: {
+        payment_operation_id: input.paymentOperationId,
+        blockchain_transaction_id: input.blockchainTransactionId ?? null,
+        transaction_id: input.transactionId ?? null,
+        customer_id: input.customerId,
+        asset: input.asset,
+        entry_type: input.entryType,
+        account_type: input.accountType ?? LedgerAccountType.USER_AVAILABLE,
+        amount: Math.abs(input.delta).toString(),
+        amount_raw: this.toRawAmount(Math.abs(input.delta)),
+        balance_before: before.toString(),
+        balance_after: after.toString(),
+        status: LedgerEntryStatus.POSTED,
+        reference_entry_id: input.referenceEntryId ?? null,
+        metadata: (input.metadata ?? {}) as any,
+      },
+    });
   }
 
   private async getCustomer(customerId: number) {
@@ -449,6 +713,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private async finalizeDepositOperation(
     input: DepositFinalizeInput,
   ): Promise<number> {
+    const snapshot = await this.fetchChainTransactionSnapshot(
+      input.txHash,
+    ).catch(() => null);
     const transaction = await this.prisma.$transaction(async (tx) => {
       const currentOp = await tx.paymentOperation.findUnique({
         where: { id: input.operationId },
@@ -465,23 +732,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         },
         orderBy: { id: 'asc' },
       });
-
-      if (!existingTransaction) {
-        await tx.userAssetBalance.upsert({
-          where: {
-            customer_id_asset: {
-              customer_id: input.customerId,
-              asset: 'USDT_TRC20',
-            },
-          },
-          create: {
-            customer_id: input.customerId,
-            asset: 'USDT_TRC20',
-            balance: input.amount.toString(),
-          },
-          update: { balance: { increment: input.amount.toString() } },
-        });
-      }
 
       const transactionRecord =
         existingTransaction ??
@@ -501,10 +751,41 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           },
         }));
 
+      const blockchainTransaction = await this.upsertBlockchainTransaction(tx, {
+        paymentOperationId: currentOp.id,
+        direction: BlockchainTransactionDirection.INBOUND,
+        asset: 'USDT_TRC20',
+        txHash: input.txHash,
+        fromAddress: input.fromAddress,
+        toAddress: input.toAddress,
+        amount: input.amount,
+        status: BlockchainTransactionStatus.CONFIRMED,
+        gasPayerAddress: input.fromAddress,
+        snapshot,
+      });
+
+      if (!existingTransaction) {
+        await this.applyLedgerDelta(tx, {
+          paymentOperationId: currentOp.id,
+          blockchainTransactionId: blockchainTransaction.id,
+          transactionId: transactionRecord.id,
+          customerId: input.customerId,
+          asset: 'USDT_TRC20',
+          delta: input.amount,
+          entryType: LedgerEntryType.CREDIT,
+          metadata: {
+            source: 'deposit',
+            tx_hash: input.txHash,
+            ...(input.payload ?? {}),
+          },
+        });
+      }
+
       await tx.paymentOperation.update({
         where: { id: currentOp.id },
         data: {
           status: PaymentOperationStatus.CONFIRMED,
+          confirmed_at: new Date(),
           payload: {
             ...((currentOp.payload as UsdtPaymentPayload | undefined) ?? {}),
             ...(input.payload ?? {}),
@@ -512,6 +793,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             confirmed: true,
           },
           last_error: null,
+          last_error_code: null,
+          last_error_message: null,
         },
       });
 
@@ -553,17 +836,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
   private async updateOperation(
     id: number,
-    data: Partial<
-      Pick<
-        PaymentOperation,
-        | 'status'
-        | 'tx_hash'
-        | 'last_error'
-        | 'payload'
-        | 'attempt_count'
-        | 'reversal_of_id'
-      >
-    >,
+    data: Record<string, unknown>,
   ): Promise<PaymentOperation> {
     return this.prisma.paymentOperation.update({
       where: { id },
@@ -583,6 +856,16 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     tx_hash?: string | null;
     status?: PaymentOperationStatus;
     payload?: UsdtPaymentPayload;
+    network?: Network;
+    initiator_type?: OperationInitiatorType;
+    source_kind?: OperationAddressKind | null;
+    destination_kind?: OperationAddressKind | null;
+    webhook_received_at?: Date | null;
+    broadcasted_at?: Date | null;
+    confirmed_at?: Date | null;
+    failed_at?: Date | null;
+    last_reconciled_at?: Date | null;
+    reference_operation_id?: number | null;
     reversal_of_id?: number | null;
   }): Promise<PaymentOperation> {
     return this.prisma.paymentOperation.create({
@@ -591,13 +874,25 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         idempotency_key: input.idempotency_key,
         customer_id: input.customer_id,
         counterparty_customer_id: input.counterparty_customer_id ?? null,
+        network: input.network ?? Network.TRON,
         from_address: input.from_address,
         to_address: input.to_address,
+        source_kind: input.source_kind ?? null,
+        destination_kind: input.destination_kind ?? null,
         asset: input.asset,
         amount: input.amount.toString(),
+        amount_raw: this.toRawAmount(input.amount),
+        decimals: USDT_DECIMALS,
         tx_hash: input.tx_hash ?? null,
         status: input.status ?? PaymentOperationStatus.NEW,
+        initiator_type: input.initiator_type ?? OperationInitiatorType.SYSTEM,
         payload: input.payload as any,
+        webhook_received_at: input.webhook_received_at ?? null,
+        broadcasted_at: input.broadcasted_at ?? null,
+        confirmed_at: input.confirmed_at ?? null,
+        failed_at: input.failed_at ?? null,
+        last_reconciled_at: input.last_reconciled_at ?? null,
+        reference_operation_id: input.reference_operation_id ?? null,
         reversal_of_id: input.reversal_of_id ?? null,
       },
     });
@@ -617,10 +912,13 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     op: PaymentOperation,
     error: unknown,
   ): Promise<PaymentOperation> {
-    const lastError = error instanceof Error ? error.message : String(error);
+    const details = this.getErrorDetails(error);
     return this.updateOperation(op.id, {
       status: PaymentOperationStatus.FAILED,
-      last_error: lastError,
+      last_error: details.message,
+      last_error_code: details.code ?? null,
+      last_error_message: details.message,
+      failed_at: new Date(),
       attempt_count: op.attempt_count + 1,
     });
   }
@@ -633,6 +931,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     return this.updateOperation(op.id, {
       status: PaymentOperationStatus.BROADCASTED,
       tx_hash: txHash,
+      broadcasted_at: new Date(),
       payload: {
         ...(payload ?? {}),
         ...((op.payload as UsdtPaymentPayload | undefined) ?? {}),
@@ -648,10 +947,13 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   ): Promise<PaymentOperation> {
     return this.updateOperation(op.id, {
       status: PaymentOperationStatus.CONFIRMED,
+      confirmed_at: new Date(),
       payload: (payload ??
         (op.payload as UsdtPaymentPayload | undefined) ??
         undefined) as any,
       last_error: null,
+      last_error_code: null,
+      last_error_message: null,
     });
   }
 
@@ -686,12 +988,17 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   }
 
   private async createWithdrawTransaction(
+    client:
+      | PrismaClient
+      | {
+          transaction: PrismaClient['transaction'];
+        },
     customerId: number,
     amount: number,
     address: string,
     txHash: string,
   ) {
-    return this.prisma.transaction.create({
+    return client.transaction.create({
       data: {
         kind: TransactionKind.WITHDRAW_CRYPTO,
         status: TransactionStatus.SUCCESS,
@@ -744,10 +1051,14 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         operation_type: PaymentOperationType.SWEEP,
         idempotency_key: sweepKey,
         customer_id: customerId,
+        network: Network.TRON,
         from_address: customer.address,
         to_address: this.getRuntime().treasuryAddress,
+        source_kind: OperationAddressKind.USER_WALLET,
+        destination_kind: OperationAddressKind.TREASURY,
         asset: 'USDT_TRC20',
         amount: liveBalance,
+        initiator_type: OperationInitiatorType.SYSTEM,
         payload: {
           reason: 'balance_threshold',
           threshold: SWEEP_THRESHOLD,
@@ -766,7 +1077,33 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         ...((op.payload as UsdtPaymentPayload) ?? {}),
         sweep: true,
       });
+      await this.upsertBlockchainTransaction(this.prisma, {
+        paymentOperationId: op.id,
+        direction: BlockchainTransactionDirection.OUTBOUND,
+        asset: 'USDT_TRC20',
+        txHash,
+        fromAddress: customer.address,
+        toAddress: this.getRuntime().treasuryAddress,
+        amount: liveBalance,
+        status: BlockchainTransactionStatus.BROADCASTED,
+        gasPayerAddress: customer.address,
+      });
       if (await this.waitForConfirmation(txHash)) {
+        const snapshot = await this.fetchChainTransactionSnapshot(txHash).catch(
+          () => null,
+        );
+        await this.upsertBlockchainTransaction(this.prisma, {
+          paymentOperationId: op.id,
+          direction: BlockchainTransactionDirection.OUTBOUND,
+          asset: 'USDT_TRC20',
+          txHash,
+          fromAddress: customer.address,
+          toAddress: this.getRuntime().treasuryAddress,
+          amount: liveBalance,
+          status: BlockchainTransactionStatus.CONFIRMED,
+          gasPayerAddress: customer.address,
+          snapshot,
+        });
         await this.markConfirmed(op);
       }
     } catch (error) {
@@ -813,58 +1150,20 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         idempotency_key: idempotencyKey,
         customer_id: input.senderCustomerId,
         counterparty_customer_id: input.receiverCustomerId,
+        network: Network.TRON,
         from_address: input.senderAddress,
         to_address: input.receiverAddress,
+        source_kind: OperationAddressKind.INTERNAL_LEDGER,
+        destination_kind: OperationAddressKind.INTERNAL_LEDGER,
         asset: 'USDT_TRC20',
         amount: input.amount,
+        initiator_type: OperationInitiatorType.USER,
         payload: input.payload ?? {},
         status: PaymentOperationStatus.NEW,
       }));
 
     try {
       const result = await this.prisma.$transaction(async (tx) => {
-        const senderBalance = await tx.userAssetBalance.findUnique({
-          where: {
-            customer_id_asset: {
-              customer_id: input.senderCustomerId,
-              asset: 'USDT_TRC20',
-            },
-          },
-        });
-        const current = Number(senderBalance?.balance ?? 0);
-        if (current + 1e-12 < input.amount) {
-          throw new BadRequestException('Insufficient USDT balance');
-        }
-
-        await tx.userAssetBalance.upsert({
-          where: {
-            customer_id_asset: {
-              customer_id: input.senderCustomerId,
-              asset: 'USDT_TRC20',
-            },
-          },
-          create: {
-            customer_id: input.senderCustomerId,
-            asset: 'USDT_TRC20',
-            balance: (-input.amount).toString(),
-          },
-          update: { balance: { decrement: input.amount.toString() } },
-        });
-        await tx.userAssetBalance.upsert({
-          where: {
-            customer_id_asset: {
-              customer_id: input.receiverCustomerId,
-              asset: 'USDT_TRC20',
-            },
-          },
-          create: {
-            customer_id: input.receiverCustomerId,
-            asset: 'USDT_TRC20',
-            balance: input.amount.toString(),
-          },
-          update: { balance: { increment: input.amount.toString() } },
-        });
-
         const transaction = await this.createTransactionForInternalTransfer(
           tx,
           input.senderCustomerId,
@@ -875,10 +1174,38 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           input.receiverAddress,
         );
 
+        await this.applyLedgerDelta(tx, {
+          paymentOperationId: op.id,
+          transactionId: transaction.id,
+          customerId: input.senderCustomerId,
+          asset: 'USDT_TRC20',
+          delta: -input.amount,
+          entryType: LedgerEntryType.DEBIT,
+          metadata: {
+            side: 'sender',
+            counterparty_customer_id: input.receiverCustomerId,
+            ...(input.payload ?? {}),
+          },
+        });
+        await this.applyLedgerDelta(tx, {
+          paymentOperationId: op.id,
+          transactionId: transaction.id,
+          customerId: input.receiverCustomerId,
+          asset: 'USDT_TRC20',
+          delta: input.amount,
+          entryType: LedgerEntryType.CREDIT,
+          metadata: {
+            side: 'receiver',
+            counterparty_customer_id: input.senderCustomerId,
+            ...(input.payload ?? {}),
+          },
+        });
+
         await tx.paymentOperation.update({
           where: { id: op.id },
           data: {
             status: PaymentOperationStatus.CONFIRMED,
+            confirmed_at: new Date(),
             payload: {
               ...(input.payload ?? {}),
               transaction_id: transaction.id,
@@ -886,6 +1213,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             },
             attempt_count: op.attempt_count + 1,
             last_error: null,
+            last_error_code: null,
+            last_error_message: null,
           },
         });
 
@@ -939,47 +1268,49 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         operation_type: PaymentOperationType.WITHDRAW,
         idempotency_key: idempotencyKey,
         customer_id: input.customerId,
+        network: Network.TRON,
         from_address: customer.address,
         to_address: input.address,
+        source_kind: OperationAddressKind.INTERNAL_LEDGER,
+        destination_kind: OperationAddressKind.EXTERNAL,
         asset: 'USDT_TRC20',
         amount: input.amount,
+        initiator_type: OperationInitiatorType.USER,
         payload: input.payload ?? {},
         status: PaymentOperationStatus.NEW,
       }));
 
+    let broadcastBlockchainTransaction: { id: number } | null = null;
     try {
-      await this.prisma.$transaction(async (tx) => {
-        const balance = await tx.userAssetBalance.findUnique({
-          where: {
-            customer_id_asset: {
-              customer_id: input.customerId,
-              asset: 'USDT_TRC20',
-            },
+      const debitLedgerEntryId = await this.prisma.$transaction(async (tx) => {
+        const debitEntry = await this.applyLedgerDelta(tx, {
+          paymentOperationId: op.id,
+          customerId: input.customerId,
+          asset: 'USDT_TRC20',
+          delta: -input.amount,
+          entryType: LedgerEntryType.DEBIT,
+          metadata: {
+            side: 'withdraw',
+            destination_address: input.address,
+            ...(input.payload ?? {}),
           },
-        });
-        const current = Number(balance?.balance ?? 0);
-        if (current + 1e-12 < input.amount) {
-          throw new BadRequestException('Insufficient USDT balance');
-        }
-
-        await tx.userAssetBalance.update({
-          where: {
-            customer_id_asset: {
-              customer_id: input.customerId,
-              asset: 'USDT_TRC20',
-            },
-          },
-          data: { balance: { decrement: input.amount.toString() } },
         });
 
         await tx.paymentOperation.update({
           where: { id: op.id },
           data: {
             status: PaymentOperationStatus.DB_COMMITTED,
-            payload: { ...(input.payload ?? {}), db_committed: true },
+            payload: {
+              ...(input.payload ?? {}),
+              db_committed: true,
+              debit_ledger_entry_id: debitEntry.id,
+            },
             last_error: null,
+            last_error_code: null,
+            last_error_message: null,
           },
         });
+        return debitEntry.id;
       });
 
       const { txHash } = await this.sendUsdt(
@@ -991,31 +1322,89 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         ...(input.payload ?? {}),
         tx_hash: txHash,
       });
+      broadcastBlockchainTransaction = await this.upsertBlockchainTransaction(
+        this.prisma,
+        {
+          paymentOperationId: op.id,
+          direction: BlockchainTransactionDirection.OUTBOUND,
+          asset: 'USDT_TRC20',
+          txHash,
+          fromAddress: customer.address,
+          toAddress: input.address,
+          amount: input.amount,
+          status: BlockchainTransactionStatus.BROADCASTED,
+          gasPayerAddress: this.getRuntime().treasuryAddress,
+        },
+      );
 
       if (await this.waitForConfirmation(txHash)) {
-        await this.markConfirmed(op, {
-          ...(input.payload ?? {}),
-          tx_hash: txHash,
-          confirmed: true,
-        });
-        const transaction = await this.createWithdrawTransaction(
-          input.customerId,
-          input.amount,
-          input.address,
-          txHash,
+        const snapshot = await this.fetchChainTransactionSnapshot(txHash).catch(
+          () => null,
         );
-        await this.updateOperation(op.id, {
-          payload: {
-            ...(input.payload ?? {}),
-            tx_hash: txHash,
-            transaction_id: transaction.id,
+        const confirmedTransactionId = await this.prisma.$transaction(
+          async (tx) => {
+            const blockchainTransaction =
+              await this.upsertBlockchainTransaction(tx, {
+                paymentOperationId: op.id,
+                direction: BlockchainTransactionDirection.OUTBOUND,
+                asset: 'USDT_TRC20',
+                txHash,
+                fromAddress: customer.address,
+                toAddress: input.address,
+                amount: input.amount,
+                status: BlockchainTransactionStatus.CONFIRMED,
+                gasPayerAddress: this.getRuntime().treasuryAddress,
+                snapshot,
+              });
+            const transaction = await this.createWithdrawTransaction(
+              tx,
+              input.customerId,
+              input.amount,
+              input.address,
+              txHash,
+            );
+            if (debitLedgerEntryId > 0) {
+              await tx.ledgerEntry.update({
+                where: { id: debitLedgerEntryId },
+                data: {
+                  transaction_id: transaction.id,
+                  blockchain_transaction_id: blockchainTransaction.id,
+                },
+              });
+            }
+
+            await tx.paymentOperation.update({
+              where: { id: op.id },
+              data: {
+                status: PaymentOperationStatus.CONFIRMED,
+                confirmed_at: new Date(),
+                payload: {
+                  ...(input.payload ?? {}),
+                  tx_hash: txHash,
+                  confirmed: true,
+                  transaction_id: transaction.id,
+                  blockchain_transaction_id: blockchainTransaction.id,
+                  debit_ledger_entry_id: debitLedgerEntryId || undefined,
+                },
+                last_error: null,
+                last_error_code: null,
+                last_error_message: null,
+              },
+            });
+            return transaction.id;
           },
-        });
-        return new StatusOKDto(transaction.id);
+        );
+        return new StatusOKDto(confirmedTransactionId);
       }
 
       return new StatusOKDto(op.id);
     } catch (error) {
+      if (broadcastBlockchainTransaction?.id) {
+        await this.prisma.blockchainTransaction.update({
+          where: { id: broadcastBlockchainTransaction.id },
+          data: { status: BlockchainTransactionStatus.FAILED },
+        });
+      }
       await this.markFailed(op, error);
       await this.compensateWithdraw(
         op,
@@ -1044,41 +1433,171 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         operation_type: PaymentOperationType.COMPENSATION,
         idempotency_key: `comp:${op.id}`,
         customer_id: customerId,
+        network: Network.TRON,
         from_address: op.to_address,
         to_address: op.from_address,
+        source_kind: OperationAddressKind.INTERNAL_LEDGER,
+        destination_kind: OperationAddressKind.INTERNAL_LEDGER,
         asset: 'USDT_TRC20',
         amount,
+        initiator_type: OperationInitiatorType.SYSTEM,
         payload: { ...(payload ?? {}), original_operation_id: op.id },
+        reference_operation_id: op.id,
         reversal_of_id: op.id,
         status: PaymentOperationStatus.NEW,
       }));
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.userAssetBalance.upsert({
-        where: {
-          customer_id_asset: { customer_id: customerId, asset: 'USDT_TRC20' },
+      const debitLedgerEntryId = Number(
+        ((op.payload as UsdtPaymentPayload | undefined)
+          ?.debit_ledger_entry_id ?? 0) as number,
+      );
+      const compensationEntry = await this.applyLedgerDelta(tx, {
+        paymentOperationId: compensation.id,
+        customerId,
+        asset: 'USDT_TRC20',
+        delta: amount,
+        entryType: LedgerEntryType.COMPENSATION,
+        referenceEntryId: debitLedgerEntryId > 0 ? debitLedgerEntryId : null,
+        metadata: {
+          original_operation_id: op.id,
+          ...(payload ?? {}),
         },
-        create: {
-          customer_id: customerId,
-          asset: 'USDT_TRC20',
-          balance: amount.toString(),
-        },
-        update: { balance: { increment: amount.toString() } },
       });
       await tx.paymentOperation.update({
         where: { id: op.id },
         data: {
           status: PaymentOperationStatus.COMPENSATED,
-          payload: { ...(payload ?? {}), compensated_by: compensation.id },
+          failed_at: new Date(),
+          payload: {
+            ...((op.payload as UsdtPaymentPayload | undefined) ?? {}),
+            ...(payload ?? {}),
+            compensated_by: compensation.id,
+            compensation_ledger_entry_id: compensationEntry.id,
+          },
         },
       });
       await tx.paymentOperation.update({
         where: { id: compensation.id },
         data: {
           status: PaymentOperationStatus.CONFIRMED,
-          payload: { ...(payload ?? {}), compensation: true },
+          confirmed_at: new Date(),
+          payload: {
+            ...(payload ?? {}),
+            compensation: true,
+            reference_entry_id:
+              debitLedgerEntryId > 0 ? debitLedgerEntryId : undefined,
+          },
         },
       });
+    });
+  }
+
+  private async finalizeWithdrawOperation(
+    op: PaymentOperation,
+  ): Promise<number | undefined> {
+    if (!op.tx_hash) return undefined;
+
+    const snapshot = await this.fetchChainTransactionSnapshot(op.tx_hash).catch(
+      () => null,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const blockchainTransaction = await this.upsertBlockchainTransaction(tx, {
+        paymentOperationId: op.id,
+        direction: BlockchainTransactionDirection.OUTBOUND,
+        asset: op.asset,
+        txHash: op.tx_hash ?? null,
+        fromAddress: op.from_address,
+        toAddress: op.to_address,
+        amount: Number(op.amount),
+        status: BlockchainTransactionStatus.CONFIRMED,
+        gasPayerAddress: this.getRuntime().treasuryAddress,
+        snapshot,
+      });
+
+      const existingTransaction = await tx.transaction.findFirst({
+        where: {
+          tx_hash: op.tx_hash,
+          sender_customer_id: op.customer_id,
+          comment: `USDT withdraw ${Number(op.amount)}`,
+        },
+        orderBy: { id: 'asc' },
+      });
+
+      const transaction =
+        existingTransaction ??
+        (await this.createWithdrawTransaction(
+          tx,
+          op.customer_id,
+          Number(op.amount),
+          op.to_address,
+          op.tx_hash!,
+        ));
+
+      const debitLedgerEntryId = Number(
+        ((op.payload as UsdtPaymentPayload | undefined)
+          ?.debit_ledger_entry_id ?? 0) as number,
+      );
+      if (debitLedgerEntryId > 0) {
+        await tx.ledgerEntry.update({
+          where: { id: debitLedgerEntryId },
+          data: {
+            transaction_id: transaction.id,
+            blockchain_transaction_id: blockchainTransaction.id,
+          },
+        });
+      }
+
+      await tx.paymentOperation.update({
+        where: { id: op.id },
+        data: {
+          status: PaymentOperationStatus.CONFIRMED,
+          confirmed_at: new Date(),
+          payload: {
+            ...((op.payload as UsdtPaymentPayload | undefined) ?? {}),
+            tx_hash: op.tx_hash,
+            confirmed: true,
+            transaction_id: transaction.id,
+            blockchain_transaction_id: blockchainTransaction.id,
+            debit_ledger_entry_id: debitLedgerEntryId || undefined,
+          },
+          last_error: null,
+          last_error_code: null,
+          last_error_message: null,
+        },
+      });
+
+      return transaction.id;
+    });
+  }
+
+  private async finalizeSweepOperation(op: PaymentOperation): Promise<void> {
+    if (!op.tx_hash) return;
+
+    const snapshot = await this.fetchChainTransactionSnapshot(op.tx_hash).catch(
+      () => null,
+    );
+    const blockchainTransaction = await this.upsertBlockchainTransaction(
+      this.prisma,
+      {
+        paymentOperationId: op.id,
+        direction: BlockchainTransactionDirection.OUTBOUND,
+        asset: op.asset,
+        txHash: op.tx_hash,
+        fromAddress: op.from_address,
+        toAddress: op.to_address,
+        amount: Number(op.amount),
+        status: BlockchainTransactionStatus.CONFIRMED,
+        gasPayerAddress: op.from_address,
+        snapshot,
+      },
+    );
+
+    await this.markConfirmed(op, {
+      ...((op.payload as UsdtPaymentPayload | undefined) ?? {}),
+      blockchain_transaction_id: blockchainTransaction.id,
+      confirmed: true,
     });
   }
 
@@ -1144,12 +1663,17 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         operation_type: PaymentOperationType.DEPOSIT,
         idempotency_key: idempotencyKey,
         customer_id: customer.customer_id,
+        network: Network.TRON,
         from_address: dto.from_address,
         to_address: dto.to_address,
+        source_kind: OperationAddressKind.TREASURY,
+        destination_kind: OperationAddressKind.USER_WALLET,
         asset: 'USDT_TRC20',
         amount: dto.amount,
         tx_hash: dto.tx_hash,
+        initiator_type: OperationInitiatorType.WEBHOOK,
         payload: dto.payload ?? {},
+        webhook_received_at: new Date(),
         status: confirmed
           ? PaymentOperationStatus.BROADCASTED
           : PaymentOperationStatus.NEW,
@@ -1228,6 +1752,10 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
       for (const op of ops) {
         try {
+          await this.updateOperation(op.id, {
+            last_reconciled_at: new Date(),
+          });
+
           if (op.operation_type === PaymentOperationType.DEPOSIT) {
             const confirmed = op.tx_hash
               ? await this.isConfirmedTx(op.tx_hash)
@@ -1303,12 +1831,32 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
                 Number(op.amount),
               );
               await this.markBroadcasted(op, txHash);
+              await this.upsertBlockchainTransaction(this.prisma, {
+                paymentOperationId: op.id,
+                direction: BlockchainTransactionDirection.OUTBOUND,
+                asset: op.asset,
+                txHash,
+                fromAddress: op.from_address,
+                toAddress: destinationAddress,
+                amount: Number(op.amount),
+                status: BlockchainTransactionStatus.BROADCASTED,
+                gasPayerAddress:
+                  op.operation_type === PaymentOperationType.SWEEP
+                    ? op.from_address
+                    : this.getRuntime().treasuryAddress,
+              });
             }
           }
 
           if (op.tx_hash && op.status === PaymentOperationStatus.BROADCASTED) {
             if (await this.isConfirmedTx(op.tx_hash)) {
-              await this.markConfirmed(op);
+              if (op.operation_type === PaymentOperationType.WITHDRAW) {
+                await this.finalizeWithdrawOperation(op);
+              } else if (op.operation_type === PaymentOperationType.SWEEP) {
+                await this.finalizeSweepOperation(op);
+              } else {
+                await this.markConfirmed(op);
+              }
             }
           }
         } catch (error) {

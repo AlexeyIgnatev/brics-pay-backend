@@ -6,9 +6,7 @@ const { NestFactory } = require('@nestjs/core');
 const { ConfigService } = require('@nestjs/config');
 const { PrismaClient } = require('@prisma/client');
 const { AppModule } = require('../dist/app.module');
-const {
-  CryptoService,
-} = require('../dist/config/crypto/crypto.service');
+const { CryptoService } = require('../dist/config/crypto/crypto.service');
 const {
   UsdtTreasuryOrchestratorService,
 } = require('../dist/payments/usdt-treasury-orchestrator.service');
@@ -33,7 +31,8 @@ function getTronWebCtor() {
 function requestJson(url, method, body, headers = {}) {
   const target = new URL(url);
   const payload = body ? JSON.stringify(body) : '';
-  const requestImpl = target.protocol === 'https:' ? https.request : http.request;
+  const requestImpl =
+    target.protocol === 'https:' ? https.request : http.request;
 
   return new Promise((resolve, reject) => {
     const req = requestImpl(
@@ -42,9 +41,7 @@ function requestJson(url, method, body, headers = {}) {
         method,
         headers: {
           'Content-Type': 'application/json',
-          ...(payload
-            ? { 'Content-Length': Buffer.byteLength(payload) }
-            : {}),
+          ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
           ...headers,
         },
         timeout: 10000,
@@ -217,10 +214,7 @@ async function main() {
     );
 
     console.log('deposit-webhook-1=', JSON.stringify(webhook1, null, 2));
-    console.log(
-      'deposit-webhook-1-dup=',
-      JSON.stringify(webhook1Dup, null, 2),
-    );
+    console.log('deposit-webhook-1-dup=', JSON.stringify(webhook1Dup, null, 2));
     console.log('deposit-webhook-2=', JSON.stringify(webhook2, null, 2));
 
     const internalTransfer = await orchestrator.processInternalTransfer({
@@ -310,6 +304,59 @@ async function main() {
       },
     });
 
+    const blockchainTransactions = await prisma.blockchainTransaction.findMany({
+      where: { createdAt: { gte: startedAt } },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        payment_operation_id: true,
+        direction: true,
+        network: true,
+        asset: true,
+        token_contract: true,
+        tx_hash: true,
+        from_address: true,
+        to_address: true,
+        amount: true,
+        amount_raw: true,
+        status: true,
+        block_number: true,
+        block_timestamp: true,
+        confirmations: true,
+        gas_payer_address: true,
+        fee_amount: true,
+        fee_amount_raw: true,
+        fee_asset: true,
+        energy_used: true,
+        bandwidth_used: true,
+        receipt_status: true,
+        createdAt: true,
+      },
+    });
+
+    const ledgerEntries = await prisma.ledgerEntry.findMany({
+      where: { createdAt: { gte: startedAt } },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        payment_operation_id: true,
+        blockchain_transaction_id: true,
+        transaction_id: true,
+        customer_id: true,
+        asset: true,
+        entry_type: true,
+        account_type: true,
+        amount: true,
+        amount_raw: true,
+        balance_before: true,
+        balance_after: true,
+        status: true,
+        reference_entry_id: true,
+        metadata: true,
+        createdAt: true,
+      },
+    });
+
     const afterBalances = await prisma.userAssetBalance.findMany({
       where: {
         customer_id: { in: customers.map((c) => c.id) },
@@ -324,8 +371,16 @@ async function main() {
       },
     });
 
-    console.log('paymentOperations=', JSON.stringify(paymentOperations, null, 2));
+    console.log(
+      'paymentOperations=',
+      JSON.stringify(paymentOperations, null, 2),
+    );
     console.log('transactions=', JSON.stringify(transactions, null, 2));
+    console.log(
+      'blockchainTransactions=',
+      JSON.stringify(blockchainTransactions, null, 2),
+    );
+    console.log('ledgerEntries=', JSON.stringify(ledgerEntries, null, 2));
     console.log('afterBalances=', JSON.stringify(afterBalances, null, 2));
     console.log('withdrawAddress=', withdrawAddress);
   } finally {
