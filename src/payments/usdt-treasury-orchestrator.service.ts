@@ -365,24 +365,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     };
 
     try {
-      const info = (await this.getTronWeb().trx.getTransactionInfo(
-        txHash,
-      )) as Record<string, unknown> | null;
-      if (isConfirmedPayload(info)) {
-        return true;
-      }
-      if (info && Object.keys(info).length > 0) {
-        this.logger.warn(
-          `TronWeb confirmation payload for tx=${txHash} was not treated as confirmed: ${JSON.stringify(info)}`,
-        );
-      }
-    } catch (error) {
-      this.logger.warn(
-        `TronWeb confirmation lookup failed for tx=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
-    try {
       const rawText = await this.postJsonRaw(
         `${this.getRuntime().rpcUrl.replace(/\/+$/, '')}/wallet/gettransactioninfobyid`,
         { value: txHash },
@@ -400,6 +382,27 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       this.logger.warn(
         `Raw RPC confirmation lookup failed for tx=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
       );
+    }
+
+    try {
+      const info = (await this.getTronWeb().trx.getTransactionInfo(
+        txHash,
+      )) as Record<string, unknown> | null;
+      if (isConfirmedPayload(info)) {
+        return true;
+      }
+      if (info && Object.keys(info).length > 0) {
+        this.logger.warn(
+          `TronWeb confirmation payload for tx=${txHash} was not treated as confirmed: ${JSON.stringify(info)}`,
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('405')) {
+        this.logger.warn(
+          `TronWeb confirmation lookup failed for tx=${txHash}: ${message}`,
+        );
+      }
     }
 
     return false;
