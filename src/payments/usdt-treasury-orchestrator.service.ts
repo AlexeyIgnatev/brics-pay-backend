@@ -340,10 +340,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       Number.isFinite(feeRawNumber) && feeRawNumber > 0
         ? String(feeRawNumber)
         : null;
-    const feeAmount =
-      feeAmountRaw !== null
-        ? (feeRawNumber / 10 ** USDT_DECIMALS).toString()
-        : null;
     const confirmations =
       blockNumber && input.snapshot?.currentBlockNumber
         ? Math.max(input.snapshot.currentBlockNumber - blockNumber + 1, 0)
@@ -363,12 +359,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       decimals: USDT_DECIMALS,
       status: input.status,
       block_number: blockNumber,
-      block_hash: null,
       block_timestamp: blockTimestamp,
       confirmations,
-      nonce_or_sequence: null,
       gas_payer_address: input.gasPayerAddress ?? null,
-      fee_amount: feeAmount,
       fee_amount_raw: feeAmountRaw,
       fee_asset: feeAmountRaw !== null ? 'TRX' : null,
       energy_used:
@@ -387,12 +380,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         ) || null,
       receipt_status:
         (receipt.receipt as { result?: string } | undefined)?.result ?? null,
-      raw_transaction: Object.keys(transaction).length ? transaction : null,
-      raw_receipt: Object.keys(receipt).length ? receipt : null,
-      raw_event_logs:
-        Array.isArray(receipt.log) && receipt.log.length > 0
-          ? receipt.log
-          : null,
     };
 
     if (existing) {
@@ -865,7 +852,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     confirmed_at?: Date | null;
     failed_at?: Date | null;
     last_reconciled_at?: Date | null;
-    reference_operation_id?: number | null;
     reversal_of_id?: number | null;
   }): Promise<PaymentOperation> {
     return this.prisma.paymentOperation.create({
@@ -892,7 +878,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         confirmed_at: input.confirmed_at ?? null,
         failed_at: input.failed_at ?? null,
         last_reconciled_at: input.last_reconciled_at ?? null,
-        reference_operation_id: input.reference_operation_id ?? null,
         reversal_of_id: input.reversal_of_id ?? null,
       },
     });
@@ -1442,7 +1427,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         amount,
         initiator_type: OperationInitiatorType.SYSTEM,
         payload: { ...(payload ?? {}), original_operation_id: op.id },
-        reference_operation_id: op.id,
         reversal_of_id: op.id,
         status: PaymentOperationStatus.NEW,
       }));

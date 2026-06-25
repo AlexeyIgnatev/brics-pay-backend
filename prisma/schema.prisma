@@ -382,15 +382,12 @@ model PaymentOperation {
   confirmed_at             DateTime?
   failed_at                DateTime?
   last_reconciled_at       DateTime?
-  reference_operation_id   Int?
   reversal_of_id           Int?
   createdAt                DateTime               @default(now())
   updatedAt                DateTime               @updatedAt
 
   customer                Customer                @relation("payment_operation_customer", fields: [customer_id], references: [customer_id])
   counterparty_customer   Customer?               @relation("payment_operation_counterparty", fields: [counterparty_customer_id], references: [customer_id])
-  reference_operation     PaymentOperation?       @relation("payment_operation_reference", fields: [reference_operation_id], references: [id])
-  referenced_by           PaymentOperation[]      @relation("payment_operation_reference")
   reversal_of             PaymentOperation?       @relation("payment_operation_reversal", fields: [reversal_of_id], references: [id])
   reversals               PaymentOperation[]      @relation("payment_operation_reversal")
   blockchain_transactions BlockchainTransaction[]
@@ -417,20 +414,14 @@ model BlockchainTransaction {
   decimals             Int                            @default(6)
   status               BlockchainTransactionStatus    @default(CREATED)
   block_number         Int?
-  block_hash           String?
   block_timestamp      DateTime?
   confirmations        Int                            @default(0)
-  nonce_or_sequence    String?
   gas_payer_address    String?
-  fee_amount           Decimal?                       @db.Decimal(38, 18)
   fee_amount_raw       String?
   fee_asset            String?
   energy_used          Int?
   bandwidth_used       Int?
   receipt_status       String?
-  raw_transaction      Json?
-  raw_receipt          Json?
-  raw_event_logs       Json?
   createdAt            DateTime                       @default(now())
   updatedAt            DateTime                       @updatedAt
 

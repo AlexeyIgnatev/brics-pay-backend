@@ -111,7 +111,6 @@ async function main() {
         tx_hash: true,
         status: true,
         amount: true,
-        fee_amount: true,
         fee_asset: true,
         confirmations: true,
         createdAt: true,

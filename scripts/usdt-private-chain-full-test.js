@@ -324,7 +324,6 @@ async function main() {
         block_timestamp: true,
         confirmations: true,
         gas_payer_address: true,
-        fee_amount: true,
         fee_amount_raw: true,
         fee_asset: true,
         energy_used: true,
