@@ -35,7 +35,6 @@ interface UsdtRuntime {
   tokenAddress: string;
   treasuryPrivateKey: string;
   treasuryAddress: string;
-  tronWeb: any;
 }
 
 interface DepositFinalizeInput {
@@ -52,6 +51,7 @@ interface DepositFinalizeInput {
 export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private readonly logger = new Logger(UsdtTreasuryOrchestratorService.name);
   private runtime?: UsdtRuntime;
+  private tronWeb?: any;
   private reconcileTimer?: NodeJS.Timeout;
   private reconcileRunning = false;
   private reconcileStartedAt?: number;
@@ -143,26 +143,45 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
     const treasuryAddress =
       this.cryptoService.trxAddressFromPrivateKey(treasuryPrivateKey);
-    const TronWebCtor = TronWeb as unknown as new (options: {
-      fullHost: string;
-      privateKey: string;
-    }) => any;
-    const tronWeb = new TronWebCtor({
-      fullHost: rpcUrl,
-      privateKey: treasuryPrivateKey,
-    });
     this.runtime = {
       rpcUrl,
       tokenAddress,
       treasuryPrivateKey,
       treasuryAddress,
-      tronWeb,
     };
     return this.runtime;
   }
 
+  private getTronWebCtor(): new (options: {
+    fullHost: string;
+    privateKey: string;
+  }) => any {
+    const candidate =
+      (TronWeb as { TronWeb?: unknown }).TronWeb ??
+      (TronWeb as { default?: { TronWeb?: unknown } }).default?.TronWeb ??
+      (TronWeb as { default?: unknown }).default ??
+      TronWeb;
+
+    if (typeof candidate !== 'function') {
+      throw new BadRequestException('TronWeb constructor is unavailable');
+    }
+
+    return candidate as new (options: {
+      fullHost: string;
+      privateKey: string;
+    }) => any;
+  }
+
   private getTronWeb(): any {
-    return this.getRuntime().tronWeb;
+    if (this.tronWeb) return this.tronWeb;
+
+    const runtime = this.getRuntime();
+    const TronWebCtor = this.getTronWebCtor();
+    this.tronWeb = new TronWebCtor({
+      fullHost: runtime.rpcUrl,
+      privateKey: runtime.treasuryPrivateKey,
+    });
+    return this.tronWeb;
   }
 
   private normalizeKey(value?: string | null): string | undefined {
