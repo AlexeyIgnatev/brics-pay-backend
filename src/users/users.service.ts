@@ -22,6 +22,75 @@ export class UsersService {
     return platform === 'ios' ? PushPlatform.IOS : PushPlatform.ANDROID;
   }
 
+  private buildCustomerProfileData(customerInfo: {
+    CustomerNameTranslit?: string;
+    CustomerName?: string;
+    OtchestvoTranslit?: string;
+    Otchestvo?: string;
+    SurnameTranslit?: string;
+    Surname?: string;
+    ContactPhone1?: string;
+    EMail?: string;
+  }) {
+    return {
+      first_name:
+        customerInfo.CustomerNameTranslit || customerInfo.CustomerName || '',
+      middle_name:
+        customerInfo.OtchestvoTranslit || customerInfo.Otchestvo || '',
+      last_name: customerInfo.SurnameTranslit || customerInfo.Surname || '',
+      phone: customerInfo.ContactPhone1 || '',
+      email: customerInfo.EMail || '',
+    };
+  }
+
+  private isValidCustomerWallet(user: {
+    address: string | null;
+    private_key: string | null;
+  }): boolean {
+    if (!user.address?.trim() || !user.private_key?.trim()) {
+      return false;
+    }
+
+    try {
+      const expectedAddress = this.ethereumService
+        .getAddressFromPrivateKey(user.private_key)
+        .trim()
+        .toLowerCase();
+
+      return user.address.trim().toLowerCase() === expectedAddress;
+    } catch {
+      return false;
+    }
+  }
+
+  private async repairCustomerWallet(
+    customerId: number,
+    profileData: {
+      first_name: string;
+      middle_name: string;
+      last_name: string;
+      phone: string;
+      email: string;
+    },
+  ): Promise<void> {
+    const wallet = this.ethereumService.generateAddress();
+
+    await this.prisma.customer.upsert({
+      where: { customer_id: customerId },
+      create: {
+        customer_id: customerId,
+        address: wallet.address,
+        private_key: wallet.privateKey,
+        ...profileData,
+      },
+      update: {
+        address: wallet.address,
+        private_key: wallet.privateKey,
+        ...profileData,
+      },
+    });
+  }
+
   async updateLastLogin(customerId: number, ip?: string, device?: string) {
     try {
       await this.prisma.customer.update({
@@ -77,42 +146,53 @@ export class UsersService {
     }
 
     const customerInfo = await this.bricsService.getCustomerInfo();
+    const profileData = this.buildCustomerProfileData(customerInfo);
     let user = await this.prisma.customer.findUnique({
       where: {
         customer_id: customerInfo.CustomerID,
       },
     });
 
-    const first_name =
-      customerInfo.CustomerNameTranslit || customerInfo.CustomerName;
-    const middle_name =
-      customerInfo.OtchestvoTranslit || customerInfo.Otchestvo;
-    const last_name = customerInfo.SurnameTranslit || customerInfo.Surname;
-    const phone = customerInfo.ContactPhone1 || '';
-    const email = customerInfo.EMail || '';
-
     if (!user) {
-      const userAddress = this.ethereumService.generateAddress();
-      await this.prisma.customer.create({
-        data: {
+      await this.repairCustomerWallet(customerInfo.CustomerID, profileData);
+      user = await this.prisma.customer.findUnique({
+        where: {
           customer_id: customerInfo.CustomerID,
-          address: userAddress.address,
-          private_key: userAddress.privateKey,
-          first_name,
-          middle_name,
-          last_name,
-          phone,
-          email,
         },
       });
     } else {
-      const data: any = {};
-      if (!user.first_name && first_name) data.first_name = first_name;
-      if (!user.middle_name && middle_name) data.middle_name = middle_name;
-      if (!user.last_name && last_name) data.last_name = last_name;
-      if (!user.phone && phone) data.phone = phone;
-      if (!user.email && email) data.email = email;
-      if (Object.keys(data).length) {
+      const data: {
+        first_name?: string;
+        middle_name?: string;
+        last_name?: string;
+        phone?: string;
+        email?: string;
+      } = {};
+
+      if (!user.first_name && profileData.first_name) {
+        data.first_name = profileData.first_name;
+      }
+      if (!user.middle_name && profileData.middle_name) {
+        data.middle_name = profileData.middle_name;
+      }
+      if (!user.last_name && profileData.last_name) {
+        data.last_name = profileData.last_name;
+      }
+      if (!user.phone && profileData.phone) {
+        data.phone = profileData.phone;
+      }
+      if (!user.email && profileData.email) {
+        data.email = profileData.email;
+      }
+
+      if (!this.isValidCustomerWallet(user)) {
+        await this.repairCustomerWallet(customerInfo.CustomerID, profileData);
+        user = await this.prisma.customer.findUnique({
+          where: {
+            customer_id: customerInfo.CustomerID,
+          },
+        });
+      } else if (Object.keys(data).length) {
         await this.prisma.customer.update({
           where: { customer_id: customerInfo.CustomerID },
           data,
@@ -122,11 +202,7 @@ export class UsersService {
 
     return {
       customer_id: customerInfo.CustomerID,
-      first_name,
-      middle_name,
-      last_name,
-      phone,
-      email,
+      ...profileData,
     };
   }
 
