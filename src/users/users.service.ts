@@ -7,7 +7,6 @@ import { WalletDto } from './dto/wallet.dto';
 import { Currency } from './enums/currency';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { SettingsService } from '../config/settings/settings.service';
-import { BybitExchangeService } from '../config/exchange/bybit.service';
 
 @Injectable()
 export class UsersService {
@@ -17,7 +16,6 @@ export class UsersService {
     private readonly ethereumService: EthereumService,
     private readonly cryptoService: CryptoService,
     private readonly settingsService: SettingsService,
-    private readonly exchangeService: BybitExchangeService,
   ) {}
 
   private toPushPlatform(platform: 'android' | 'ios'): PushPlatform {
@@ -141,27 +139,16 @@ export class UsersService {
       esom_per_usd: '1',
       esom_som_conversion_fee_pct: '0',
       esom_som_conversion_fee_min: '0',
-      btc_trade_fee_pct: '0',
-      eth_trade_fee_pct: '0',
       usdt_trade_fee_pct: '0',
-      btc_withdraw_fee_fixed: '0',
-      eth_withdraw_fee_fixed: '0',
       usdt_withdraw_fee_fixed: '0',
-      min_withdraw_btc: '0',
-      min_withdraw_eth: '0',
       min_withdraw_usdt_trc20: '0',
     };
 
-    const [somLiveResult, esomBalanceResult, settingsResult, pricesResult] =
+    const [somLiveResult, esomBalanceResult, settingsResult] =
       await Promise.allSettled([
         this.bricsService.getSomBalance(),
         this.ethereumService.getEsomBalance(user.address),
         this.settingsService.get(),
-        this.exchangeService.getUsdPrices([
-          'BTC' as Asset,
-          'ETH' as Asset,
-          'USDT_TRC20' as Asset,
-        ]),
       ]);
 
     if (somLiveResult.status === 'rejected') {
@@ -179,12 +166,6 @@ export class UsersService {
         `Failed to fetch settings for customer=${user.customer_id}: ${settingsResult.reason}`,
       );
     }
-    if (pricesResult.status === 'rejected') {
-      console.warn(
-        `Failed to fetch USD prices for customer=${user.customer_id}: ${pricesResult.reason}`,
-      );
-    }
-
     const somLive =
       somLiveResult.status === 'fulfilled' ? somLiveResult.value : 0;
     const esomBalance =
@@ -193,10 +174,6 @@ export class UsersService {
       settingsResult.status === 'fulfilled'
         ? settingsResult.value
         : fallbackSettings;
-    const pricesUsd =
-      pricesResult.status === 'fulfilled'
-        ? pricesResult.value
-        : { BTC: '0', ETH: '0', USDT_TRC20: '1' };
 
     await this.prisma.userAssetBalance.upsert({
       where: {
@@ -214,51 +191,20 @@ export class UsersService {
     });
 
     const esomPerUsd = Number(settings.esom_per_usd);
-    const btcUsd = Number(pricesUsd['BTC'] || 0);
-    const ethUsd = Number(pricesUsd['ETH'] || 0);
-    const usdtUsd = 1;
-
-    const btcBaseEsom = btcUsd * esomPerUsd;
-    const ethBaseEsom = ethUsd * esomPerUsd;
-    const usdtBaseEsom = usdtUsd * esomPerUsd;
-
-    const btcFee = Number(settings.btc_trade_fee_pct) / 100;
-    const ethFee = Number(settings.eth_trade_fee_pct) / 100;
     const usdtFee = Number(settings.usdt_trade_fee_pct) / 100;
 
-    const btcBuy = btcBaseEsom * (1 + btcFee);
-    const btcSell = btcBaseEsom * (1 - btcFee);
-    const ethBuy = ethBaseEsom * (1 + ethFee);
-    const ethSell = ethBaseEsom * (1 - ethFee);
+    const usdtBaseEsom = 1 * esomPerUsd;
     const usdtBuy = usdtBaseEsom * (1 + usdtFee);
     const usdtSell = usdtBaseEsom * (1 - usdtFee);
 
-    const [btcBalanceRec, ethBalanceRec, usdtBalanceRec] = await Promise.all([
-      this.prisma.userAssetBalance.findUnique({
-        where: {
-          customer_id_asset: {
-            customer_id: user.customer_id,
-            asset: 'BTC' as Asset,
-          },
+    const usdtBalanceRec = await this.prisma.userAssetBalance.findUnique({
+      where: {
+        customer_id_asset: {
+          customer_id: user.customer_id,
+          asset: 'USDT_TRC20' as Asset,
         },
-      }),
-      this.prisma.userAssetBalance.findUnique({
-        where: {
-          customer_id_asset: {
-            customer_id: user.customer_id,
-            asset: 'ETH' as Asset,
-          },
-        },
-      }),
-      this.prisma.userAssetBalance.findUnique({
-        where: {
-          customer_id_asset: {
-            customer_id: user.customer_id,
-            asset: 'USDT_TRC20' as Asset,
-          },
-        },
-      }),
-    ]);
+      },
+    });
 
     return [
       {
@@ -274,22 +220,6 @@ export class UsersService {
         balance: esomBalance,
         buy_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,
         sell_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,
-      },
-      {
-        currency: Currency.BTC,
-        address: this.cryptoService.bech32AddressFromPrivateKey(
-          user.private_key,
-        ),
-        balance: Number(btcBalanceRec?.balance ?? 0),
-        buy_rate: btcBuy,
-        sell_rate: btcSell,
-      },
-      {
-        currency: Currency.ETH,
-        address: this.cryptoService.ethAddressFromPrivateKey(user.private_key),
-        balance: Number(ethBalanceRec?.balance ?? 0),
-        buy_rate: ethBuy,
-        sell_rate: ethSell,
       },
       {
         currency: Currency.USDT_TRC20,

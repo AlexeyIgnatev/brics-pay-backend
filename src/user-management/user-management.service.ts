@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Asset, PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import {
   UsersListQueryDto,
   UsersListResponseDto,
@@ -7,8 +7,6 @@ import {
   UsersListItemDto,
   UserStatusDtoEnum,
 } from './dto/users-list.dto';
-import { BybitExchangeService } from '../config/exchange/bybit.service';
-import { PriceCacheService } from './price-cache.service';
 import {
   BalanceCacheService,
   UserAssetBalances,
@@ -18,36 +16,8 @@ import {
 export class UserManagementService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly exchange: BybitExchangeService,
-    private readonly priceCache: PriceCacheService,
     private readonly balanceCache: BalanceCacheService,
   ) {}
-
-  private async getUsdPricesCached(): Promise<Record<string, number>> {
-    const keys = ['BTC', 'ETH', 'USDT_TRC20'] as const;
-    const out: Record<string, number> = {};
-    const missing: Asset[] = [];
-    for (const k of keys) {
-      const v = this.priceCache.get(`USD:${k}`);
-      if (v == null) missing.push(k as unknown as Asset);
-      else out[k] = v;
-    }
-    if (missing.length) {
-      const fetched = await this.exchange.getUsdPrices(missing);
-      for (const k of missing) {
-        const key = k as unknown as string;
-        const val = key === 'USDT_TRC20' ? 1 : Number(fetched[key] || 0);
-        this.priceCache.set(`USD:${key}`, val);
-        out[key] = val;
-      }
-    }
-
-    if (out['USDT_TRC20'] == null) {
-      this.priceCache.set('USD:USDT_TRC20', 1);
-      out['USDT_TRC20'] = 1;
-    }
-    return out;
-  }
 
   async list(q: UsersListQueryDto): Promise<UsersListResponseDto> {
     const where: any = {};
@@ -89,42 +59,22 @@ export class UserManagementService {
       this.prisma.customer.count({ where }),
     ]);
 
-    const settings = await this.prisma.settings.findUnique({
-      where: { id: 1 },
-    });
-    const esomPerUsd = Number(settings?.esom_per_usd || 0);
-    const prices = await this.getUsdPricesCached();
-
     const items: UsersListItemDto[] = itemsRaw.map((c) => {
       const cached = this.balanceCache.get(c.customer_id);
-      let ESOM: number,
-        SOM: number,
-        BTC: number,
-        ETH: number,
-        USDT_TRC20: number;
+      let ESOM: number, SOM: number, USDT_TRC20: number;
       if (cached) {
-        ({ ESOM, SOM, BTC, ETH, USDT_TRC20 } = cached);
+        ({ ESOM, SOM, USDT_TRC20 } = cached);
       } else {
         const bal = Object.fromEntries(
           c.balances.map((b) => [b.asset, Number(b.balance)]),
         ) as Record<string, number>;
         ESOM = Number(bal.ESOM || 0);
         SOM = Number(bal.SOM || 0);
-        BTC = Number(bal.BTC || 0);
-        ETH = Number(bal.ETH || 0);
         USDT_TRC20 = Number(bal.USDT_TRC20 || 0);
-        this.balanceCache.set(c.customer_id, {
-          ESOM,
-          SOM,
-          BTC,
-          ETH,
-          USDT_TRC20,
-        });
+        this.balanceCache.set(c.customer_id, { ESOM, SOM, USDT_TRC20 });
       }
 
-      const total_crypto_usd =
-        BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
-      const total_salam = SOM + ESOM + total_crypto_usd * esomPerUsd;
+      const total_salam = SOM + ESOM + USDT_TRC20;
 
       return {
         customer_id: c.customer_id,
@@ -141,7 +91,7 @@ export class UserManagementService {
               : UserStatusDtoEnum.ACTIVE,
         tariff_category: c.tariff_category,
         residency: c.residency,
-        balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
+        balances: { ESOM, SOM, USDT_TRC20 },
         som_balance: SOM,
         total_balance: total_salam,
         createdAt: c.createdAt ?? undefined,
@@ -176,23 +126,13 @@ export class UserManagementService {
     });
     this.balanceCache.invalidate(id);
 
-    const settings = await this.prisma.settings.findUnique({
-      where: { id: 1 },
-    });
-    const esomPerUsd = Number(settings?.esom_per_usd || 0);
-    const prices = await this.getUsdPricesCached();
-
     const bal = Object.fromEntries(
       c.balances.map((b) => [b.asset, Number(b.balance)]),
     ) as Record<string, number>;
     const ESOM = Number(bal.ESOM || 0);
     const SOM = Number(bal.SOM || 0);
-    const BTC = Number(bal.BTC || 0);
-    const ETH = Number(bal.ETH || 0);
     const USDT_TRC20 = Number(bal.USDT_TRC20 || 0);
-    const total_crypto_usd =
-      BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
-    const total_salam = SOM + ESOM + total_crypto_usd * esomPerUsd;
+    const total_salam = SOM + ESOM + USDT_TRC20;
 
     return {
       customer_id: c.customer_id,
@@ -209,7 +149,7 @@ export class UserManagementService {
             : UserStatusDtoEnum.ACTIVE,
       tariff_category: c.tariff_category,
       residency: c.residency,
-      balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
+      balances: { ESOM, SOM, USDT_TRC20 },
       som_balance: SOM,
       total_balance: total_salam,
       createdAt: c.createdAt ?? undefined,
@@ -226,31 +166,21 @@ export class UserManagementService {
     });
     if (!c) return null;
 
-    const settings = await this.prisma.settings.findUnique({
-      where: { id: 1 },
-    });
-    const esomPerUsd = Number(settings?.esom_per_usd || 0);
-    const prices = await this.getUsdPricesCached();
-
     const cached = this.balanceCache.get(c.customer_id);
-    let ESOM: number, SOM: number, BTC: number, ETH: number, USDT_TRC20: number;
+    let ESOM: number, SOM: number, USDT_TRC20: number;
     if (cached) {
-      ({ ESOM, SOM, BTC, ETH, USDT_TRC20 } = cached);
+      ({ ESOM, SOM, USDT_TRC20 } = cached);
     } else {
       const bal = Object.fromEntries(
         c.balances.map((b) => [b.asset, Number(b.balance)]),
       ) as Record<string, number>;
       ESOM = Number(bal.ESOM || 0);
       SOM = Number(bal.SOM || 0);
-      BTC = Number(bal.BTC || 0);
-      ETH = Number(bal.ETH || 0);
       USDT_TRC20 = Number(bal.USDT_TRC20 || 0);
-      this.balanceCache.set(c.customer_id, { ESOM, SOM, BTC, ETH, USDT_TRC20 });
+      this.balanceCache.set(c.customer_id, { ESOM, SOM, USDT_TRC20 });
     }
 
-    const total_crypto_usd =
-      BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
-    const total_salam = SOM + ESOM + total_crypto_usd * esomPerUsd;
+    const total_salam = SOM + ESOM + USDT_TRC20;
 
     return {
       customer_id: c.customer_id,
@@ -267,7 +197,7 @@ export class UserManagementService {
             : UserStatusDtoEnum.ACTIVE,
       tariff_category: c.tariff_category,
       residency: c.residency,
-      balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
+      balances: { ESOM, SOM, USDT_TRC20 },
       last_login_at: c.last_login_at ?? undefined,
       last_login_ip: c.last_login_ip ?? undefined,
       last_login_device: c.last_login_device ?? undefined,

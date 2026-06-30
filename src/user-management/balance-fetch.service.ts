@@ -3,7 +3,6 @@ import { PrismaClient, Asset } from '@prisma/client';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { TronService } from '../config/crypto/tron.service';
-import { BitcoinService } from '../config/crypto/bitcoin.service';
 
 @Injectable()
 export class BalanceFetchService {
@@ -13,7 +12,6 @@ export class BalanceFetchService {
     private readonly eth: EthereumService,
     private readonly crypto: CryptoService,
     private readonly tron: TronService,
-    private readonly btc: BitcoinService,
   ) {}
 
   async refreshAllBalancesForUser(
@@ -36,18 +34,6 @@ export class BalanceFetchService {
       }
     }
 
-    if (allow('ETH')) {
-      try {
-        const ethAddress = this.crypto.ethAddressFromPrivateKey(
-          customer.private_key,
-        );
-        const ethBal = await this.eth.getNativeBalance(ethAddress);
-        await this.upsertBalance(customer_id, 'ETH', ethBal);
-      } catch (e) {
-        this.logger.warn(`ETH balance fetch failed for ${customer_id}: ${e}`);
-      }
-    }
-
     if (allow('USDT_TRC20')) {
       try {
         const tronAddress = this.crypto.trxAddressFromPrivateKey(
@@ -62,18 +48,6 @@ export class BalanceFetchService {
         this.logger.warn(
           `USDT_TRC20 balance fetch failed for ${customer_id}: ${e}`,
         );
-      }
-    }
-
-    if (allow('BTC')) {
-      try {
-        const btcAddress = this.crypto.bech32AddressFromPrivateKey(
-          customer.private_key,
-        );
-        const btcBal = await this.btc.getBtcBalance(btcAddress);
-        await this.upsertBalance(customer_id, 'BTC', btcBal);
-      } catch (e) {
-        this.logger.warn(`BTC balance fetch failed for ${customer_id}: ${e}`);
       }
     }
   }

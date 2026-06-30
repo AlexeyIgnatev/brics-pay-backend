@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
-  IsEnum,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -41,7 +41,7 @@ export class TransferDto {
   address?: string;
 
   @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
-  @IsEnum(Currency)
+  @IsIn([Currency.SOM, Currency.ESOM, Currency.USDT_TRC20])
   currency: Currency;
 
   @ApiProperty({

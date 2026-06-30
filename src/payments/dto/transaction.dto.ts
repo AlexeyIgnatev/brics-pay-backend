@@ -10,7 +10,7 @@ export class TransactionDto {
   @ApiPropertyOptional({ description: 'Transaction ID for mobile clients' })
   transaction_id?: number;
 
-  @ApiProperty({ enum: Currency })
+  @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
   currency: Currency;
 
   amount: number;

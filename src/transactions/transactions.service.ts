@@ -18,14 +18,12 @@ import {
   TransactionsStatsTodayDto,
 } from './dto/transactions-stats.dto';
 import { SettingsService } from '../config/settings/settings.service';
-import { BybitExchangeService } from '../config/exchange/bybit.service';
 
 @Injectable()
 export class TransactionsService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly settings: SettingsService,
-    private readonly exchange: BybitExchangeService,
   ) {}
 
   async list(query: TransactionsListDto): Promise<TransactionsListResponseDto> {
@@ -35,8 +33,15 @@ export class TransactionsService {
       where.kind = { in: query.kind as TransactionKind[] };
     if (query.status?.length)
       where.status = { in: query.status as TransactionStatus[] };
-    if (query.asset?.length)
-      where.OR = [{ asset_in: { in: query.asset as Asset[] } }];
+    if (query.asset?.length) {
+      const allowedAssets = ['SOM', 'ESOM', 'USDT_TRC20'];
+      const requestedAssets = (query.asset as Asset[]).filter((asset) =>
+        allowedAssets.includes(asset),
+      );
+      where.OR = requestedAssets.length
+        ? [{ asset_in: { in: requestedAssets } }]
+        : [{ id: -1 }];
+    }
     if (query.tx_hash) where.tx_hash = { contains: query.tx_hash };
     if (query.id) where.bank_op_id = query.id;
     if (query.amount_min != null || query.amount_max != null) {
@@ -121,7 +126,10 @@ export class TransactionsService {
       }),
     ]);
 
-    const items = itemsRaw.map((t) => ({
+    const allowedAssets = new Set(['SOM', 'ESOM', 'USDT_TRC20']);
+    const items = itemsRaw
+      .filter((t) => allowedAssets.has(t.asset_in))
+      .map((t) => ({
       id: t.id,
       kind: t.kind as unknown as string,
       status: t.status as unknown as string,
@@ -160,7 +168,7 @@ export class TransactionsService {
             email: t.receiver_customer.email ?? undefined,
           }
         : undefined,
-    }));
+      }));
 
     return {
       total,
@@ -178,8 +186,15 @@ export class TransactionsService {
       where.kind = { in: query.kind as TransactionKind[] };
     if (query.status?.length)
       where.status = { in: query.status as TransactionStatus[] };
-    if (query.asset?.length)
-      where.OR = [{ asset_in: { in: query.asset as Asset[] } }];
+    if (query.asset?.length) {
+      const allowedAssets = ['SOM', 'ESOM', 'USDT_TRC20'];
+      const requestedAssets = (query.asset as Asset[]).filter((asset) =>
+        allowedAssets.includes(asset),
+      );
+      where.OR = requestedAssets.length
+        ? [{ asset_in: { in: requestedAssets } }]
+        : [{ id: -1 }];
+    }
     if (query.date_from || query.date_to) {
       where.createdAt = {} as { gte?: Date; lte?: Date };
       if (query.date_from)
@@ -194,18 +209,13 @@ export class TransactionsService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const prices = await this.exchange.getUsdPrices([
-      'BTC',
-      'ETH',
-      'USDT_TRC20',
-    ] as Asset[]);
     const esomPerUsd = Number((await this.settings.get()).esom_per_usd);
     const toSom = (asset: Asset, amount: string | number): number => {
       const amt = Number(amount || 0);
       if (!amt) return 0;
       if (asset === 'SOM' || asset === 'ESOM') return amt;
-      const usd = amt * Number(prices[asset] ?? 0);
-      return usd * esomPerUsd;
+      if (asset === 'USDT_TRC20') return amt * esomPerUsd;
+      return 0;
     };
 
     const keyFor = (d: Date): string => {
@@ -230,6 +240,9 @@ export class TransactionsService {
 
     let totalSumSom = 0;
     for (const t of txs) {
+      if (t.asset_in !== 'SOM' && t.asset_in !== 'ESOM' && t.asset_in !== 'USDT_TRC20') {
+        continue;
+      }
       const som = toSom(t.asset_in as Asset, t.amount_in as unknown as string);
       totalSumSom += som;
       const k = keyFor(t.createdAt);

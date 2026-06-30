@@ -39,7 +39,7 @@ export class TransactionsListDto {
   @ApiPropertyOptional({
     type: [String],
     description: 'Asset/currency',
-    example: ['ESOM', 'SOM'],
+    example: ['ESOM', 'SOM', 'USDT_TRC20'],
   })
   @IsOptional()
   @IsArray()

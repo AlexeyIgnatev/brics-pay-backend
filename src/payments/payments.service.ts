@@ -1833,11 +1833,7 @@ export class PaymentsService {
       return this.transferESom(transferDto, customer_id);
     } else if (transferDto.currency == Currency.SOM) {
       return this.transferSom(transferDto, customer_id);
-    } else if (
-      transferDto.currency == Currency.BTC ||
-      transferDto.currency == Currency.ETH ||
-      transferDto.currency == Currency.USDT_TRC20
-    ) {
+    } else if (transferDto.currency == Currency.USDT_TRC20) {
       const asset = transferDto.currency as unknown as Asset;
       if (transferDto.address) {
         const internalRecipient = await this.findInternalRecipientByAddress(

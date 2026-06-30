@@ -36,7 +36,7 @@ export class TransactionReceiptDto {
   @ApiProperty({ enum: TransactionType })
   type: TransactionType;
 
-  @ApiProperty({ enum: Currency })
+  @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
   currency: Currency;
 
   @ApiProperty({ description: 'Unix time в миллисекундах' })
