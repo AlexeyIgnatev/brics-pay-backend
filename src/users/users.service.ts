@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaClient, Asset, PushPlatform } from '@prisma/client';
+import { randomBytes } from 'crypto';
 import { BricsService } from 'src/config/brics/brics.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { UserInfoDto } from './dto/user-info.dto';
@@ -52,8 +53,8 @@ export class UsersService {
     }
 
     try {
-      const expectedAddress = this.ethereumService
-        .getAddressFromPrivateKey(user.private_key)
+      const expectedAddress = this.cryptoService
+        .trxAddressFromPrivateKey(user.private_key)
         .trim()
         .toLowerCase();
 
@@ -73,7 +74,11 @@ export class UsersService {
       email: string;
     },
   ): Promise<void> {
-    const wallet = this.ethereumService.generateAddress();
+    const privateKey = randomBytes(32).toString('hex');
+    const wallet = {
+      privateKey,
+      address: this.cryptoService.trxAddressFromPrivateKey(privateKey),
+    };
 
     await this.prisma.customer.upsert({
       where: { customer_id: customerId },
