@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AdminRole } from '@prisma/client';
 import { PrismaService } from '../config/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -31,13 +36,17 @@ export class AdminManagementService {
   }
 
   async create(dto: CreateAdminDto): Promise<AdminResponseDto> {
-    const exists = await this.prisma.admin.findUnique({ where: { email: dto.email } });
-    if (exists) throw new BadRequestException('Админ с таким email уже существует');
+    const exists = await this.prisma.admin.findUnique({
+      where: { email: dto.email },
+    });
+    if (exists)
+      throw new BadRequestException('Админ с таким email уже существует');
 
     const hash = await bcrypt.hash(dto.password, 10);
-    const role: AdminRole = dto.role && Object.values(AdminRole).includes(dto.role as AdminRole)
-      ? (dto.role as AdminRole)
-      : AdminRole.SUPER_ADMIN;
+    const role: AdminRole =
+      dto.role && Object.values(AdminRole).includes(dto.role as AdminRole)
+        ? (dto.role as AdminRole)
+        : AdminRole.SUPER_ADMIN;
 
     const admin = await this.prisma.admin.create({
       data: {
@@ -59,7 +68,8 @@ export class AdminManagementService {
     if (dto.email) data.email = dto.email;
     if (dto.firstName) data.first_name = dto.firstName;
     if (dto.lastName) data.last_name = dto.lastName;
-    if (dto.role && Object.values(AdminRole).includes(dto.role as AdminRole)) data.role = dto.role as AdminRole;
+    if (dto.role && Object.values(AdminRole).includes(dto.role as AdminRole))
+      data.role = dto.role as AdminRole;
     if (dto.password) data.password_hash = await bcrypt.hash(dto.password, 10);
 
     const updated = await this.prisma.admin.update({ where: { id }, data });
@@ -81,16 +91,25 @@ export class AdminManagementService {
   async list(query: AdminListQueryDto): Promise<PaginatedAdminResponseDto> {
     const where: any = {};
 
-    if (query.firstNameQuery) where.first_name = { contains: query.firstNameQuery, mode: 'insensitive' };
-    if (query.lastNameQuery) where.last_name = { contains: query.lastNameQuery, mode: 'insensitive' };
-    if (query.emailQuery) where.email = { contains: query.emailQuery, mode: 'insensitive' };
+    if (query.firstNameQuery)
+      where.first_name = {
+        contains: query.firstNameQuery,
+        mode: 'insensitive',
+      };
+    if (query.lastNameQuery)
+      where.last_name = { contains: query.lastNameQuery, mode: 'insensitive' };
+    if (query.emailQuery)
+      where.email = { contains: query.emailQuery, mode: 'insensitive' };
 
-    if (query.roles && query.roles.length) where.role = { in: query.roles as AdminRole[] };
+    if (query.roles && query.roles.length)
+      where.role = { in: query.roles as AdminRole[] };
 
     if (query.createdFrom || query.createdTo) {
       where.createdAt = {} as { gte?: Date; lte?: Date };
-      if (query.createdFrom) (where.createdAt as { gte?: Date }).gte = new Date(query.createdFrom);
-      if (query.createdTo) (where.createdAt as { lte?: Date }).lte = new Date(query.createdTo);
+      if (query.createdFrom)
+        (where.createdAt as { gte?: Date }).gte = new Date(query.createdFrom);
+      if (query.createdTo)
+        (where.createdAt as { lte?: Date }).lte = new Date(query.createdTo);
     }
 
     const orderBy: any[] = [];
@@ -130,7 +149,6 @@ export class AdminManagementService {
         ok = false;
       }
     } else if (storedPassword) {
-      // Legacy fallback: support plain-text/legacy values and migrate to bcrypt.
       ok = password === storedPassword;
       if (ok) {
         const newHash = await bcrypt.hash(password, 10);
@@ -146,12 +164,16 @@ export class AdminManagementService {
 
   private async signTokens(payload: any) {
     const accessToken = await this.jwtService.signAsync(payload, {
-      secret: this.config.get<string>('ADMIN_JWT_ACCESS_SECRET') || 'dev_admin_access_secret',
+      secret:
+        this.config.get<string>('ADMIN_JWT_ACCESS_SECRET') ||
+        'dev_admin_access_secret',
       expiresIn: this.config.get<string>('ADMIN_JWT_ACCESS_TTL') || '7d',
     });
 
     const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: this.config.get<string>('ADMIN_JWT_REFRESH_SECRET') || 'dev_admin_refresh_secret',
+      secret:
+        this.config.get<string>('ADMIN_JWT_REFRESH_SECRET') ||
+        'dev_admin_refresh_secret',
       expiresIn: this.config.get<string>('ADMIN_JWT_REFRESH_TTL') || '7d',
     });
     return { accessToken, refreshToken };
@@ -162,7 +184,14 @@ export class AdminManagementService {
     const payload = { sub: admin.id, email: admin.email, role: admin.role };
     const { accessToken, refreshToken } = await this.signTokens(payload);
     try {
-      await this.prisma.adminActionLog.create({ data: { admin_id: admin.id, ip: ip || 'unknown', action: 'LOGIN', details: undefined } });
+      await this.prisma.adminActionLog.create({
+        data: {
+          admin_id: admin.id,
+          ip: ip || 'unknown',
+          action: 'LOGIN',
+          details: undefined,
+        },
+      });
     } catch (_) {}
     return {
       accessToken,
@@ -174,9 +203,13 @@ export class AdminManagementService {
   async refresh(refreshToken: string) {
     try {
       const decoded: any = await this.jwtService.verifyAsync(refreshToken, {
-        secret: this.config.get<string>('ADMIN_JWT_REFRESH_SECRET') || 'dev_admin_refresh_secret',
+        secret:
+          this.config.get<string>('ADMIN_JWT_REFRESH_SECRET') ||
+          'dev_admin_refresh_secret',
       });
-      const admin = await this.prisma.admin.findUnique({ where: { id: decoded.sub } });
+      const admin = await this.prisma.admin.findUnique({
+        where: { id: decoded.sub },
+      });
       if (!admin) throw new UnauthorizedException('Админ не найден');
       const payload = { sub: admin.id, email: admin.email, role: admin.role };
       return await this.signTokens(payload);

@@ -1,7 +1,22 @@
 import { Injectable } from '@nestjs/common';
-import { Asset, Prisma, PrismaClient, TransactionKind, TransactionStatus } from '@prisma/client';
-import { TransactionsListDto, TransactionsListResponseDto } from './dto/transactions-list.dto';
-import { TransactionsStatsQueryDto, TransactionsStatsResponseDto, TransactionsStatsSeriesPointDto, TransactionsStatsSummaryDto, TransactionsStatsTodayDto } from './dto/transactions-stats.dto';
+import {
+  Asset,
+  Prisma,
+  PrismaClient,
+  TransactionKind,
+  TransactionStatus,
+} from '@prisma/client';
+import {
+  TransactionsListDto,
+  TransactionsListResponseDto,
+} from './dto/transactions-list.dto';
+import {
+  TransactionsStatsQueryDto,
+  TransactionsStatsResponseDto,
+  TransactionsStatsSeriesPointDto,
+  TransactionsStatsSummaryDto,
+  TransactionsStatsTodayDto,
+} from './dto/transactions-stats.dto';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 
@@ -16,53 +31,79 @@ export class TransactionsService {
   async list(query: TransactionsListDto): Promise<TransactionsListResponseDto> {
     const where: Prisma.TransactionWhereInput = {};
 
-    if (query.kind?.length) where.kind = { in: query.kind as TransactionKind[] };
-    if (query.status?.length) where.status = { in: query.status as TransactionStatus[] };
-    if (query.asset?.length) where.OR = [
-      { asset_in: { in: query.asset as Asset[] } },
-    ];
+    if (query.kind?.length)
+      where.kind = { in: query.kind as TransactionKind[] };
+    if (query.status?.length)
+      where.status = { in: query.status as TransactionStatus[] };
+    if (query.asset?.length)
+      where.OR = [{ asset_in: { in: query.asset as Asset[] } }];
     if (query.tx_hash) where.tx_hash = { contains: query.tx_hash };
     if (query.id) where.bank_op_id = query.id;
     if (query.amount_min != null || query.amount_max != null) {
       where.amount_in = {} as { gte?: string; lte?: string };
-      if (query.amount_min != null) (where.amount_in as { gte?: string }).gte = query.amount_min.toString();
-      if (query.amount_max != null) (where.amount_in as { lte?: string }).lte = query.amount_max.toString();
+      if (query.amount_min != null)
+        (where.amount_in as { gte?: string }).gte = query.amount_min.toString();
+      if (query.amount_max != null)
+        (where.amount_in as { lte?: string }).lte = query.amount_max.toString();
     }
     if (query.date_from || query.date_to) {
       where.createdAt = {} as { gte?: Date; lte?: Date };
-      if (query.date_from) (where.createdAt as { gte?: Date }).gte = new Date(query.date_from);
-      if (query.date_to) (where.createdAt as { lte?: Date }).lte = new Date(query.date_to);
+      if (query.date_from)
+        (where.createdAt as { gte?: Date }).gte = new Date(query.date_from);
+      if (query.date_to)
+        (where.createdAt as { lte?: Date }).lte = new Date(query.date_to);
     }
 
     if (query.sender) {
       where.OR = where.OR || [];
       (where.OR as Prisma.TransactionWhereInput[]).push(
-        { sender_wallet_address: { contains: query.sender, mode: 'insensitive' } },
-        { sender_customer: { OR: [
-          { first_name: { contains: query.sender, mode: 'insensitive' } },
-          { middle_name: { contains: query.sender, mode: 'insensitive' } },
-          { last_name: { contains: query.sender, mode: 'insensitive' } },
-          { phone: { contains: query.sender, mode: 'insensitive' } },
-          { email: { contains: query.sender, mode: 'insensitive' } },
-        ] } }
+        {
+          sender_wallet_address: {
+            contains: query.sender,
+            mode: 'insensitive',
+          },
+        },
+        {
+          sender_customer: {
+            OR: [
+              { first_name: { contains: query.sender, mode: 'insensitive' } },
+              { middle_name: { contains: query.sender, mode: 'insensitive' } },
+              { last_name: { contains: query.sender, mode: 'insensitive' } },
+              { phone: { contains: query.sender, mode: 'insensitive' } },
+              { email: { contains: query.sender, mode: 'insensitive' } },
+            ],
+          },
+        },
       );
     }
     if (query.receiver) {
       where.OR = where.OR || [];
       (where.OR as Prisma.TransactionWhereInput[]).push(
-        { receiver_wallet_address: { contains: query.receiver, mode: 'insensitive' } },
-        { receiver_customer: { OR: [
-          { first_name: { contains: query.receiver, mode: 'insensitive' } },
-          { middle_name: { contains: query.receiver, mode: 'insensitive' } },
-          { last_name: { contains: query.receiver, mode: 'insensitive' } },
-          { phone: { contains: query.receiver, mode: 'insensitive' } },
-          { email: { contains: query.receiver, mode: 'insensitive' } },
-        ] } }
+        {
+          receiver_wallet_address: {
+            contains: query.receiver,
+            mode: 'insensitive',
+          },
+        },
+        {
+          receiver_customer: {
+            OR: [
+              { first_name: { contains: query.receiver, mode: 'insensitive' } },
+              {
+                middle_name: { contains: query.receiver, mode: 'insensitive' },
+              },
+              { last_name: { contains: query.receiver, mode: 'insensitive' } },
+              { phone: { contains: query.receiver, mode: 'insensitive' } },
+              { email: { contains: query.receiver, mode: 'insensitive' } },
+            ],
+          },
+        },
       );
     }
 
     const orderBy: Prisma.TransactionOrderByWithRelationInput = {};
-    const sortBy = (query.sort_by === 'amount' ? 'amount_in' : query.sort_by) ?? 'createdAt';
+    const sortBy =
+      (query.sort_by === 'amount' ? 'amount_in' : query.sort_by) ?? 'createdAt';
     const sortDir = query.sort_dir ?? 'desc';
     (orderBy as Record<string, 'asc' | 'desc'>)[sortBy] = sortDir;
 
@@ -76,12 +117,11 @@ export class TransactionsService {
         include: {
           sender_customer: true,
           receiver_customer: true,
-        }
-      })
+        },
+      }),
     ]);
 
-    
-    const items = itemsRaw.map(t => ({
+    const items = itemsRaw.map((t) => ({
       id: t.id,
       kind: t.kind as unknown as string,
       status: t.status as unknown as string,
@@ -94,43 +134,58 @@ export class TransactionsService {
       receiver_customer_id: t.receiver_customer_id ?? undefined,
       sender_abs_id: t.sender_customer_id ?? undefined,
       receiver_abs_id: t.receiver_customer_id ?? undefined,
-      client_abs_id: t.sender_customer_id ?? t.receiver_customer_id ?? undefined,
+      client_abs_id:
+        t.sender_customer_id ?? t.receiver_customer_id ?? undefined,
       sender_wallet_address: t.sender_wallet_address ?? undefined,
       receiver_wallet_address: t.receiver_wallet_address ?? undefined,
       comment: t.comment ?? undefined,
       createdAt: t.createdAt,
-      sender_customer: t.sender_customer ? {
-        customer_id: t.sender_customer.customer_id,
-        first_name: t.sender_customer.first_name ?? undefined,
-        middle_name: t.sender_customer.middle_name ?? undefined,
-        last_name: t.sender_customer.last_name ?? undefined,
-        phone: t.sender_customer.phone ?? undefined,
-        email: t.sender_customer.email ?? undefined,
-      } : undefined,
-      receiver_customer: t.receiver_customer ? {
-        customer_id: t.receiver_customer.customer_id,
-        first_name: t.receiver_customer.first_name ?? undefined,
-        middle_name: t.receiver_customer.middle_name ?? undefined,
-        last_name: t.receiver_customer.last_name ?? undefined,
-        phone: t.receiver_customer.phone ?? undefined,
-        email: t.receiver_customer.email ?? undefined,
-      } : undefined,
+      sender_customer: t.sender_customer
+        ? {
+            customer_id: t.sender_customer.customer_id,
+            first_name: t.sender_customer.first_name ?? undefined,
+            middle_name: t.sender_customer.middle_name ?? undefined,
+            last_name: t.sender_customer.last_name ?? undefined,
+            phone: t.sender_customer.phone ?? undefined,
+            email: t.sender_customer.email ?? undefined,
+          }
+        : undefined,
+      receiver_customer: t.receiver_customer
+        ? {
+            customer_id: t.receiver_customer.customer_id,
+            first_name: t.receiver_customer.first_name ?? undefined,
+            middle_name: t.receiver_customer.middle_name ?? undefined,
+            last_name: t.receiver_customer.last_name ?? undefined,
+            phone: t.receiver_customer.phone ?? undefined,
+            email: t.receiver_customer.email ?? undefined,
+          }
+        : undefined,
     }));
 
-    return { total, items, offset: query.offset ?? 0, limit: query.limit ?? 20 };
+    return {
+      total,
+      items,
+      offset: query.offset ?? 0,
+      limit: query.limit ?? 20,
+    };
   }
 
-  async stats(query: TransactionsStatsQueryDto): Promise<TransactionsStatsResponseDto> {
+  async stats(
+    query: TransactionsStatsQueryDto,
+  ): Promise<TransactionsStatsResponseDto> {
     const where: Prisma.TransactionWhereInput = {};
-    if (query.kind?.length) where.kind = { in: query.kind as TransactionKind[] };
-    if (query.status?.length) where.status = { in: query.status as TransactionStatus[] };
-    if (query.asset?.length) where.OR = [
-      { asset_in: { in: query.asset as Asset[] } },
-    ];
+    if (query.kind?.length)
+      where.kind = { in: query.kind as TransactionKind[] };
+    if (query.status?.length)
+      where.status = { in: query.status as TransactionStatus[] };
+    if (query.asset?.length)
+      where.OR = [{ asset_in: { in: query.asset as Asset[] } }];
     if (query.date_from || query.date_to) {
       where.createdAt = {} as { gte?: Date; lte?: Date };
-      if (query.date_from) (where.createdAt as { gte?: Date }).gte = new Date(query.date_from);
-      if (query.date_to) (where.createdAt as { lte?: Date }).lte = new Date(query.date_to);
+      if (query.date_from)
+        (where.createdAt as { gte?: Date }).gte = new Date(query.date_from);
+      if (query.date_to)
+        (where.createdAt as { lte?: Date }).lte = new Date(query.date_to);
     }
 
     const txs = await this.prisma.transaction.findMany({
@@ -139,8 +194,11 @@ export class TransactionsService {
       orderBy: { createdAt: 'asc' },
     });
 
-    // prices for crypto now
-    const prices = await this.exchange.getUsdPrices(['BTC', 'ETH', 'USDT_TRC20'] as Asset[]);
+    const prices = await this.exchange.getUsdPrices([
+      'BTC',
+      'ETH',
+      'USDT_TRC20',
+    ] as Asset[]);
     const esomPerUsd = Number((await this.settings.get()).esom_per_usd);
     const toSom = (asset: Asset, amount: string | number): number => {
       const amt = Number(amount || 0);
@@ -150,17 +208,18 @@ export class TransactionsService {
       return usd * esomPerUsd;
     };
 
-    // group helper
     const keyFor = (d: Date): string => {
       const dt = new Date(d);
       if (query.group_by === 'month') {
-        dt.setDate(1); dt.setHours(0,0,0,0);
+        dt.setDate(1);
+        dt.setHours(0, 0, 0, 0);
       } else if (query.group_by === 'week') {
-        const day = dt.getDay(); // 0=Sun
-        const diff = (day + 6) % 7; // Monday as start
-        dt.setDate(dt.getDate() - diff); dt.setHours(0,0,0,0);
-      } else { // day
-        dt.setHours(0,0,0,0);
+        const day = dt.getDay();
+        const diff = (day + 6) % 7;
+        dt.setDate(dt.getDate() - diff);
+        dt.setHours(0, 0, 0, 0);
+      } else {
+        dt.setHours(0, 0, 0, 0);
       }
       return dt.toISOString();
     };
@@ -184,21 +243,33 @@ export class TransactionsService {
       perCurrencyCount.set(a, (perCurrencyCount.get(a) || 0) + 1);
     }
 
-    const series: TransactionsStatsSeriesPointDto[] = Array.from(seriesMap.entries())
-      .sort((a,b) => a[0].localeCompare(b[0]))
-      .map(([date, v]) => ({ date, value: query.metric === 'count' ? v.count : v.sum }));
+    const series: TransactionsStatsSeriesPointDto[] = Array.from(
+      seriesMap.entries(),
+    )
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, v]) => ({
+        date,
+        value: query.metric === 'count' ? v.count : v.sum,
+      }));
 
     const totalCount = txs.length;
-    const topBySum = Array.from(perCurrencySum.entries()).sort((a,b) => b[1]-a[1])[0]?.[0];
-    const topByCount = Array.from(perCurrencyCount.entries()).sort((a,b) => b[1]-a[1])[0]?.[0];
+    const topBySum = Array.from(perCurrencySum.entries()).sort(
+      (a, b) => b[1] - a[1],
+    )[0]?.[0];
+    const topByCount = Array.from(perCurrencyCount.entries()).sort(
+      (a, b) => b[1] - a[1],
+    )[0]?.[0];
 
-    // most active day by count
     const dayCounts = new Map<string, number>();
     for (const t of txs) {
-      const dayKey = keyFor(t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt));
+      const dayKey = keyFor(
+        t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt),
+      );
       dayCounts.set(dayKey, (dayCounts.get(dayKey) || 0) + 1);
     }
-    const mostActiveDay = Array.from(dayCounts.entries()).sort((a,b) => b[1]-a[1])[0]?.[0];
+    const mostActiveDay = Array.from(dayCounts.entries()).sort(
+      (a, b) => b[1] - a[1],
+    )[0]?.[0];
 
     const summary: TransactionsStatsSummaryDto = {
       total_sum_som: Math.round(totalSumSom),
@@ -209,7 +280,6 @@ export class TransactionsService {
       average_check_som: totalCount ? Math.round(totalSumSom / totalCount) : 0,
     };
 
-    // table data reuse list()
     const table = await this.list({
       kind: query.kind,
       status: query.status,
@@ -228,13 +298,26 @@ export class TransactionsService {
     start.setHours(0, 0, 0, 0);
     const end = new Date();
 
-    const baseWhere: Prisma.TransactionWhereInput = { createdAt: { gte: start, lte: end } };
+    const baseWhere: Prisma.TransactionWhereInput = {
+      createdAt: { gte: start, lte: end },
+    };
 
-    const totalSom = await this.prisma.transaction.aggregate({ _sum: { amount_in: true }, where: baseWhere });
-    const bankToBank = await this.prisma.transaction.aggregate({ _sum: { amount_in: true }, where: { ...baseWhere, kind: 'BANK_TO_BANK' } });
-    const walletToWallet = await this.prisma.transaction.aggregate({ _sum: { amount_in: true }, where: { ...baseWhere, kind: 'WALLET_TO_WALLET' } });
+    const totalSom = await this.prisma.transaction.aggregate({
+      _sum: { amount_in: true },
+      where: baseWhere,
+    });
+    const bankToBank = await this.prisma.transaction.aggregate({
+      _sum: { amount_in: true },
+      where: { ...baseWhere, kind: 'BANK_TO_BANK' },
+    });
+    const walletToWallet = await this.prisma.transaction.aggregate({
+      _sum: { amount_in: true },
+      where: { ...baseWhere, kind: 'WALLET_TO_WALLET' },
+    });
     const usersCount = await this.prisma.customer.count();
-    const successfulCount = await this.prisma.transaction.count({ where: { ...baseWhere, status: 'SUCCESS' } });
+    const successfulCount = await this.prisma.transaction.count({
+      where: { ...baseWhere, status: 'SUCCESS' },
+    });
 
     return {
       total_amount_som: Number(totalSom._sum.amount_in ?? 0),

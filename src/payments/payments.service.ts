@@ -1,8 +1,25 @@
-﻿import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
-/* eslint-disable max-classes-per-file */
+﻿import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+
 import { ModuleRef } from '@nestjs/core';
-import { Asset, PrismaClient, TariffOperation, Transaction, TransactionKind, TransactionStatus } from '@prisma/client';
-import { AntiFraudDecision, AntiFraudService } from '../antifraud/antifraud.service';
+import {
+  Asset,
+  PrismaClient,
+  TariffOperation,
+  Transaction,
+  TransactionKind,
+  TransactionStatus,
+} from '@prisma/client';
+import {
+  AntiFraudDecision,
+  AntiFraudService,
+} from '../antifraud/antifraud.service';
 import { PaymentDto, TransferDto } from './dto/payment.dto';
 import { EthereumService } from 'src/config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
@@ -17,7 +34,11 @@ import { CryptoService } from '../config/crypto/crypto.service';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
 
 import { GetTransactions } from './dto/get-transactions.dto';
-import { ReceiptConversionSide, TransactionReceiptDto, TransactionReceiptRequestDto } from './dto/transaction-receipt.dto';
+import {
+  ReceiptConversionSide,
+  TransactionReceiptDto,
+  TransactionReceiptRequestDto,
+} from './dto/transaction-receipt.dto';
 import { TransactionDto } from './dto/transaction.dto';
 import { TransactionType } from './enums/transaction-type';
 
@@ -35,16 +56,19 @@ export class PaymentsService {
     private readonly antiFraud: AntiFraudService,
     private readonly cryptoService: CryptoService,
     private readonly usdtTreasuryOrchestrator: UsdtTreasuryOrchestratorService,
-  ) {
-  }
+  ) {}
 
   private readonly logger = new (Logger as any)('PaymentsService');
 
-  private antiFraudRejectMessage(flow: string, decision: AntiFraudDecision): string {
+  private antiFraudRejectMessage(
+    flow: string,
+    decision: AntiFraudDecision,
+  ): string {
     const parts: string[] = [`flow=${flow}`];
     if (decision.rule_key) parts.push(`rule=${decision.rule_key}`);
     if (decision.case_id != null) parts.push(`case_id=${decision.case_id}`);
-    if (decision.transaction_id != null) parts.push(`transaction_id=${decision.transaction_id}`);
+    if (decision.transaction_id != null)
+      parts.push(`transaction_id=${decision.transaction_id}`);
     if (decision.reason) parts.push(`reason=${decision.reason}`);
     return `Rejected by anti-fraud (${parts.join(', ')})`;
   }
@@ -67,7 +91,10 @@ export class PaymentsService {
     }
   }
 
-  private async complianceStatusMessage(customerId: number, status: 'FRAUD' | 'BLOCKED'): Promise<string> {
+  private async complianceStatusMessage(
+    customerId: number,
+    status: 'FRAUD' | 'BLOCKED',
+  ): Promise<string> {
     try {
       const latestCase = await this.prisma.antiFraudCase.findFirst({
         where: { transaction: { is: { sender_customer_id: customerId } } },
@@ -85,25 +112,32 @@ export class PaymentsService {
       return `Operation blocked by compliance (${parts.join(', ')})`;
     } catch (error) {
       const details = error instanceof Error ? error.message : 'unknown';
-      this.logger.error(`[complianceStatusMessage] failed for customer=${customerId}: ${details}`);
+      this.logger.error(
+        `[complianceStatusMessage] failed for customer=${customerId}: ${details}`,
+      );
       return `Operation blocked by compliance (customer_status=${status}, case_id=unknown)`;
     }
   }
 
-  private buildClientFio(customer: {
-    customer_id: number;
-    first_name?: string | null;
-    middle_name?: string | null;
-    last_name?: string | null;
-  } | null): string {
-    const fullName = [customer?.last_name, customer?.first_name, customer?.middle_name]
+  private buildClientFio(
+    customer: {
+      customer_id: number;
+      first_name?: string | null;
+      middle_name?: string | null;
+      last_name?: string | null;
+    } | null,
+  ): string {
+    const fullName = [
+      customer?.last_name,
+      customer?.first_name,
+      customer?.middle_name,
+    ]
       .filter(Boolean)
       .join(' ')
       .trim();
     return fullName || `Client #${customer?.customer_id ?? 'N/A'}`;
   }
 
-  // ABS payment purpose time format: HH:MM:SS.
   private formatAbsTime(date: Date): string {
     const hh = String(date.getHours()).padStart(2, '0');
     const mm = String(date.getMinutes()).padStart(2, '0');
@@ -143,7 +177,10 @@ export class PaymentsService {
 
   private calcSomEsomConversionFee(
     amount: number,
-    settings: { esom_som_conversion_fee_pct?: string; esom_som_conversion_fee_min?: string },
+    settings: {
+      esom_som_conversion_fee_pct?: string;
+      esom_som_conversion_fee_min?: string;
+    },
   ): { fee: number; net: number; pct: number; minFee: number } {
     const pct = Number(settings.esom_som_conversion_fee_pct ?? 0);
     const minFee = Number(settings.esom_som_conversion_fee_min ?? 0);
@@ -156,10 +193,15 @@ export class PaymentsService {
   }
 
   private isInternalBridgeTransaction(t: { comment?: string | null }): boolean {
-    return typeof t.comment === 'string' && t.comment.startsWith('INTERNAL_BRIDGE');
+    return (
+      typeof t.comment === 'string' && t.comment.startsWith('INTERNAL_BRIDGE')
+    );
   }
 
-  private tariffOperationForConversion(from: Asset, to: Asset): TariffOperation | null {
+  private tariffOperationForConversion(
+    from: Asset,
+    to: Asset,
+  ): TariffOperation | null {
     const key = `${from}_TO_${to}`;
     switch (key) {
       case 'ESOM_TO_BTC':
@@ -179,7 +221,9 @@ export class PaymentsService {
     }
   }
 
-  private tariffOperationForWalletTransfer(asset: Asset): TariffOperation | null {
+  private tariffOperationForWalletTransfer(
+    asset: Asset,
+  ): TariffOperation | null {
     switch (asset) {
       case 'ESOM':
         return TariffOperation.WALLET_TRANSFER_ESOM;
@@ -198,7 +242,12 @@ export class PaymentsService {
     customerId: number,
     operation: TariffOperation | null,
     baseAmount: number,
-  ): Promise<{ percent: number; fixed: number; fee: number; configured: boolean }> {
+  ): Promise<{
+    percent: number;
+    fixed: number;
+    fee: number;
+    configured: boolean;
+  }> {
     if (!operation) return { percent: 0, fixed: 0, fee: 0, configured: false };
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customerId },
@@ -230,16 +279,20 @@ export class PaymentsService {
   private mapType(t: Transaction, customer_id: number): TransactionType {
     switch (t.kind) {
       case 'BANK_TO_BANK':
-        if (t.sender_customer_id === customer_id) return TransactionType.EXPENSE;
-        if (t.receiver_customer_id === customer_id) return TransactionType.INCOME;
+        if (t.sender_customer_id === customer_id)
+          return TransactionType.EXPENSE;
+        if (t.receiver_customer_id === customer_id)
+          return TransactionType.INCOME;
         return TransactionType.TRANSFER;
       case 'BANK_TO_WALLET':
         return TransactionType.CONVERSION;
       case 'WALLET_TO_BANK':
         return TransactionType.CONVERSION;
       case 'WALLET_TO_WALLET':
-        if (t.sender_customer_id === customer_id) return TransactionType.EXPENSE;
-        if (t.receiver_customer_id === customer_id) return TransactionType.INCOME;
+        if (t.sender_customer_id === customer_id)
+          return TransactionType.EXPENSE;
+        if (t.receiver_customer_id === customer_id)
+          return TransactionType.INCOME;
         return TransactionType.TRANSFER;
       case 'CONVERSION':
         return TransactionType.CONVERSION;
@@ -270,11 +323,17 @@ export class PaymentsService {
     const outCurrency = (t.asset_out || 'SOM') as unknown as Currency;
     const outAmount = Number(t.amount_out);
 
-    const isConversion = (t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK')
-      && t.status === TransactionStatus.SUCCESS
-      && t.asset_in !== t.asset_out;
+    const isConversion =
+      (t.kind === 'CONVERSION' ||
+        t.kind === 'BANK_TO_WALLET' ||
+        t.kind === 'WALLET_TO_BANK') &&
+      t.status === TransactionStatus.SUCCESS &&
+      t.asset_in !== t.asset_out;
 
-    if (isConversion && requested.conversion_side === ReceiptConversionSide.OUT) {
+    if (
+      isConversion &&
+      requested.conversion_side === ReceiptConversionSide.OUT
+    ) {
       return { currency: outCurrency, amount: outAmount };
     }
 
@@ -297,25 +356,35 @@ export class PaymentsService {
     receiver_customer_id: number | null;
   }): string {
     const isConversion =
-      t.kind === 'CONVERSION'
-      || t.kind === 'BANK_TO_WALLET'
-      || t.kind === 'WALLET_TO_BANK';
+      t.kind === 'CONVERSION' ||
+      t.kind === 'BANK_TO_WALLET' ||
+      t.kind === 'WALLET_TO_BANK';
 
     if (isConversion) {
-      const converterFullName = [t.sender_customer?.last_name, t.sender_customer?.first_name, t.sender_customer?.middle_name]
+      const converterFullName = [
+        t.sender_customer?.last_name,
+        t.sender_customer?.first_name,
+        t.sender_customer?.middle_name,
+      ]
         .filter(Boolean)
         .join(' ')
         .trim();
       if (converterFullName) return converterFullName;
-      if (t.sender_customer_id != null) return `Customer #${t.sender_customer_id}`;
+      if (t.sender_customer_id != null)
+        return `Customer #${t.sender_customer_id}`;
     }
 
-    const fullName = [t.receiver_customer?.last_name, t.receiver_customer?.first_name, t.receiver_customer?.middle_name]
+    const fullName = [
+      t.receiver_customer?.last_name,
+      t.receiver_customer?.first_name,
+      t.receiver_customer?.middle_name,
+    ]
       .filter(Boolean)
       .join(' ')
       .trim();
     if (fullName) return fullName;
-    if (t.receiver_customer_id != null) return `Customer #${t.receiver_customer_id}`;
+    if (t.receiver_customer_id != null)
+      return `Customer #${t.receiver_customer_id}`;
     return 'N/A';
   }
 
@@ -328,7 +397,8 @@ export class PaymentsService {
   }): string {
     const senderWallet = t.sender_wallet_address || t.sender_customer?.address;
     if (senderWallet) return this.maskAccount(senderWallet);
-    if (this.isBankKind(t.kind) && t.sender_customer_id != null) return this.maskAccount(t.sender_customer_id);
+    if (this.isBankKind(t.kind) && t.sender_customer_id != null)
+      return this.maskAccount(t.sender_customer_id);
     if (t.bank_op_id != null) return this.maskAccount(t.bank_op_id);
     return 'N/A';
   }
@@ -341,16 +411,24 @@ export class PaymentsService {
     receiver_customer_id: number | null;
     bank_op_id: number | null;
   }): string {
-    const targetWallet = t.external_address || t.receiver_wallet_address || t.receiver_customer?.address;
+    const targetWallet =
+      t.external_address ||
+      t.receiver_wallet_address ||
+      t.receiver_customer?.address;
     if (targetWallet) return this.maskAccount(targetWallet);
-    if (this.isBankKind(t.kind) && t.receiver_customer_id != null) return this.maskAccount(t.receiver_customer_id);
+    if (this.isBankKind(t.kind) && t.receiver_customer_id != null)
+      return this.maskAccount(t.receiver_customer_id);
     if (t.bank_op_id != null) return this.maskAccount(t.bank_op_id);
     return 'N/A';
   }
 
-
-  async getHistory(body: GetTransactions, customer_id: number): Promise<TransactionDto[]> {
-    const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+  async getHistory(
+    body: GetTransactions,
+    customer_id: number,
+  ): Promise<TransactionDto[]> {
+    const me = await this.prisma.customer.findUnique({
+      where: { customer_id },
+    });
     const userOr = [
       { sender_customer_id: customer_id },
       { receiver_customer_id: customer_id },
@@ -361,19 +439,21 @@ export class PaymentsService {
     const where: any = { OR: userOr };
 
     if (body.currency?.length) {
-      const assets = body.currency.map(c => c as unknown as Asset);
+      const assets = body.currency.map((c) => c as unknown as Asset);
       const currencyOr = [
         { asset_out: { in: assets } },
         { asset_in: { in: assets } },
       ];
-      // Объединяем фильтр пользователя и фильтр валюты через AND
+
       where.AND = [{ OR: userOr }, { OR: currencyOr }];
       delete where.OR;
     }
     if (body.from_time || body.to_time) {
       where.createdAt = {} as { gte?: Date; lte?: Date };
-      if (body.from_time) (where.createdAt as { gte?: Date }).gte = new Date(body.from_time);
-      if (body.to_time) (where.createdAt as { lte?: Date }).lte = new Date(body.to_time);
+      if (body.from_time)
+        (where.createdAt as { gte?: Date }).gte = new Date(body.from_time);
+      if (body.to_time)
+        (where.createdAt as { lte?: Date }).lte = new Date(body.to_time);
     }
 
     const items: Transaction[] = await this.prisma.transaction.findMany({
@@ -383,7 +463,6 @@ export class PaymentsService {
       take: body.take ?? 50,
     });
 
-    // По умолчанию показываем входящую сторону (asset_in/amount_in)
     const rows: TransactionDto[] = [];
     const filterSet = body.currency?.length ? new Set(body.currency) : null;
 
@@ -393,13 +472,17 @@ export class PaymentsService {
       }
 
       const isConversionLike =
-        (t.kind === 'CONVERSION' || t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK')
-        && t.asset_in
-        && t.asset_out
-        && t.asset_in !== t.asset_out;
+        (t.kind === 'CONVERSION' ||
+          t.kind === 'BANK_TO_WALLET' ||
+          t.kind === 'WALLET_TO_BANK') &&
+        t.asset_in &&
+        t.asset_out &&
+        t.asset_in !== t.asset_out;
 
       if (isConversionLike) {
-        const outCurrency = (t.asset_out || t.asset_in || 'SOM') as unknown as Currency;
+        const outCurrency = (t.asset_out ||
+          t.asset_in ||
+          'SOM') as unknown as Currency;
         const outAmount = Number(t.amount_out ?? 0);
         const conversionRow: TransactionDto = {
           id: t.id,
@@ -417,23 +500,34 @@ export class PaymentsService {
 
       const inCurrency = (t.asset_in || 'SOM') as unknown as Currency;
       const baseType = this.mapType(t, customer_id);
-      const inSideType = (t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK')
-        ? TransactionType.EXPENSE
-        : baseType;
+      const inSideType =
+        t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK'
+          ? TransactionType.EXPENSE
+          : baseType;
       const baseRow: TransactionDto = {
         id: t.id,
         transaction_id: t.id,
         currency: inCurrency,
         amount: Number(t.amount_in),
         type: inSideType,
-        conversion_side: inSideType === TransactionType.CONVERSION ? ReceiptConversionSide.IN : undefined,
+        conversion_side:
+          inSideType === TransactionType.CONVERSION
+            ? ReceiptConversionSide.IN
+            : undefined,
         successful: t.status === 'SUCCESS',
         created_at: t.createdAt.getTime(),
       };
       if (!filterSet || filterSet.has(inCurrency)) rows.push(baseRow);
 
-      const isConversion = t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK';
-      if (t.status === 'SUCCESS' && isConversion && t.asset_in && t.asset_out && t.asset_in !== t.asset_out) {
+      const isConversion =
+        t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK';
+      if (
+        t.status === 'SUCCESS' &&
+        isConversion &&
+        t.asset_in &&
+        t.asset_out &&
+        t.asset_in !== t.asset_out
+      ) {
         const outCurrency = (t.asset_out || 'SOM') as unknown as Currency;
         if (!filterSet || filterSet.has(outCurrency)) {
           rows.push({
@@ -452,7 +546,10 @@ export class PaymentsService {
     return rows;
   }
 
-  async getReceipt(dto: TransactionReceiptRequestDto, customer_id: number): Promise<TransactionReceiptDto> {
+  async getReceipt(
+    dto: TransactionReceiptRequestDto,
+    customer_id: number,
+  ): Promise<TransactionReceiptDto> {
     const me = await this.prisma.customer.findUnique({
       where: { customer_id },
       select: { address: true },
@@ -483,14 +580,15 @@ export class PaymentsService {
     if (!tx) throw new NotFoundException('Transaction not found');
 
     const myAddress = me?.address?.toLowerCase();
-    const isMine = tx.sender_customer_id === customer_id
-      || tx.receiver_customer_id === customer_id
-      || (!!myAddress && (
-        tx.sender_wallet_address?.toLowerCase() === myAddress
-        || tx.receiver_wallet_address?.toLowerCase() === myAddress
-      ));
+    const isMine =
+      tx.sender_customer_id === customer_id ||
+      tx.receiver_customer_id === customer_id ||
+      (!!myAddress &&
+        (tx.sender_wallet_address?.toLowerCase() === myAddress ||
+          tx.receiver_wallet_address?.toLowerCase() === myAddress));
 
-    if (!isMine) throw new ForbiddenException('Transaction does not belong to user');
+    if (!isMine)
+      throw new ForbiddenException('Transaction does not belong to user');
 
     const side = this.getDisplaySide(tx, dto);
 
@@ -514,12 +612,23 @@ export class PaymentsService {
     authContext?: { username?: string; password?: string },
   ): Promise<StatusOKDto> {
     try {
-      const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+      const me = await this.prisma.customer.findUnique({
+        where: { customer_id },
+      });
       if (me && (me.status === 'BLOCKED' || me.status === 'FRAUD')) {
-        throw new BadRequestException(await this.complianceStatusMessage(customer_id, me.status as 'FRAUD' | 'BLOCKED'));
+        throw new BadRequestException(
+          await this.complianceStatusMessage(
+            customer_id,
+            me.status as 'FRAUD' | 'BLOCKED',
+          ),
+        );
       }
-      this.logger.verbose(`[convert] start customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount_from=${dto.amount_from}`);
-      const user = await this.prisma.customer.findUniqueOrThrow({ where: { customer_id } });
+      this.logger.verbose(
+        `[convert] start customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount_from=${dto.amount_from}`,
+      );
+      const user = await this.prisma.customer.findUniqueOrThrow({
+        where: { customer_id },
+      });
       const s = await this.settingsService.get();
       const from = dto.asset_from as unknown as Asset;
       const to = dto.asset_to as unknown as Asset;
@@ -550,202 +659,262 @@ export class PaymentsService {
         }
       };
 
-    const feePctForAsset = (asset: Asset): number => {
-      switch (asset) {
-        case 'BTC':
-          return Number(s.btc_trade_fee_pct || 0);
-        case 'ETH':
-          return Number(s.eth_trade_fee_pct || 0);
-        case 'USDT_TRC20':
-          return Number(s.usdt_trade_fee_pct || 0);
-        default:
-          return 0;
-      }
-    };
+      const feePctForAsset = (asset: Asset): number => {
+        switch (asset) {
+          case 'BTC':
+            return Number(s.btc_trade_fee_pct || 0);
+          case 'ETH':
+            return Number(s.eth_trade_fee_pct || 0);
+          case 'USDT_TRC20':
+            return Number(s.usdt_trade_fee_pct || 0);
+          default:
+            return 0;
+        }
+      };
 
-    const feePctForTrade = (fromA: Asset, toA: Asset): number => {
-      if (fromA === 'ESOM') return feePctForAsset(toA);
-      if (toA === 'ESOM') return feePctForAsset(fromA);
-      return Math.max(feePctForAsset(fromA), feePctForAsset(toA));
-    };
+      const feePctForTrade = (fromA: Asset, toA: Asset): number => {
+        if (fromA === 'ESOM') return feePctForAsset(toA);
+        if (toA === 'ESOM') return feePctForAsset(fromA);
+        return Math.max(feePctForAsset(fromA), feePctForAsset(toA));
+      };
 
-    const tradeFeeFor = async (fromA: Asset, toA: Asset, gross: number) => {
-      const tariff = await this.getCustomerTariffFee(customer_id, this.tariffOperationForConversion(fromA, toA), gross);
-      if (tariff.configured) return tariff;
-      const pct = feePctForTrade(fromA, toA);
-      return { percent: pct, fixed: 0, fee: gross * (pct / 100), configured: false };
-    };
+      const tradeFeeFor = async (fromA: Asset, toA: Asset, gross: number) => {
+        const tariff = await this.getCustomerTariffFee(
+          customer_id,
+          this.tariffOperationForConversion(fromA, toA),
+          gross,
+        );
+        if (tariff.configured) return tariff;
+        const pct = feePctForTrade(fromA, toA);
+        return {
+          percent: pct,
+          fixed: 0,
+          fee: gross * (pct / 100),
+          configured: false,
+        };
+      };
 
-    const applyFee = (gross: number, feeAmount: number) => {
-      const fee = Number.isFinite(feeAmount) && feeAmount > 0 ? feeAmount : 0;
-      const net = Math.max(gross - fee, 0);
-      return { net, fee };
-    };
+      const applyFee = (gross: number, feeAmount: number) => {
+        const fee = Number.isFinite(feeAmount) && feeAmount > 0 ? feeAmount : 0;
+        const net = Math.max(gross - fee, 0);
+        return { net, fee };
+      };
 
-      // ESOM -> CRYPTO
-      if (from === 'ESOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
-      const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
-        kind: TransactionKind.CONVERSION,
-        amount_in: amountFrom,
-        asset_in: 'ESOM',
-        asset_out: to,
-        sender_customer_id: customer_id,
-        comment: `Convert ESOM->${to}`,
-      });
-      this.logger.verbose(
-        `[convert ESOM->${to}] antifraud allowed=${antiFraudDecision.allowed}`
-        + (antiFraudDecision.reason ? ` reason=${antiFraudDecision.reason}` : ''),
-      );
-      if (!antiFraudDecision.allowed) {
-        throw new BadRequestException(this.antiFraudRejectMessage(`ESOM->${to}`, antiFraudDecision));
-      }
+      if (
+        from === 'ESOM' &&
+        (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')
+      ) {
+        const antiFraudDecision = await this.antiFraud.checkTransactionDetailed(
+          {
+            kind: TransactionKind.CONVERSION,
+            amount_in: amountFrom,
+            asset_in: 'ESOM',
+            asset_out: to,
+            sender_customer_id: customer_id,
+            comment: `Convert ESOM->${to}`,
+          },
+        );
+        this.logger.verbose(
+          `[convert ESOM->${to}] antifraud allowed=${antiFraudDecision.allowed}` +
+            (antiFraudDecision.reason
+              ? ` reason=${antiFraudDecision.reason}`
+              : ''),
+        );
+        if (!antiFraudDecision.allowed) {
+          throw new BadRequestException(
+            this.antiFraudRejectMessage(`ESOM->${to}`, antiFraudDecision),
+          );
+        }
 
-      const usdtAmount = amountFrom / esomPerUsd;
-      let grossOut = 0;
-      let priceUsd = '1';
-      let notionalUsdt = usdtAmount.toString();
-      if (to === 'USDT_TRC20') {
-        grossOut = usdtAmount;
-      } else {
-        const buy = await this.exchangeService.marketBuy(to, usdtAmount.toString());
-        grossOut = Number(buy.amount_asset);
-        priceUsd = buy.price_usd;
-        notionalUsdt = buy.notional_usdt;
-        this.logger.verbose(`[convert ESOM->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`);
-      }
-      const tradeFee = await tradeFeeFor(from, to, grossOut);
-      const { net, fee } = applyFee(grossOut, tradeFee.fee);
+        const usdtAmount = amountFrom / esomPerUsd;
+        let grossOut = 0;
+        let priceUsd = '1';
+        let notionalUsdt = usdtAmount.toString();
+        if (to === 'USDT_TRC20') {
+          grossOut = usdtAmount;
+        } else {
+          const buy = await this.exchangeService.marketBuy(
+            to,
+            usdtAmount.toString(),
+          );
+          grossOut = Number(buy.amount_asset);
+          priceUsd = buy.price_usd;
+          notionalUsdt = buy.notional_usdt;
+          this.logger.verbose(
+            `[convert ESOM->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`,
+          );
+        }
+        const tradeFee = await tradeFeeFor(from, to, grossOut);
+        const { net, fee } = applyFee(grossOut, tradeFee.fee);
 
-      await this.ethereumService.transferToFiat(amountFrom, user.private_key);
-      await addBalance(to, net);
-      this.logger.verbose(`[convert ESOM->${to}] feePct=${tradeFee.percent}% fixed=${tradeFee.fixed} fee=${fee} net_out=${net}`);
+        await this.ethereumService.transferToFiat(amountFrom, user.private_key);
+        await addBalance(to, net);
+        this.logger.verbose(
+          `[convert ESOM->${to}] feePct=${tradeFee.percent}% fixed=${tradeFee.fixed} fee=${fee} net_out=${net}`,
+        );
 
-      const createdTransaction = await this.prisma.transaction.create({
-        data: {
-          kind: TransactionKind.CONVERSION,
-          status: TransactionStatus.SUCCESS,
-          amount_in: amountFrom.toString(),
-          asset_in: 'ESOM',
-          amount_out: net.toString(),
-          asset_out: to,
-          price_usd: priceUsd,
-          notional_usd: notionalUsdt,
-          fee_amount: fee.toString(),
-          sender_customer_id: customer_id,
-          comment: `Convert ESOM->${to}`,
-        },
-      });
-      // Refresh only ESOM balance to avoid overwriting exchange-held balances
-      await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
+        const createdTransaction = await this.prisma.transaction.create({
+          data: {
+            kind: TransactionKind.CONVERSION,
+            status: TransactionStatus.SUCCESS,
+            amount_in: amountFrom.toString(),
+            asset_in: 'ESOM',
+            amount_out: net.toString(),
+            asset_out: to,
+            price_usd: priceUsd,
+            notional_usd: notionalUsdt,
+            fee_amount: fee.toString(),
+            sender_customer_id: customer_id,
+            comment: `Convert ESOM->${to}`,
+          },
+        });
+
+        await this.balanceFetchService.refreshAllBalancesForUser(customer_id, [
+          'ESOM' as Asset,
+        ]);
         return new StatusOKDto(createdTransaction.id);
       }
 
-      // CRYPTO -> ESOM
-      if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'ESOM') {
+      if (
+        (from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') &&
+        to === 'ESOM'
+      ) {
         await ensureCryptoBalance(from, amountFrom);
-      const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
-        kind: TransactionKind.CONVERSION,
-        amount_in: amountFrom,
-        asset_in: from,
-        asset_out: 'ESOM',
-        sender_customer_id: customer_id,
-        comment: `Convert ${from}->ESOM`,
-      });
-      this.logger.verbose(
-        `[convert ${from}->ESOM] antifraud allowed=${antiFraudDecision.allowed}`
-        + (antiFraudDecision.reason ? ` reason=${antiFraudDecision.reason}` : ''),
-      );
-      if (!antiFraudDecision.allowed) {
-        throw new BadRequestException(this.antiFraudRejectMessage(`${from}->ESOM`, antiFraudDecision));
-      }
+        const antiFraudDecision = await this.antiFraud.checkTransactionDetailed(
+          {
+            kind: TransactionKind.CONVERSION,
+            amount_in: amountFrom,
+            asset_in: from,
+            asset_out: 'ESOM',
+            sender_customer_id: customer_id,
+            comment: `Convert ${from}->ESOM`,
+          },
+        );
+        this.logger.verbose(
+          `[convert ${from}->ESOM] antifraud allowed=${antiFraudDecision.allowed}` +
+            (antiFraudDecision.reason
+              ? ` reason=${antiFraudDecision.reason}`
+              : ''),
+        );
+        if (!antiFraudDecision.allowed) {
+          throw new BadRequestException(
+            this.antiFraudRejectMessage(`${from}->ESOM`, antiFraudDecision),
+          );
+        }
 
-      let notionalUsdt = 0;
-      if (from === 'USDT_TRC20') {
-        notionalUsdt = amountFrom;
-      } else {
-        const sell = await this.exchangeService.marketSell(from, amountFrom.toString());
-        notionalUsdt = Number(sell.notional_usdt);
-        this.logger.verbose(`[convert ${from}->ESOM] marketSell notional_usdt=${notionalUsdt}`);
-      }
-      const grossEsom = notionalUsdt * esomPerUsd;
-      const tradeFee = await tradeFeeFor(from, to, grossEsom);
-      const { net: netEsom, fee: feeEsom } = applyFee(grossEsom, tradeFee.fee);
+        let notionalUsdt = 0;
+        if (from === 'USDT_TRC20') {
+          notionalUsdt = amountFrom;
+        } else {
+          const sell = await this.exchangeService.marketSell(
+            from,
+            amountFrom.toString(),
+          );
+          notionalUsdt = Number(sell.notional_usdt);
+          this.logger.verbose(
+            `[convert ${from}->ESOM] marketSell notional_usdt=${notionalUsdt}`,
+          );
+        }
+        const grossEsom = notionalUsdt * esomPerUsd;
+        const tradeFee = await tradeFeeFor(from, to, grossEsom);
+        const { net: netEsom, fee: feeEsom } = applyFee(
+          grossEsom,
+          tradeFee.fee,
+        );
 
-      await this.ethereumService.transferFromFiat(user.address, netEsom);
-      await addBalance(from, -amountFrom);
+        await this.ethereumService.transferFromFiat(user.address, netEsom);
+        await addBalance(from, -amountFrom);
 
-      const createdTransaction = await this.prisma.transaction.create({
-        data: {
-          kind: TransactionKind.CONVERSION,
-          status: TransactionStatus.SUCCESS,
-          amount_in: amountFrom.toString(),
-          asset_in: from,
-          amount_out: netEsom.toString(),
-          asset_out: 'ESOM',
-          price_usd: '1',
-          notional_usd: notionalUsdt.toString(),
-          fee_amount: feeEsom.toString(),
-          sender_customer_id: customer_id,
-          comment: `Convert ${from}->ESOM`,
-        },
-      });
-      // Refresh only ESOM balance after mint
-      await this.balanceFetchService.refreshAllBalancesForUser(customer_id, ['ESOM' as Asset]);
+        const createdTransaction = await this.prisma.transaction.create({
+          data: {
+            kind: TransactionKind.CONVERSION,
+            status: TransactionStatus.SUCCESS,
+            amount_in: amountFrom.toString(),
+            asset_in: from,
+            amount_out: netEsom.toString(),
+            asset_out: 'ESOM',
+            price_usd: '1',
+            notional_usd: notionalUsdt.toString(),
+            fee_amount: feeEsom.toString(),
+            sender_customer_id: customer_id,
+            comment: `Convert ${from}->ESOM`,
+          },
+        });
+
+        await this.balanceFetchService.refreshAllBalancesForUser(customer_id, [
+          'ESOM' as Asset,
+        ]);
         return new StatusOKDto(createdTransaction.id);
       }
 
-      // CRYPTO -> CRYPTO
-      if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
+      if (
+        (from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') &&
+        (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')
+      ) {
         await ensureCryptoBalance(from, amountFrom);
-      const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
-        kind: TransactionKind.CONVERSION,
-        amount_in: amountFrom,
-        asset_in: from,
-        asset_out: to,
-        sender_customer_id: customer_id,
-        comment: `Convert ${from}->${to}`,
-      });
-      this.logger.verbose(
-        `[convert ${from}->${to}] antifraud allowed=${antiFraudDecision.allowed}`
-        + (antiFraudDecision.reason ? ` reason=${antiFraudDecision.reason}` : ''),
-      );
-      if (!antiFraudDecision.allowed) {
-        throw new BadRequestException(this.antiFraudRejectMessage(`${from}->${to}`, antiFraudDecision));
-      }
+        const antiFraudDecision = await this.antiFraud.checkTransactionDetailed(
+          {
+            kind: TransactionKind.CONVERSION,
+            amount_in: amountFrom,
+            asset_in: from,
+            asset_out: to,
+            sender_customer_id: customer_id,
+            comment: `Convert ${from}->${to}`,
+          },
+        );
+        this.logger.verbose(
+          `[convert ${from}->${to}] antifraud allowed=${antiFraudDecision.allowed}` +
+            (antiFraudDecision.reason
+              ? ` reason=${antiFraudDecision.reason}`
+              : ''),
+        );
+        if (!antiFraudDecision.allowed) {
+          throw new BadRequestException(
+            this.antiFraudRejectMessage(`${from}->${to}`, antiFraudDecision),
+          );
+        }
 
-      let usdtIntermediate = 0;
-      if (from === 'USDT_TRC20') {
-        usdtIntermediate = amountFrom;
-      } else {
-        const sell = await this.exchangeService.marketSell(from, amountFrom.toString());
-        usdtIntermediate = Number(sell.notional_usdt);
-      }
+        let usdtIntermediate = 0;
+        if (from === 'USDT_TRC20') {
+          usdtIntermediate = amountFrom;
+        } else {
+          const sell = await this.exchangeService.marketSell(
+            from,
+            amountFrom.toString(),
+          );
+          usdtIntermediate = Number(sell.notional_usdt);
+        }
 
-      let buy = await this.exchangeService.marketBuy(to, usdtIntermediate.toString());
-      this.logger.verbose(`[convert ${from}->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`);
+        let buy = await this.exchangeService.marketBuy(
+          to,
+          usdtIntermediate.toString(),
+        );
+        this.logger.verbose(
+          `[convert ${from}->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`,
+        );
 
-      const grossTo = Number(buy.amount_asset);
-      const tradeFee = await tradeFeeFor(from, to, grossTo);
-      const { net: netTo, fee: feeTo } = applyFee(grossTo, tradeFee.fee);
+        const grossTo = Number(buy.amount_asset);
+        const tradeFee = await tradeFeeFor(from, to, grossTo);
+        const { net: netTo, fee: feeTo } = applyFee(grossTo, tradeFee.fee);
 
-      await addBalance(from, -amountFrom);
-      await addBalance(to, netTo);
+        await addBalance(from, -amountFrom);
+        await addBalance(to, netTo);
 
-      const createdTransaction = await this.prisma.transaction.create({
-        data: {
-          kind: TransactionKind.CONVERSION,
-          status: TransactionStatus.SUCCESS,
-          amount_in: amountFrom.toString(),
-          asset_in: from,
-          amount_out: netTo.toString(),
-          asset_out: to,
-          price_usd: buy.price_usd,
-          notional_usd: buy.notional_usdt,
-          fee_amount: feeTo.toString(),
-          sender_customer_id: customer_id,
-          comment: `Convert ${from}->${to}`,
-        },
-      });
+        const createdTransaction = await this.prisma.transaction.create({
+          data: {
+            kind: TransactionKind.CONVERSION,
+            status: TransactionStatus.SUCCESS,
+            amount_in: amountFrom.toString(),
+            asset_in: from,
+            amount_out: netTo.toString(),
+            asset_out: to,
+            price_usd: buy.price_usd,
+            notional_usd: buy.notional_usdt,
+            fee_amount: feeTo.toString(),
+            sender_customer_id: customer_id,
+            comment: `Convert ${from}->${to}`,
+          },
+        });
         return new StatusOKDto(createdTransaction.id);
       }
 
@@ -753,20 +922,22 @@ export class PaymentsService {
         return await this.fiatToCrypto({ amount: amountFrom }, customer_id);
       }
       if (from === 'ESOM' && to === 'SOM') {
-        return await this.cryptoToFiat({ amount: amountFrom }, customer_id, authContext);
-      }
-
-      // SOM <-> CRYPTO bridge via ESOM
-      // This guarantees real operations and transaction rows instead of silent success.
-      if (from === 'SOM' && (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')) {
-        // 1) SOM -> ESOM
-        await this.fiatToCrypto(
+        return await this.cryptoToFiat(
           { amount: amountFrom },
           customer_id,
-          { internalBridge: true, bridgeTarget: to },
+          authContext,
         );
+      }
 
-        // 2) Take net ESOM amount from the latest successful SOM->ESOM transaction
+      if (
+        from === 'SOM' &&
+        (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')
+      ) {
+        await this.fiatToCrypto({ amount: amountFrom }, customer_id, {
+          internalBridge: true,
+          bridgeTarget: to,
+        });
+
         const somToEsomTx = await this.prisma.transaction.findFirst({
           where: {
             kind: TransactionKind.BANK_TO_WALLET,
@@ -782,23 +953,31 @@ export class PaymentsService {
           throw new BadRequestException('SOM->ESOM bridge failed');
         }
 
-        // 3) ESOM -> target crypto
         return await this.convert(
-          { asset_from: Currency.ESOM, asset_to: to as unknown as Currency, amount_from: esomAmount },
+          {
+            asset_from: Currency.ESOM,
+            asset_to: to as unknown as Currency,
+            amount_from: esomAmount,
+          },
           customer_id,
           authContext,
         );
       }
 
-      if ((from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') && to === 'SOM') {
-        // 1) CRYPTO -> ESOM
+      if (
+        (from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') &&
+        to === 'SOM'
+      ) {
         await this.convert(
-          { asset_from: from as unknown as Currency, asset_to: Currency.ESOM, amount_from: amountFrom },
+          {
+            asset_from: from as unknown as Currency,
+            asset_to: Currency.ESOM,
+            amount_from: amountFrom,
+          },
           customer_id,
           authContext,
         );
 
-        // 2) Take net ESOM amount from the latest successful CRYPTO->ESOM transaction
         const cryptoToEsomTx = await this.prisma.transaction.findFirst({
           where: {
             kind: TransactionKind.CONVERSION,
@@ -814,7 +993,6 @@ export class PaymentsService {
           throw new BadRequestException(`${from}->ESOM bridge failed`);
         }
 
-        // 3) ESOM -> SOM
         return await this.cryptoToFiat(
           { amount: esomAmount },
           customer_id,
@@ -823,10 +1001,14 @@ export class PaymentsService {
         );
       }
 
-      throw new BadRequestException(`Unsupported conversion pair: ${from}->${to}`);
+      throw new BadRequestException(
+        `Unsupported conversion pair: ${from}->${to}`,
+      );
     } catch (error) {
       const details = this.errorDetails(error);
-      this.logger.error(`[convert] failed customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount=${dto.amount_from}: ${details}`);
+      this.logger.error(
+        `[convert] failed customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount=${dto.amount_from}: ${details}`,
+      );
       if (
         error instanceof BadRequestException ||
         error instanceof ForbiddenException ||
@@ -839,10 +1021,27 @@ export class PaymentsService {
     }
   }
 
-  async withdrawCrypto(asset: Asset, address: string, amount: number, customer_id: number, idempotencyKey?: string): Promise<StatusOKDto> {
-    this.logger.verbose('[withdrawCrypto] start customer=' + customer_id + ' asset=' + asset + ' amount=' + amount + ' address=' + address);
+  async withdrawCrypto(
+    asset: Asset,
+    address: string,
+    amount: number,
+    customer_id: number,
+    idempotencyKey?: string,
+  ): Promise<StatusOKDto> {
+    this.logger.verbose(
+      '[withdrawCrypto] start customer=' +
+        customer_id +
+        ' asset=' +
+        asset +
+        ' amount=' +
+        amount +
+        ' address=' +
+        address,
+    );
     if (asset === 'USDT_TRC20') {
-      const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+      const me = await this.prisma.customer.findUnique({
+        where: { customer_id },
+      });
       if (me && me.status === 'BLOCKED') {
         throw new BadRequestException('User is blocked');
       }
@@ -873,11 +1072,16 @@ export class PaymentsService {
     }
 
     const s = await this.settingsService.get();
-    const min = asset === 'BTC' ? Number(s.min_withdraw_btc)
-      : asset === 'ETH' ? Number(s.min_withdraw_eth)
-        : Number(s.min_withdraw_usdt_trc20);
+    const min =
+      asset === 'BTC'
+        ? Number(s.min_withdraw_btc)
+        : asset === 'ETH'
+          ? Number(s.min_withdraw_eth)
+          : Number(s.min_withdraw_usdt_trc20);
 
-    const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+    const me = await this.prisma.customer.findUnique({
+      where: { customer_id },
+    });
     if (me && me.status === 'BLOCKED') {
       throw new BadRequestException('User is blocked');
     }
@@ -888,12 +1092,17 @@ export class PaymentsService {
 
     this.logger.verbose(`[withdrawCrypto] min=${min}`);
 
-    const feeFixed = asset === "BTC" ? Number(s.btc_withdraw_fee_fixed)
-      : asset === 'ETH' ? Number(s.eth_withdraw_fee_fixed)
-        : Number(s.usdt_withdraw_fee_fixed);
+    const feeFixed =
+      asset === 'BTC'
+        ? Number(s.btc_withdraw_fee_fixed)
+        : asset === 'ETH'
+          ? Number(s.eth_withdraw_fee_fixed)
+          : Number(s.usdt_withdraw_fee_fixed);
 
     const total = amount + feeFixed;
-    this.logger.verbose(`[withdrawCrypto] fee_fixed=${feeFixed} total_debit=${total}`);
+    this.logger.verbose(
+      `[withdrawCrypto] fee_fixed=${feeFixed} total_debit=${total}`,
+    );
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.WITHDRAW_CRYPTO,
@@ -909,9 +1118,12 @@ export class PaymentsService {
 
     let transactionId: number | undefined;
     await this.prisma.$transaction(async (tx) => {
-      const bal = await tx.userAssetBalance.findUnique({ where: { customer_id_asset: { customer_id, asset } } });
+      const bal = await tx.userAssetBalance.findUnique({
+        where: { customer_id_asset: { customer_id, asset } },
+      });
       const current = Number(bal?.balance ?? 0);
-      if (current < total) throw new BadRequestException('Insufficient balance including fee');
+      if (current < total)
+        throw new BadRequestException('Insufficient balance including fee');
       this.logger.verbose(`[withdrawCrypto] balance_before=${current}`);
       await tx.userAssetBalance.update({
         where: { customer_id_asset: { customer_id, asset } },
@@ -928,10 +1140,21 @@ export class PaymentsService {
           status: 'PENDING',
         },
       });
-      this.logger.verbose(`[withdrawCrypto] withdrawRequest created id=${w.id}`);
-      const { txid } = await this.exchangeService.withdraw(asset, address, amount.toString());
-      this.logger.verbose(`[withdrawCrypto] exchange.withdraw submitted txid=${txid}`);
-      await tx.withdrawRequest.update({ where: { id: w.id }, data: { status: 'SUBMITTED', txid } });
+      this.logger.verbose(
+        `[withdrawCrypto] withdrawRequest created id=${w.id}`,
+      );
+      const { txid } = await this.exchangeService.withdraw(
+        asset,
+        address,
+        amount.toString(),
+      );
+      this.logger.verbose(
+        `[withdrawCrypto] exchange.withdraw submitted txid=${txid}`,
+      );
+      await tx.withdrawRequest.update({
+        where: { id: w.id },
+        data: { status: 'SUBMITTED', txid },
+      });
       const createdTransaction = await tx.transaction.create({
         data: {
           kind: TransactionKind.WITHDRAW_CRYPTO,
@@ -971,15 +1194,22 @@ export class PaymentsService {
     }
 
     const s = await this.settingsService.get();
-    const { fee: rawConversionFee, net: rawNetAmount, pct: feePct, minFee } = this.calcSomEsomConversionFee(amount, s);
+    const {
+      fee: rawConversionFee,
+      net: rawNetAmount,
+      pct: feePct,
+      minFee,
+    } = this.calcSomEsomConversionFee(amount, s);
     const conversionFee = isInternalBridge ? 0 : rawConversionFee;
     const netAmount = isInternalBridge ? amount : rawNetAmount;
     if (netAmount <= 0) {
-      throw new BadRequestException('Amount is too low after conversion commission');
+      throw new BadRequestException(
+        'Amount is too low after conversion commission',
+      );
     }
     this.logger.verbose(
-      `[fiatToCrypto] conversion_fee pct=${isInternalBridge ? 0 : feePct}% min=${isInternalBridge ? 0 : minFee}`
-      + ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
+      `[fiatToCrypto] conversion_fee pct=${isInternalBridge ? 0 : feePct}% min=${isInternalBridge ? 0 : minFee}` +
+        ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
     );
 
     const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
@@ -993,7 +1223,9 @@ export class PaymentsService {
       comment: 'Пополнение Салам',
     });
     if (!antiFraudDecision.allowed) {
-      throw new BadRequestException(this.antiFraudRejectMessage('SOM->ESOM', antiFraudDecision));
+      throw new BadRequestException(
+        this.antiFraudRejectMessage('SOM->ESOM', antiFraudDecision),
+      );
     }
 
     const paymentPurpose = this.buildCreditPurpose(
@@ -1002,17 +1234,24 @@ export class PaymentsService {
       this.buildClientFio(customer),
       requestedAt,
     );
-    const bricsTransaction = await this.bricsService.createTransactionFiatToCrypto(
-      amount,
-      customer.customer_id.toString(),
-      paymentPurpose,
-    );
+    const bricsTransaction =
+      await this.bricsService.createTransactionFiatToCrypto(
+        amount,
+        customer.customer_id.toString(),
+        paymentPurpose,
+      );
     if (!bricsTransaction) {
       throw new BadRequestException('Brics transaction failed');
     }
 
-    const ethTransaction = await this.ethereumService.transferFromFiat(customer.address, netAmount);
-    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
+    const ethTransaction = await this.ethereumService.transferFromFiat(
+      customer.address,
+      netAmount,
+    );
+    await this.balanceFetchService.refreshAllBalancesForUser(
+      customer.customer_id,
+      ['ESOM' as Asset],
+    );
     if (!ethTransaction?.success) {
       throw new BadRequestException('Ethereum transaction failed');
     }
@@ -1036,10 +1275,18 @@ export class PaymentsService {
       },
     });
 
-    // decrement SOM cached balance by amount
     await this.prisma.userAssetBalance.upsert({
-      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
-      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-amount).toString() },
+      where: {
+        customer_id_asset: {
+          customer_id: customer.customer_id,
+          asset: 'SOM' as Asset,
+        },
+      },
+      create: {
+        customer_id: customer.customer_id,
+        asset: 'SOM' as Asset,
+        balance: (-amount).toString(),
+      },
       update: { balance: { decrement: amount.toString() } },
     });
 
@@ -1065,15 +1312,22 @@ export class PaymentsService {
     }
 
     const s = await this.settingsService.get();
-    const { fee: rawConversionFee, net: rawNetAmount, pct: feePct, minFee } = this.calcSomEsomConversionFee(amount, s);
+    const {
+      fee: rawConversionFee,
+      net: rawNetAmount,
+      pct: feePct,
+      minFee,
+    } = this.calcSomEsomConversionFee(amount, s);
     const conversionFee = isInternalBridge ? 0 : rawConversionFee;
     const netAmount = isInternalBridge ? amount : rawNetAmount;
     if (netAmount <= 0) {
-      throw new BadRequestException('Amount is too low after conversion commission');
+      throw new BadRequestException(
+        'Amount is too low after conversion commission',
+      );
     }
     this.logger.verbose(
-      `[cryptoToFiat] conversion_fee pct=${isInternalBridge ? 0 : feePct}% min=${isInternalBridge ? 0 : minFee}`
-      + ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
+      `[cryptoToFiat] conversion_fee pct=${isInternalBridge ? 0 : feePct}% min=${isInternalBridge ? 0 : minFee}` +
+        ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
     );
 
     const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
@@ -1085,7 +1339,9 @@ export class PaymentsService {
       comment: 'Crypto->Fiat',
     });
     if (!antiFraudDecision.allowed) {
-      throw new BadRequestException(this.antiFraudRejectMessage('ESOM->SOM', antiFraudDecision));
+      throw new BadRequestException(
+        this.antiFraudRejectMessage('ESOM->SOM', antiFraudDecision),
+      );
     }
 
     const adminBricsService = await this.moduleRef.create(BricsService);
@@ -1098,7 +1354,6 @@ export class PaymentsService {
       throw new BadRequestException('Admin authentication failed');
     }
 
-    // Pre-check destination SOM account before ESOM debit to prevent funds loss on ABS lookup errors.
     let resolvedSomAccount: { AccountNo?: string } | null = null;
     let destinationResolveError: unknown;
     try {
@@ -1114,11 +1369,10 @@ export class PaymentsService {
       );
     }
 
-    // Fallback: use the authenticated InternetBanking user's own SOM account from live session.
     if (
-      !resolvedSomAccount?.AccountNo
-      && authContext?.username
-      && authContext?.password
+      !resolvedSomAccount?.AccountNo &&
+      authContext?.username &&
+      authContext?.password
     ) {
       try {
         const userBricsService = await this.moduleRef.create(BricsService);
@@ -1156,44 +1410,50 @@ export class PaymentsService {
       );
     }
 
-    const configuredCtAccountNo = this.configService.get<string>('CT_ACCOUNT_NO') || '';
+    const configuredCtAccountNo =
+      this.configService.get<string>('CT_ACCOUNT_NO') || '';
     let sourceAccountNo = configuredCtAccountNo;
     try {
-      await adminBricsService.ensureTransferSourceAccountAccessible(sourceAccountNo);
+      await adminBricsService.ensureTransferSourceAccountAccessible(
+        sourceAccountNo,
+      );
     } catch (error) {
-      // If configured CT account is not accessible for current ADMIN_LOGIN,
-      // fallback to ADMIN_LOGIN's own SOM account from current BRICS session.
       const adminSomAccount = await adminBricsService.getAccount();
       if (!adminSomAccount?.AccountNo) {
         throw error;
       }
       const fallbackSourceAccountNo = adminSomAccount.AccountNo;
       if (
-        sourceAccountNo
-        && fallbackSourceAccountNo
-        && sourceAccountNo.trim() === fallbackSourceAccountNo.trim()
+        sourceAccountNo &&
+        fallbackSourceAccountNo &&
+        sourceAccountNo.trim() === fallbackSourceAccountNo.trim()
       ) {
         throw error;
       }
 
       sourceAccountNo = fallbackSourceAccountNo;
-      await adminBricsService.ensureTransferSourceAccountAccessible(sourceAccountNo);
+      await adminBricsService.ensureTransferSourceAccountAccessible(
+        sourceAccountNo,
+      );
       this.logger.warn(
         `[cryptoToFiat] configured CT_ACCOUNT_NO is not accessible, fallback source account=${sourceAccountNo}`,
       );
     }
 
-    const signerAddress = this.ethereumService.getAddressFromPrivateKey(customer.private_key);
+    const signerAddress = this.ethereumService.getAddressFromPrivateKey(
+      customer.private_key,
+    );
     if (
-      !customer.address
-      || customer.address.trim().toLowerCase() !== signerAddress.toLowerCase()
+      !customer.address ||
+      customer.address.trim().toLowerCase() !== signerAddress.toLowerCase()
     ) {
       throw new BadRequestException(
         `Wallet mismatch for customer ${customer.customer_id}: profile address=${customer.address ?? 'N/A'}, signer address=${signerAddress}`,
       );
     }
 
-    const signerEsomBalance = await this.ethereumService.getEsomBalance(signerAddress);
+    const signerEsomBalance =
+      await this.ethereumService.getEsomBalance(signerAddress);
     if (signerEsomBalance + 1e-12 < amount) {
       throw new BadRequestException(
         `Insufficient ESOM balance for conversion. Required=${amount}, available=${signerEsomBalance}, wallet=${signerAddress}`,
@@ -1202,14 +1462,20 @@ export class PaymentsService {
 
     let ethTransaction: { success: boolean; txHash?: string };
     try {
-      ethTransaction = await this.ethereumService.transferToFiat(amount, customer.private_key);
+      ethTransaction = await this.ethereumService.transferToFiat(
+        amount,
+        customer.private_key,
+      );
     } catch (error) {
       const details = this.errorDetails(error);
       throw new BadRequestException(
         `Blockchain ESOM->SOM transfer failed for wallet ${signerAddress}: ${details}`,
       );
     }
-    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
+    await this.balanceFetchService.refreshAllBalancesForUser(
+      customer.customer_id,
+      ['ESOM' as Asset],
+    );
     if (!ethTransaction?.success) {
       throw new BadRequestException('Ethereum transaction failed');
     }
@@ -1242,8 +1508,9 @@ export class PaymentsService {
         const adminSomAccount = await adminBricsService.getAccount();
         const fallbackSourceAccountNo = adminSomAccount?.AccountNo;
         if (
-          !fallbackSourceAccountNo
-          || (transferSourceAccountNo && fallbackSourceAccountNo.trim() === transferSourceAccountNo.trim())
+          !fallbackSourceAccountNo ||
+          (transferSourceAccountNo &&
+            fallbackSourceAccountNo.trim() === transferSourceAccountNo.trim())
         ) {
           throw error;
         }
@@ -1263,7 +1530,6 @@ export class PaymentsService {
       let compensationSucceeded = false;
       let compensationDetails = 'unknown';
       try {
-        // Compensation path: refund the exact ESOM amount that was already debited.
         const compensationTx = await this.ethereumService.transferFromFiat(
           customer.address,
           amount,
@@ -1271,7 +1537,8 @@ export class PaymentsService {
         );
         compensationSucceeded = !!compensationTx?.success;
         if (!compensationSucceeded) {
-          compensationDetails = 'compensation transaction returned unsuccessful status';
+          compensationDetails =
+            'compensation transaction returned unsuccessful status';
         } else {
           compensationDetails = compensationTx.txHash
             ? `txHash=${compensationTx.txHash}`
@@ -1319,10 +1586,18 @@ export class PaymentsService {
       },
     });
 
-    // increment SOM cached balance by net amount after commission
     await this.prisma.userAssetBalance.upsert({
-      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
-      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: netAmount.toString() },
+      where: {
+        customer_id_asset: {
+          customer_id: customer.customer_id,
+          asset: 'SOM' as Asset,
+        },
+      },
+      create: {
+        customer_id: customer.customer_id,
+        asset: 'SOM' as Asset,
+        balance: netAmount.toString(),
+      },
       update: { balance: { increment: netAmount.toString() } },
     });
 
@@ -1335,7 +1610,11 @@ export class PaymentsService {
     return trimmed.toLowerCase();
   }
 
-  private async findInternalRecipientByAddress(asset: Asset, address: string, excludeCustomerId: number): Promise<{ customer_id: number; walletAddress: string } | null> {
+  private async findInternalRecipientByAddress(
+    asset: Asset,
+    address: string,
+    excludeCustomerId: number,
+  ): Promise<{ customer_id: number; walletAddress: string } | null> {
     const target = this.normalizeWalletAddress(asset, address);
     const customers = await this.prisma.customer.findMany({
       where: { customer_id: { not: excludeCustomerId } },
@@ -1348,21 +1627,31 @@ export class PaymentsService {
         if (asset === 'ESOM') {
           candidate = customer.address;
         } else if (asset === 'ETH') {
-          candidate = this.cryptoService.ethAddressFromPrivateKey(customer.private_key);
+          candidate = this.cryptoService.ethAddressFromPrivateKey(
+            customer.private_key,
+          );
         } else if (asset === 'BTC') {
-          candidate = this.cryptoService.bech32AddressFromPrivateKey(customer.private_key);
+          candidate = this.cryptoService.bech32AddressFromPrivateKey(
+            customer.private_key,
+          );
         } else if (asset === 'USDT_TRC20') {
-          candidate = this.cryptoService.trxAddressFromPrivateKey(customer.private_key);
+          candidate = this.cryptoService.trxAddressFromPrivateKey(
+            customer.private_key,
+          );
         }
 
         if (!candidate) continue;
-        const normalizedCandidate = this.normalizeWalletAddress(asset, candidate);
+        const normalizedCandidate = this.normalizeWalletAddress(
+          asset,
+          candidate,
+        );
         if (normalizedCandidate === target) {
-          return { customer_id: customer.customer_id, walletAddress: candidate };
+          return {
+            customer_id: customer.customer_id,
+            walletAddress: candidate,
+          };
         }
-      } catch {
-        // Skip corrupted customer records.
-      }
+      } catch {}
     }
 
     return null;
@@ -1406,7 +1695,8 @@ export class PaymentsService {
         },
       });
       const current = Number(bal?.balance ?? 0);
-      if (current < totalDebit) throw new BadRequestException('Insufficient balance');
+      if (current < totalDebit)
+        throw new BadRequestException('Insufficient balance');
       await tx.userAssetBalance.update({
         where: { customer_id_asset: { customer_id: sender_id, asset } },
         data: { balance: { decrement: totalDebit.toString() } },
@@ -1441,7 +1731,9 @@ export class PaymentsService {
     transferDto: TransferDto,
     customer_id: number,
   ): Promise<StatusOKDto> {
-    const me = await this.prisma.customer.findUnique({ where: { customer_id } });
+    const me = await this.prisma.customer.findUnique({
+      where: { customer_id },
+    });
     if (me && me.status === 'BLOCKED') {
       throw new BadRequestException('User is blocked');
     }
@@ -1452,7 +1744,11 @@ export class PaymentsService {
         throw new BadRequestException('Customer not found');
       }
       if (transferDto.address) {
-        const internalRecipient = await this.findInternalRecipientByAddress(asset, transferDto.address, customer_id);
+        const internalRecipient = await this.findInternalRecipientByAddress(
+          asset,
+          transferDto.address,
+          customer_id,
+        );
         if (internalRecipient) {
           const allowed = await this.antiFraud.shouldAllowTransaction({
             kind: TransactionKind.WALLET_TO_WALLET,
@@ -1477,13 +1773,24 @@ export class PaymentsService {
             payload: { source: 'payments.transfer.address' },
           });
         }
-        return this.withdrawCrypto(asset, transferDto.address, transferDto.amount, customer_id, transferDto.idempotency_key);
+        return this.withdrawCrypto(
+          asset,
+          transferDto.address,
+          transferDto.amount,
+          customer_id,
+          transferDto.idempotency_key,
+        );
       }
       if (transferDto.phone_number) {
-        const bricsRecipient = await this.bricsService.findAccount(transferDto.phone_number);
-        if (!bricsRecipient) throw new BadRequestException('Recipient not found');
+        const bricsRecipient = await this.bricsService.findAccount(
+          transferDto.phone_number,
+        );
+        if (!bricsRecipient)
+          throw new BadRequestException('Recipient not found');
 
-        let recipient = await this.prisma.customer.findUnique({ where: { customer_id: bricsRecipient.CustomerID } });
+        let recipient = await this.prisma.customer.findUnique({
+          where: { customer_id: bricsRecipient.CustomerID },
+        });
         if (!recipient) {
           const recipientAddress = this.ethereumService.generateAddress();
           recipient = await this.prisma.customer.create({
@@ -1519,7 +1826,9 @@ export class PaymentsService {
           payload: { source: 'payments.transfer.phone' },
         });
       }
-      throw new BadRequestException('Either address or phone_number is required for crypto transfer');
+      throw new BadRequestException(
+        'Either address or phone_number is required for crypto transfer',
+      );
     } else if (transferDto.currency == Currency.ESOM) {
       return this.transferESom(transferDto, customer_id);
     } else if (transferDto.currency == Currency.SOM) {
@@ -1531,7 +1840,11 @@ export class PaymentsService {
     ) {
       const asset = transferDto.currency as unknown as Asset;
       if (transferDto.address) {
-        const internalRecipient = await this.findInternalRecipientByAddress(asset, transferDto.address, customer_id);
+        const internalRecipient = await this.findInternalRecipientByAddress(
+          asset,
+          transferDto.address,
+          customer_id,
+        );
         if (internalRecipient) {
           return this.transferCryptoInternal(
             asset,
@@ -1542,12 +1855,25 @@ export class PaymentsService {
             internalRecipient.walletAddress,
           );
         }
-        return this.withdrawCrypto(asset, transferDto.address, transferDto.amount, customer_id, transferDto.idempotency_key);
+        return this.withdrawCrypto(
+          asset,
+          transferDto.address,
+          transferDto.amount,
+          customer_id,
+          transferDto.idempotency_key,
+        );
       }
       if (transferDto.phone_number) {
-        return this.transferCryptoByPhone(asset, transferDto.amount, transferDto.phone_number, customer_id);
+        return this.transferCryptoByPhone(
+          asset,
+          transferDto.amount,
+          transferDto.phone_number,
+          customer_id,
+        );
       }
-      throw new BadRequestException('Either address or phone_number is required for crypto transfer');
+      throw new BadRequestException(
+        'Either address or phone_number is required for crypto transfer',
+      );
     } else {
       return new StatusOKDto();
     }
@@ -1571,7 +1897,6 @@ export class PaymentsService {
       throw new BadRequestException('Recipient not found');
     }
 
-    // Антифрод-предчек: отменяем операцию без побочных эффектов, если сработал
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.WALLET_TO_WALLET,
       amount_in: transferDto.amount,
@@ -1613,7 +1938,10 @@ export class PaymentsService {
       throw new BadRequestException('Ethereum transaction failed');
     }
     if (fee > 0) {
-      const feeTransaction = await this.ethereumService.transferToFiat(fee, customer.private_key);
+      const feeTransaction = await this.ethereumService.transferToFiat(
+        fee,
+        customer.private_key,
+      );
       if (!feeTransaction?.success) {
         throw new BadRequestException('Ethereum fee transaction failed');
       }
@@ -1635,9 +1963,18 @@ export class PaymentsService {
       },
     });
 
-    await this.balanceFetchService.refreshAllBalancesForUser(customer.customer_id, ['ESOM' as Asset]);
-    if (recipient?.customer_id && recipient.customer_id !== customer.customer_id) {
-      await this.balanceFetchService.refreshAllBalancesForUser(recipient.customer_id, ['ESOM' as Asset]);
+    await this.balanceFetchService.refreshAllBalancesForUser(
+      customer.customer_id,
+      ['ESOM' as Asset],
+    );
+    if (
+      recipient?.customer_id &&
+      recipient.customer_id !== customer.customer_id
+    ) {
+      await this.balanceFetchService.refreshAllBalancesForUser(
+        recipient.customer_id,
+        ['ESOM' as Asset],
+      );
     }
     return new StatusOKDto(createdTransaction.id);
   }
@@ -1662,7 +1999,6 @@ export class PaymentsService {
       throw new BadRequestException('Recipient not found');
     }
 
-    // Предчек антифрода
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.BANK_TO_BANK,
       amount_in: transferDto.amount,
@@ -1703,32 +2039,59 @@ export class PaymentsService {
       },
     });
 
-    // Начисляем получателю кеш-баланс СОМ и списываем у отправителя
     await this.prisma.userAssetBalance.upsert({
-      where: { customer_id_asset: { customer_id: customer.customer_id, asset: 'SOM' as Asset } },
-      create: { customer_id: customer.customer_id, asset: 'SOM' as Asset, balance: (-transferDto.amount).toString() },
+      where: {
+        customer_id_asset: {
+          customer_id: customer.customer_id,
+          asset: 'SOM' as Asset,
+        },
+      },
+      create: {
+        customer_id: customer.customer_id,
+        asset: 'SOM' as Asset,
+        balance: (-transferDto.amount).toString(),
+      },
       update: { balance: { decrement: transferDto.amount.toString() } },
     });
     await this.prisma.userAssetBalance.upsert({
-      where: { customer_id_asset: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset } },
-      create: { customer_id: bricsRecipient.CustomerID, asset: 'SOM' as Asset, balance: transferDto.amount.toString() },
+      where: {
+        customer_id_asset: {
+          customer_id: bricsRecipient.CustomerID,
+          asset: 'SOM' as Asset,
+        },
+      },
+      create: {
+        customer_id: bricsRecipient.CustomerID,
+        asset: 'SOM' as Asset,
+        balance: transferDto.amount.toString(),
+      },
       update: { balance: { increment: transferDto.amount.toString() } },
     });
 
     return new StatusOKDto(createdTransaction.id);
   }
 
-
-  private async transferCryptoByPhone(asset: Asset, amount: number, phone: string, sender_id: number): Promise<StatusOKDto> {
-    this.logger.verbose(`[transferCryptoByPhone] asset=${asset} amount=${amount} phone=${phone} sender=${sender_id}`);
-    const sender = await this.prisma.customer.findUnique({ where: { customer_id: sender_id } });
+  private async transferCryptoByPhone(
+    asset: Asset,
+    amount: number,
+    phone: string,
+    sender_id: number,
+  ): Promise<StatusOKDto> {
+    this.logger.verbose(
+      `[transferCryptoByPhone] asset=${asset} amount=${amount} phone=${phone} sender=${sender_id}`,
+    );
+    const sender = await this.prisma.customer.findUnique({
+      where: { customer_id: sender_id },
+    });
     if (!sender) throw new BadRequestException('Sender not found');
 
     const bricsRecipient = await this.bricsService.findAccount(phone);
     if (!bricsRecipient) throw new BadRequestException('Recipient not found');
     const receiver_id = bricsRecipient.CustomerID;
 
-    let recipient = await this.prisma.customer.findUnique({ where: { customer_id: receiver_id } });
+    let recipient = await this.prisma.customer.findUnique({
+      where: { customer_id: receiver_id },
+    });
     if (!recipient) {
       const recipientAddress = this.ethereumService.generateAddress();
       recipient = await this.prisma.customer.create({
@@ -1750,5 +2113,3 @@ export class PaymentsService {
     );
   }
 }
-
-

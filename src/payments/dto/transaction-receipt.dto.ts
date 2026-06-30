@@ -17,7 +17,8 @@ export class TransactionReceiptRequestDto {
   @ApiProperty({
     required: false,
     enum: ReceiptConversionSide,
-    description: 'Сторона конвертации для отображения в квитанции (только для конвертаций)',
+    description:
+      'Сторона конвертации для отображения в квитанции (только для конвертаций)',
     example: ReceiptConversionSide.OUT,
   })
   @IsOptional()
@@ -44,7 +45,9 @@ export class TransactionReceiptDto {
   @ApiProperty({ description: 'Комиссия' })
   fee: number;
 
-  @ApiProperty({ description: 'Реквизиты счета получателя/назначения (маскированно)' })
+  @ApiProperty({
+    description: 'Реквизиты счета получателя/назначения (маскированно)',
+  })
   account_details: string;
 
   @ApiProperty({ description: 'Получатель (ФИО)' })
@@ -53,6 +56,9 @@ export class TransactionReceiptDto {
   @ApiProperty({ description: 'Оплачено со счета (маскированно)' })
   paid_from_account: string;
 
-  @ApiProperty({ description: 'Номер квитанции', example: 'TX-12345-1732579200000' })
+  @ApiProperty({
+    description: 'Номер квитанции',
+    example: 'TX-12345-1732579200000',
+  })
   receipt_number: string;
 }

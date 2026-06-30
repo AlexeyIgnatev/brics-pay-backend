@@ -11,12 +11,13 @@ const ECPair = ECPairFactory(ecc);
 
 @Injectable()
 export class CryptoService {
-
   private normalizeHexPriv(priv: string): string {
     let hex = priv.trim();
     if (hex.startsWith('0x') || hex.startsWith('0X')) hex = hex.slice(2);
     if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
-      throw new BadRequestException('Invalid private key: expected 32-byte hex (64 chars).');
+      throw new BadRequestException(
+        'Invalid private key: expected 32-byte hex (64 chars).',
+      );
     }
     return hex.toLowerCase();
   }
@@ -34,7 +35,9 @@ export class CryptoService {
 
   bech32AddressFromPrivateKey(priv: string): string {
     const pk = Buffer.from(this.normalizeHexPriv(priv), 'hex');
-    const keyPair: ECPairInterface = ECPair.fromPrivateKey(pk, { compressed: true });
+    const keyPair: ECPairInterface = ECPair.fromPrivateKey(pk, {
+      compressed: true,
+    });
 
     const pubkey: Buffer = Buffer.isBuffer(keyPair.publicKey)
       ? (keyPair.publicKey as Buffer)

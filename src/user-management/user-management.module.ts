@@ -13,9 +13,22 @@ import { CryptoModule } from '../config/crypto/crypto.module';
 import { BalanceFetchService } from './balance-fetch.service';
 
 @Module({
-  imports: [AdminManagementModule, ExchangeModule, EthereumModule, CryptoModule, ScheduleModule.forRoot()],
+  imports: [
+    AdminManagementModule,
+    ExchangeModule,
+    EthereumModule,
+    CryptoModule,
+    ScheduleModule.forRoot(),
+  ],
   controllers: [UserManagementController],
-  providers: [UserManagementService, PrismaClient, PriceCacheService, BalanceRescanService, BalanceCacheService, BalanceFetchService],
+  providers: [
+    UserManagementService,
+    PrismaClient,
+    PriceCacheService,
+    BalanceRescanService,
+    BalanceCacheService,
+    BalanceFetchService,
+  ],
   exports: [BalanceRescanService, BalanceCacheService, BalanceFetchService],
 })
 export class UserManagementModule {}

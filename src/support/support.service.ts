@@ -1,7 +1,18 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaClient, SupportMessageRole, SupportTicketStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  PrismaClient,
+  SupportMessageRole,
+  SupportTicketStatus,
+} from '@prisma/client';
 import { SupportMessageDto } from './dto/support-message.dto';
-import { SupportTicketDto, SupportTicketsListDto } from './dto/support-ticket.dto';
+import {
+  SupportTicketDto,
+  SupportTicketsListDto,
+} from './dto/support-ticket.dto';
 
 @Injectable()
 export class SupportService {
@@ -41,7 +52,9 @@ export class SupportService {
     };
   }
 
-  private async getOrCreateOpenTicket(customerId: number): Promise<{ id: number }> {
+  private async getOrCreateOpenTicket(
+    customerId: number,
+  ): Promise<{ id: number }> {
     const existing = await this.prisma.supportTicket.findFirst({
       where: { customer_id: customerId, status: SupportTicketStatus.OPEN },
       orderBy: { createdAt: 'desc' },
@@ -74,7 +87,10 @@ export class SupportService {
     return messages.map((m) => this.mapMessage(m));
   }
 
-  async sendMessage(customerId: number, text: string): Promise<SupportMessageDto> {
+  async sendMessage(
+    customerId: number,
+    text: string,
+  ): Promise<SupportMessageDto> {
     const trimmedText = text.trim();
     const ticket = await this.getOrCreateOpenTicket(customerId);
 
@@ -133,7 +149,11 @@ export class SupportService {
     return messages.map((m) => this.mapMessage(m));
   }
 
-  async replyToTicket(ticketId: number, adminId: number, text: string): Promise<SupportMessageDto> {
+  async replyToTicket(
+    ticketId: number,
+    adminId: number,
+    text: string,
+  ): Promise<SupportMessageDto> {
     const trimmedText = text.trim();
 
     const ticket = await this.prisma.supportTicket.findUnique({
@@ -165,13 +185,17 @@ export class SupportService {
     return this.mapMessage(message);
   }
 
-  async closeTicket(ticketId: number, adminId: number): Promise<SupportTicketDto> {
+  async closeTicket(
+    ticketId: number,
+    adminId: number,
+  ): Promise<SupportTicketDto> {
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
     });
 
     if (!ticket) throw new NotFoundException('Ticket not found');
-    if (ticket.status === SupportTicketStatus.CLOSED) return this.mapTicket(ticket);
+    if (ticket.status === SupportTicketStatus.CLOSED)
+      return this.mapTicket(ticket);
 
     const now = new Date();
     const updated = await this.prisma.supportTicket.update({

@@ -1,7 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class AdminResponseDto {
-  @ApiProperty({ example: 1, description: 'Уникальный идентификатор администратора' })
+  @ApiProperty({
+    example: 1,
+    description: 'Уникальный идентификатор администратора',
+  })
   id: number;
 
   @ApiProperty({ example: 'admin@example.com', description: 'Email (логин)' })
@@ -16,9 +19,19 @@ export class AdminResponseDto {
   @ApiProperty({ example: 'SUPER_ADMIN', description: 'Роль администратора' })
   role: string;
 
-  @ApiProperty({ example: '2024-07-16T10:00:00.000Z', description: 'Дата создания', type: 'string', format: 'date-time' })
+  @ApiProperty({
+    example: '2024-07-16T10:00:00.000Z',
+    description: 'Дата создания',
+    type: 'string',
+    format: 'date-time',
+  })
   createdAt: Date;
 
-  @ApiProperty({ example: '2024-07-16T10:00:00.000Z', description: 'Дата обновления', type: 'string', format: 'date-time' })
+  @ApiProperty({
+    example: '2024-07-16T10:00:00.000Z',
+    description: 'Дата обновления',
+    type: 'string',
+    format: 'date-time',
+  })
   updatedAt: Date;
 }

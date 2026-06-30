@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SupportTicketStatus } from '@prisma/client';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
@@ -7,7 +18,10 @@ import { PaginateParams } from '../common/params/pagination.params';
 import { UserInfoDto } from '../users/dto/user-info.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { SupportMessageDto } from './dto/support-message.dto';
-import { SupportTicketDto, SupportTicketsListDto } from './dto/support-ticket.dto';
+import {
+  SupportTicketDto,
+  SupportTicketsListDto,
+} from './dto/support-ticket.dto';
 import { SupportTicketsQueryDto } from './dto/support-ticket-query.dto';
 import { SupportService } from './support.service';
 
@@ -70,7 +84,11 @@ export class SupportController {
     @Body() dto: SendMessageDto,
     @Req() req: { admin: { id: number } },
   ): Promise<SupportMessageDto> {
-    return this.supportService.replyToTicket(ticketId, Number(req.admin.id), dto.text);
+    return this.supportService.replyToTicket(
+      ticketId,
+      Number(req.admin.id),
+      dto.text,
+    );
   }
 
   @Patch('admin/tickets/:id/close')

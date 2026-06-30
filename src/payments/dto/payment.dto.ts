@@ -1,5 +1,11 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Currency } from '../../users/enums/currency';
 
@@ -38,7 +44,10 @@ export class TransferDto {
   @IsEnum(Currency)
   currency: Currency;
 
-  @ApiProperty({ description: 'Optional idempotency key for safe retries', required: false })
+  @ApiProperty({
+    description: 'Optional idempotency key for safe retries',
+    required: false,
+  })
   @IsString()
   @IsOptional()
   @Transform(emptyStringToUndefined)

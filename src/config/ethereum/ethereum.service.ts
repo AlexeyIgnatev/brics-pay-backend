@@ -87,7 +87,7 @@ export class EthereumService {
     address: string,
     amount: number,
     applyPlatformFee = true,
-  ): Promise<{ success: boolean, txHash?: string }> {
+  ): Promise<{ success: boolean; txHash?: string }> {
     try {
       const contract = new this.web3.eth.Contract(
         [
@@ -129,7 +129,9 @@ export class EthereumService {
         this.ADMIN_PRIVATE_KEY,
       );
       if (account.address.toLowerCase() !== this.ADMIN_ADDRESS.toLowerCase()) {
-        throw new BadRequestException('Private key does not match admin address');
+        throw new BadRequestException(
+          'Private key does not match admin address',
+        );
       }
 
       const fee = await this.web3.eth.getGasPrice();
@@ -159,8 +161,14 @@ export class EthereumService {
       );
       this.logger.log('receipt', receipt);
 
-      const ok = (receipt.status === '0x1' || receipt.status === 1 || receipt.status === 1n);
-      return { success: ok, txHash: receipt.transactionHash as string | undefined };
+      const ok =
+        receipt.status === '0x1' ||
+        receipt.status === 1 ||
+        receipt.status === 1n;
+      return {
+        success: ok,
+        txHash: receipt.transactionHash as string | undefined,
+      };
     } catch (error) {
       this.logger.error('Error in transferFromFiat:', error);
       throw error;
@@ -170,15 +178,13 @@ export class EthereumService {
   async transferToFiat(
     amount: number,
     userPrivateKey: string,
-  ): Promise<{ success: boolean, txHash?: string }> {
+  ): Promise<{ success: boolean; txHash?: string }> {
     try {
       const contract = new this.web3.eth.Contract(
         [
           {
             constant: false,
-            inputs: [
-              { name: 'amount', type: 'uint256' },
-            ],
+            inputs: [{ name: 'amount', type: 'uint256' }],
             name: 'transferToFiat',
             outputs: [{ name: '', type: 'bool' }],
             type: 'function',
@@ -203,7 +209,7 @@ export class EthereumService {
     address: string,
     amount: number,
     userPrivateKey: string,
-  ): Promise<{ success: boolean, txHash?: string }> {
+  ): Promise<{ success: boolean; txHash?: string }> {
     try {
       const contract = new this.web3.eth.Contract(
         [
@@ -238,8 +244,8 @@ export class EthereumService {
 
   private async makeTransactionUsingUserWallet(
     contractCallData: string,
-    userPrivateKey: string
-  ): Promise<{ success: boolean, txHash?: string }> {
+    userPrivateKey: string,
+  ): Promise<{ success: boolean; txHash?: string }> {
     try {
       const userAccount =
         this.web3.eth.accounts.privateKeyToAccount(userPrivateKey);
@@ -250,7 +256,9 @@ export class EthereumService {
         this.ADMIN_PRIVATE_KEY,
       );
 
-      const nonce = await this.web3.eth.getTransactionCount(userAccount.address);
+      const nonce = await this.web3.eth.getTransactionCount(
+        userAccount.address,
+      );
       const gasEstimate = await this.web3.eth.estimateGas({
         from: userAccount.address,
         to: this.TOKEN_ADDRESS,
@@ -277,11 +285,19 @@ export class EthereumService {
         tx,
         userPrivateKey,
       );
-      const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      const receipt = await this.web3.eth.sendSignedTransaction(
+        signedTx.rawTransaction,
+      );
       this.logger.log('receipt', receipt);
 
-      const ok = (receipt.status === '0x1' || receipt.status === 1 || receipt.status === 1n);
-      return { success: ok, txHash: receipt.transactionHash as string | undefined };
+      const ok =
+        receipt.status === '0x1' ||
+        receipt.status === 1 ||
+        receipt.status === 1n;
+      return {
+        success: ok,
+        txHash: receipt.transactionHash as string | undefined,
+      };
     } catch (error) {
       this.logger.error('Error in transaction:', error);
       throw error;
@@ -293,7 +309,8 @@ export class EthereumService {
     contractCallData: string,
     fundPrivateKey: string,
   ): Promise<void> {
-    const fundAccount = this.web3.eth.accounts.privateKeyToAccount(fundPrivateKey);
+    const fundAccount =
+      this.web3.eth.accounts.privateKeyToAccount(fundPrivateKey);
     const gasEstimate = await this.web3.eth.estimateGas({
       from: userAddress,
       to: this.TOKEN_ADDRESS,
@@ -311,7 +328,9 @@ export class EthereumService {
     }
     const amountToSend = requiredBalance - currentBalance;
 
-    this.logger.log(`GasPrice: ${gasPriceWithMargin}. GasEstimate: ${gasEstimate}. RequiredBalance: ${requiredBalance}. CurrentBalance: ${currentBalance}. Amount: ${amountToSend}`);
+    this.logger.log(
+      `GasPrice: ${gasPriceWithMargin}. GasEstimate: ${gasEstimate}. RequiredBalance: ${requiredBalance}. CurrentBalance: ${currentBalance}. Amount: ${amountToSend}`,
+    );
 
     const chainId = await this.web3.eth.getChainId();
     const nonce = await this.web3.eth.getTransactionCount(fundAccount.address);
@@ -328,24 +347,31 @@ export class EthereumService {
 
     this.logger.log('Transaction params:', tx);
 
-    const signedTx = await this.web3.eth.accounts.signTransaction(tx, fundPrivateKey);
+    const signedTx = await this.web3.eth.accounts.signTransaction(
+      tx,
+      fundPrivateKey,
+    );
     if (!signedTx.rawTransaction) {
       throw new BadRequestException('Failed to sign fund transfer transaction');
     }
 
-    const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+    const receipt = await this.web3.eth.sendSignedTransaction(
+      signedTx.rawTransaction,
+    );
     this.logger.log('Funding transaction receipt:', receipt);
 
-    // Опциональное ожидание поступления средств
     const start = Date.now();
     let updatedBalance = BigInt(await this.web3.eth.getBalance(userAddress));
     while (updatedBalance < requiredBalance) {
-      if (Date.now() - start > 10000) throw new BadRequestException('Timeout waiting for user funding');
+      if (Date.now() - start > 10000)
+        throw new BadRequestException('Timeout waiting for user funding');
       await new Promise((r) => setTimeout(r, 1000));
       updatedBalance = BigInt(await this.web3.eth.getBalance(userAddress));
     }
 
-    this.logger.log(`User wallet funded successfully. Balance: ${updatedBalance}`);
+    this.logger.log(
+      `User wallet funded successfully. Balance: ${updatedBalance}`,
+    );
   }
 
   bigintToHex(value: bigint): string {

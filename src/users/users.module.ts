@@ -10,7 +10,13 @@ import { SettingsModule } from '../config/settings/settings.module';
 import { ExchangeModule } from '../config/exchange/exchange.module';
 
 @Module({
-  imports: [BricsModule, EthereumModule, CryptoModule, SettingsModule, ExchangeModule],
+  imports: [
+    BricsModule,
+    EthereumModule,
+    CryptoModule,
+    SettingsModule,
+    ExchangeModule,
+  ],
   controllers: [UsersController],
   providers: [UsersService, PrismaClient, BasicAuthGuard],
   exports: [UsersService],

@@ -13,9 +13,17 @@ import { FirebasePushService } from './firebase-push.service';
 import { AdminManagementModule } from '../admin-management/admin-management.module';
 
 @Module({
-  imports: [BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule, UserManagementModule, AntiFraudModule, AdminManagementModule],
+  imports: [
+    BricsModule,
+    UsersModule,
+    ConfigModule,
+    SettingsModule,
+    ExchangeModule,
+    UserManagementModule,
+    AntiFraudModule,
+    AdminManagementModule,
+  ],
   controllers: [NotificationsController],
   providers: [NotificationsService, FirebasePushService, PrismaClient],
 })
-export class NotificationsModule {
-}
+export class NotificationsModule {}

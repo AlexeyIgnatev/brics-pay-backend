@@ -13,13 +13,18 @@ describe('AdminManagementController', () => {
       controllers: [AdminManagementController],
       providers: [
         { provide: AdminManagementService, useValue: {} },
-        { provide: AdminAuthGuard, useValue: { canActivate: jest.fn(() => true) } },
+        {
+          provide: AdminAuthGuard,
+          useValue: { canActivate: jest.fn(() => true) },
+        },
         { provide: JwtService, useValue: { verifyAsync: jest.fn() } },
         { provide: ConfigService, useValue: { get: jest.fn() } },
       ],
     }).compile();
 
-    controller = module.get<AdminManagementController>(AdminManagementController);
+    controller = module.get<AdminManagementController>(
+      AdminManagementController,
+    );
   });
 
   it('should be defined', () => {

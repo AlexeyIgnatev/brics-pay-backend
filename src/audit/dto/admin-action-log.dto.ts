@@ -15,11 +15,16 @@ export class AdminActionLogsResponseDto {
   @ApiProperty() total: number;
   @ApiProperty() offset: number;
   @ApiProperty() limit: number;
-  @ApiProperty({ type: [AdminActionLogItemDto] }) items: AdminActionLogItemDto[];
+  @ApiProperty({ type: [AdminActionLogItemDto] })
+  items: AdminActionLogItemDto[];
 }
 
 export class AdminActionLogsQueryDto {
-  @ApiProperty({ required: false, enum: ['createdAt', 'admin_id', 'action'], default: 'createdAt' })
+  @ApiProperty({
+    required: false,
+    enum: ['createdAt', 'admin_id', 'action'],
+    default: 'createdAt',
+  })
   @IsOptional()
   @IsIn(['createdAt', 'admin_id', 'action'])
   sort_by?: 'createdAt' | 'admin_id' | 'action' = 'createdAt';

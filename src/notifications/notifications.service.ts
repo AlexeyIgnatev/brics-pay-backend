@@ -1,10 +1,17 @@
-﻿import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
+﻿import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient, PushPlatform } from '@prisma/client';
 import * as nodemailer from 'nodemailer';
 import { UserInfoDto } from '../users/dto/user-info.dto';
 import { PushDataPayloadDto } from './dto/push-test.dto';
-import { SendFinancialReportRequestDto, SendFinancialReportResponseDto } from './dto/financial-report.dto';
+import {
+  SendFinancialReportRequestDto,
+  SendFinancialReportResponseDto,
+} from './dto/financial-report.dto';
 import { FirebasePushService } from './firebase-push.service';
 import { NotificationDto } from './dto/notification.dto';
 
@@ -94,16 +101,20 @@ export class NotificationsService {
       },
     });
 
-    const statusStats = transactions.reduce((acc, tx) => {
-      const key = tx.status;
-      acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const statusStats = transactions.reduce(
+      (acc, tx) => {
+        const key = tx.status;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
-    const fio = [user.last_name, user.first_name, user.middle_name]
-      .filter(Boolean)
-      .join(' ')
-      .trim() || `Customer #${user.customer_id}`;
+    const fio =
+      [user.last_name, user.first_name, user.middle_name]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || `Customer #${user.customer_id}`;
 
     const rows = transactions.map((tx) => {
       const amountIn = Number(tx.amount_in);
@@ -133,19 +144,28 @@ export class NotificationsService {
     const emailHost = this.configService.get<string>('EMAIL_HOST');
     const emailUser = this.configService.get<string>('EMAIL_USER');
     const emailPassword = this.configService.get<string>('EMAIL_PASSWORD');
-    const emailPort = Number(this.configService.get<string>('EMAIL_PORT') || 587);
-    const emailSecure = this.configService.get<string>('EMAIL_SECURE') === 'true' || emailPort === 465;
+    const emailPort = Number(
+      this.configService.get<string>('EMAIL_PORT') || 587,
+    );
+    const emailSecure =
+      this.configService.get<string>('EMAIL_SECURE') === 'true' ||
+      emailPort === 465;
     const fromEmail = this.configService.get<string>('EMAIL_FROM') || emailUser;
 
     if (!emailHost || !fromEmail) {
-      throw new InternalServerErrorException('Email server is not configured (EMAIL_HOST/EMAIL_FROM)');
+      throw new InternalServerErrorException(
+        'Email server is not configured (EMAIL_HOST/EMAIL_FROM)',
+      );
     }
 
     const transporter = nodemailer.createTransport({
       host: emailHost,
       port: emailPort,
       secure: emailSecure,
-      auth: emailUser && emailPassword ? { user: emailUser, pass: emailPassword } : undefined,
+      auth:
+        emailUser && emailPassword
+          ? { user: emailUser, pass: emailPassword }
+          : undefined,
     });
 
     try {
@@ -157,7 +177,9 @@ export class NotificationsService {
       });
       return { successful: true };
     } catch (error) {
-      throw new InternalServerErrorException(`Failed to send report: ${(error as Error)?.message || 'unknown error'}`);
+      throw new InternalServerErrorException(
+        `Failed to send report: ${(error as Error)?.message || 'unknown error'}`,
+      );
     }
   }
 

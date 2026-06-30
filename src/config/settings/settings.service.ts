@@ -1,15 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CustomerResidency, PrismaClient, TariffCategory, TariffOperation } from '@prisma/client';
+import {
+  CustomerResidency,
+  PrismaClient,
+  TariffCategory,
+  TariffOperation,
+} from '@prisma/client';
 import { SettingsPartialDto } from '../../blockchain-config/dto/settings-partial.dto';
 import { SettingsDto } from '../../blockchain-config/dto/settings.dto';
-import { TariffSettingDto, TariffSettingsUpdateDto } from '../../blockchain-config/dto/tariff-settings.dto';
+import {
+  TariffSettingDto,
+  TariffSettingsUpdateDto,
+} from '../../blockchain-config/dto/tariff-settings.dto';
 
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
 
-  constructor(private readonly prisma: PrismaClient) {
-  }
+  constructor(private readonly prisma: PrismaClient) {}
 
   private readonly tariffCategories = Object.values(TariffCategory);
   private readonly tariffResidencies = Object.values(CustomerResidency);
@@ -79,7 +86,11 @@ export class SettingsService {
   async getTariffs(): Promise<TariffSettingDto[]> {
     await this.ensureTariffRows();
     const rows = await this.prisma.tariffSetting.findMany({
-      orderBy: [{ category: 'asc' }, { residency: 'asc' }, { operation: 'asc' }],
+      orderBy: [
+        { category: 'asc' },
+        { residency: 'asc' },
+        { operation: 'asc' },
+      ],
     });
     return rows.map((row) => ({
       category: row.category,
@@ -90,29 +101,33 @@ export class SettingsService {
     }));
   }
 
-  async updateTariffs(dto: TariffSettingsUpdateDto): Promise<TariffSettingDto[]> {
+  async updateTariffs(
+    dto: TariffSettingsUpdateDto,
+  ): Promise<TariffSettingDto[]> {
     await this.ensureTariffRows();
     await this.prisma.$transaction(
-      (dto.items || []).map((item) => this.prisma.tariffSetting.upsert({
-        where: {
-          category_residency_operation: {
+      (dto.items || []).map((item) =>
+        this.prisma.tariffSetting.upsert({
+          where: {
+            category_residency_operation: {
+              category: item.category,
+              residency: item.residency,
+              operation: item.operation,
+            },
+          },
+          create: {
             category: item.category,
             residency: item.residency,
             operation: item.operation,
+            percent_fee: item.percent_fee,
+            fixed_fee: item.fixed_fee,
           },
-        },
-        create: {
-          category: item.category,
-          residency: item.residency,
-          operation: item.operation,
-          percent_fee: item.percent_fee,
-          fixed_fee: item.fixed_fee,
-        },
-        update: {
-          percent_fee: item.percent_fee,
-          fixed_fee: item.fixed_fee,
-        },
-      })),
+          update: {
+            percent_fee: item.percent_fee,
+            fixed_fee: item.fixed_fee,
+          },
+        }),
+      ),
     );
     return this.getTariffs();
   }
@@ -121,7 +136,11 @@ export class SettingsService {
     const existing = await this.prisma.tariffSetting.findMany({
       select: { category: true, residency: true, operation: true },
     });
-    const seen = new Set(existing.map((row) => `${row.category}:${row.residency}:${row.operation}`));
+    const seen = new Set(
+      existing.map(
+        (row) => `${row.category}:${row.residency}:${row.operation}`,
+      ),
+    );
     const missing: {
       category: TariffCategory;
       residency: CustomerResidency;
@@ -134,13 +153,22 @@ export class SettingsService {
         for (const operation of this.tariffOperations) {
           const key = `${category}:${residency}:${operation}`;
           if (!seen.has(key)) {
-            missing.push({ category, residency, operation, percent_fee: '0', fixed_fee: '0' });
+            missing.push({
+              category,
+              residency,
+              operation,
+              percent_fee: '0',
+              fixed_fee: '0',
+            });
           }
         }
       }
     }
     if (missing.length) {
-      await this.prisma.tariffSetting.createMany({ data: missing, skipDuplicates: true });
+      await this.prisma.tariffSetting.createMany({
+        data: missing,
+        skipDuplicates: true,
+      });
     }
   }
 }

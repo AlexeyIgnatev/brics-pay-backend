@@ -1,9 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-/* eslint-disable max-classes-per-file */
-import { AntiFraudRuleKey, Asset, PrismaClient, TransactionKind } from '@prisma/client';
+
+import {
+  AntiFraudRuleKey,
+  Asset,
+  PrismaClient,
+  TransactionKind,
+} from '@prisma/client';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
-
 
 export interface AntiFraudContext {
   kind: TransactionKind;
@@ -23,7 +27,6 @@ export interface AntiFraudDecision {
 
 @Injectable()
 export class AntiFraudService {
-  // CRUD/read helpers for controller
   async listRules() {
     await this.ensureDefaults();
     return this.prisma.antiFraudRule.findMany({ orderBy: { key: 'asc' } });
@@ -33,20 +36,28 @@ export class AntiFraudService {
     return this.prisma.antiFraudRule.update({ where: { key }, data });
   }
 
-  async listCases(query: any): Promise<{ total: number; offset: number; limit: number; items: any[] }> {
+  async listCases(
+    query: any,
+  ): Promise<{ total: number; offset: number; limit: number; items: any[] }> {
     const whereCase: any = {};
     if (query.case_status) whereCase.status = query.case_status;
 
     const whereTx: any = {};
     if (query.kind?.length) whereTx.kind = { in: query.kind };
     if (query.status?.length) whereTx.status = { in: query.status };
-    if (query.asset?.length) whereTx.OR = [{ asset_out: { in: query.asset } }, { asset_in: { in: query.asset } }];
+    if (query.asset?.length)
+      whereTx.OR = [
+        { asset_out: { in: query.asset } },
+        { asset_in: { in: query.asset } },
+      ];
     if (query.tx_hash) whereTx.tx_hash = { contains: query.tx_hash };
     if (query.id) whereTx.bank_op_id = query.id;
     if (query.amount_min != null || query.amount_max != null) {
       whereTx.amount_out = {};
-      if (query.amount_min != null) whereTx.amount_out.gte = query.amount_min.toString();
-      if (query.amount_max != null) whereTx.amount_out.lte = query.amount_max.toString();
+      if (query.amount_min != null)
+        whereTx.amount_out.gte = query.amount_min.toString();
+      if (query.amount_max != null)
+        whereTx.amount_out.lte = query.amount_max.toString();
     }
     if (query.date_from || query.date_to) {
       whereTx.createdAt = {};
@@ -57,7 +68,12 @@ export class AntiFraudService {
     if (query.sender) {
       whereTx.OR = whereTx.OR || [];
       whereTx.OR.push(
-        { sender_wallet_address: { contains: query.sender, mode: 'insensitive' } },
+        {
+          sender_wallet_address: {
+            contains: query.sender,
+            mode: 'insensitive',
+          },
+        },
         {
           sender_customer: {
             OR: [
@@ -74,12 +90,19 @@ export class AntiFraudService {
     if (query.receiver) {
       whereTx.OR = whereTx.OR || [];
       whereTx.OR.push(
-        { receiver_wallet_address: { contains: query.receiver, mode: 'insensitive' } },
+        {
+          receiver_wallet_address: {
+            contains: query.receiver,
+            mode: 'insensitive',
+          },
+        },
         {
           receiver_customer: {
             OR: [
               { first_name: { contains: query.receiver, mode: 'insensitive' } },
-              { middle_name: { contains: query.receiver, mode: 'insensitive' } },
+              {
+                middle_name: { contains: query.receiver, mode: 'insensitive' },
+              },
               { last_name: { contains: query.receiver, mode: 'insensitive' } },
               { phone: { contains: query.receiver, mode: 'insensitive' } },
               { email: { contains: query.receiver, mode: 'insensitive' } },
@@ -89,17 +112,25 @@ export class AntiFraudService {
       );
     }
 
-    const sortBy = (query.sort_by === 'amount' ? 'amount_out' : query.sort_by) ?? 'createdAt';
+    const sortBy =
+      (query.sort_by === 'amount' ? 'amount_out' : query.sort_by) ??
+      'createdAt';
     const sortDir = query.sort_dir ?? 'desc';
 
     const [total, items] = await this.prisma.$transaction([
-      this.prisma.antiFraudCase.count({ where: { ...whereCase, transaction: whereTx } }),
+      this.prisma.antiFraudCase.count({
+        where: { ...whereCase, transaction: whereTx },
+      }),
       this.prisma.antiFraudCase.findMany({
         where: { ...whereCase, transaction: whereTx },
         orderBy: { createdAt: 'desc' },
         skip: query.offset ?? 0,
         take: query.limit ?? 20,
-        include: { transaction: { include: { sender_customer: true, receiver_customer: true } } },
+        include: {
+          transaction: {
+            include: { sender_customer: true, receiver_customer: true },
+          },
+        },
       }),
     ]);
 
@@ -108,54 +139,77 @@ export class AntiFraudService {
       const amountIn = Number(c.transaction.amount_in ?? 0);
       const useOutSide = amountOut > 0;
 
-      return ({
-      id: c.id,
-      status: c.status,
-      rule_key: c.rule_key,
-      reason: c.reason,
-      createdAt: c.createdAt,
-      updatedAt: c.updatedAt,
-      transaction: {
-        id: c.transaction.id,
-        kind: c.transaction.kind,
-        status: c.transaction.status,
-        amount: useOutSide ? amountOut : amountIn,
-        asset: useOutSide ? c.transaction.asset_out : c.transaction.asset_in,
-        tx_hash: c.transaction.tx_hash ?? undefined,
-        bank_op_id: c.transaction.bank_op_id ?? undefined,
-        sender_customer_id: c.transaction.sender_customer_id ?? undefined,
-        receiver_customer_id: c.transaction.receiver_customer_id ?? undefined,
-        sender_wallet_address: c.transaction.sender_wallet_address ?? undefined,
-        receiver_wallet_address: c.transaction.receiver_wallet_address ?? undefined,
-        comment: c.transaction.comment ?? undefined,
-        createdAt: c.transaction.createdAt,
-        sender_customer: c.transaction.sender_customer ? {
-          customer_id: c.transaction.sender_customer.customer_id,
-          first_name: c.transaction.sender_customer.first_name ?? undefined,
-          middle_name: c.transaction.sender_customer.middle_name ?? undefined,
-          last_name: c.transaction.sender_customer.last_name ?? undefined,
-          phone: c.transaction.sender_customer.phone ?? undefined,
-          email: c.transaction.sender_customer.email ?? undefined,
-        } : undefined,
-        receiver_customer: c.transaction.receiver_customer ? {
-          customer_id: c.transaction.receiver_customer.customer_id,
-          first_name: c.transaction.receiver_customer.first_name ?? undefined,
-          middle_name: c.transaction.receiver_customer.middle_name ?? undefined,
-          last_name: c.transaction.receiver_customer.last_name ?? undefined,
-          phone: c.transaction.receiver_customer.phone ?? undefined,
-          email: c.transaction.receiver_customer.email ?? undefined,
-        } : undefined,
-      },
-    })});
+      return {
+        id: c.id,
+        status: c.status,
+        rule_key: c.rule_key,
+        reason: c.reason,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        transaction: {
+          id: c.transaction.id,
+          kind: c.transaction.kind,
+          status: c.transaction.status,
+          amount: useOutSide ? amountOut : amountIn,
+          asset: useOutSide ? c.transaction.asset_out : c.transaction.asset_in,
+          tx_hash: c.transaction.tx_hash ?? undefined,
+          bank_op_id: c.transaction.bank_op_id ?? undefined,
+          sender_customer_id: c.transaction.sender_customer_id ?? undefined,
+          receiver_customer_id: c.transaction.receiver_customer_id ?? undefined,
+          sender_wallet_address:
+            c.transaction.sender_wallet_address ?? undefined,
+          receiver_wallet_address:
+            c.transaction.receiver_wallet_address ?? undefined,
+          comment: c.transaction.comment ?? undefined,
+          createdAt: c.transaction.createdAt,
+          sender_customer: c.transaction.sender_customer
+            ? {
+                customer_id: c.transaction.sender_customer.customer_id,
+                first_name:
+                  c.transaction.sender_customer.first_name ?? undefined,
+                middle_name:
+                  c.transaction.sender_customer.middle_name ?? undefined,
+                last_name: c.transaction.sender_customer.last_name ?? undefined,
+                phone: c.transaction.sender_customer.phone ?? undefined,
+                email: c.transaction.sender_customer.email ?? undefined,
+              }
+            : undefined,
+          receiver_customer: c.transaction.receiver_customer
+            ? {
+                customer_id: c.transaction.receiver_customer.customer_id,
+                first_name:
+                  c.transaction.receiver_customer.first_name ?? undefined,
+                middle_name:
+                  c.transaction.receiver_customer.middle_name ?? undefined,
+                last_name:
+                  c.transaction.receiver_customer.last_name ?? undefined,
+                phone: c.transaction.receiver_customer.phone ?? undefined,
+                email: c.transaction.receiver_customer.email ?? undefined,
+              }
+            : undefined,
+        },
+      };
+    });
 
-    return { total, offset: query.offset ?? 0, limit: query.limit ?? 20, items: caseItems };
+    return {
+      total,
+      offset: query.offset ?? 0,
+      limit: query.limit ?? 20,
+      items: caseItems,
+    };
   }
 
   async adminApprove(id: number) {
-    const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
+    const c = await this.prisma.antiFraudCase.findUnique({
+      where: { id },
+      include: { transaction: true },
+    });
     if (!c) return null;
     await this.prisma.$transaction(async (tx) => {
-      await tx.antiFraudCase.update({ where: { id: c.id }, data: { status: 'APPROVED' } });
+      await tx.antiFraudCase.update({
+        where: { id: c.id },
+        data: { status: 'APPROVED' },
+      });
       const senderId = c.transaction.sender_customer_id;
       if (senderId) {
         await tx.customer.updateMany({
@@ -171,13 +225,22 @@ export class AntiFraudService {
   }
 
   async adminReject(id: number) {
-    const c = await this.prisma.antiFraudCase.findUnique({ where: { id }, include: { transaction: true } });
+    const c = await this.prisma.antiFraudCase.findUnique({
+      where: { id },
+      include: { transaction: true },
+    });
     if (!c) return null;
     await this.prisma.$transaction(async (tx) => {
-      await tx.antiFraudCase.update({ where: { id: c.id }, data: { status: 'REJECTED' } });
+      await tx.antiFraudCase.update({
+        where: { id: c.id },
+        data: { status: 'REJECTED' },
+      });
       const senderId = c.transaction.sender_customer_id;
       if (senderId) {
-        await tx.customer.update({ where: { customer_id: senderId }, data: { status: 'BLOCKED' } });
+        await tx.customer.update({
+          where: { customer_id: senderId },
+          data: { status: 'BLOCKED' },
+        });
       }
     });
     return { ok: true };
@@ -189,18 +252,20 @@ export class AntiFraudService {
     private readonly prisma: PrismaClient,
     private readonly settings: SettingsService,
     private readonly exchange: BybitExchangeService,
-  ) {
-  }
+  ) {}
 
   private async toSom(asset: Asset, amount: number): Promise<number> {
     if (asset === 'SOM' || asset === 'ESOM') return amount;
-    const prices = await this.exchange.getUsdPrices(['BTC', 'ETH', 'USDT_TRC20'] as unknown as Asset[]);
+    const prices = await this.exchange.getUsdPrices([
+      'BTC',
+      'ETH',
+      'USDT_TRC20',
+    ] as unknown as Asset[]);
     const esomPerUsd = Number((await this.settings.get()).esom_per_usd);
     const usd = amount * Number(prices[asset] || 0);
     return usd * esomPerUsd;
   }
 
-  // ensure default rules exist (idempotent)
   async ensureDefaults(): Promise<void> {
     const upsert = async (key: AntiFraudRuleKey, data: any) => {
       await this.prisma.antiFraudRule.upsert({
@@ -211,21 +276,43 @@ export class AntiFraudService {
     };
     await upsert('FIAT_ANY_GE_1M', { threshold_som: '1000000' });
     await upsert('ONE_TIME_GE_8M', { threshold_som: '8000000' });
-    await upsert('FREQUENT_OPS_3_30D_EACH_GE_100K', { period_days: 30, min_count: 3, threshold_som: '100000' });
-    await upsert('WITHDRAW_AFTER_LARGE_INFLOW', { period_days: 7, percent_threshold: '50', threshold_som: '1000000' });
-    await upsert('SPLITTING_TOTAL_14D_GE_1M', { period_days: 14, threshold_som: '1000000' });
-    await upsert('THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M', { period_days: 30, min_count: 3, threshold_som: '1000000' });
+    await upsert('FREQUENT_OPS_3_30D_EACH_GE_100K', {
+      period_days: 30,
+      min_count: 3,
+      threshold_som: '100000',
+    });
+    await upsert('WITHDRAW_AFTER_LARGE_INFLOW', {
+      period_days: 7,
+      percent_threshold: '50',
+      threshold_som: '1000000',
+    });
+    await upsert('SPLITTING_TOTAL_14D_GE_1M', {
+      period_days: 14,
+      threshold_som: '1000000',
+    });
+    await upsert('THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M', {
+      period_days: 30,
+      min_count: 3,
+      threshold_som: '1000000',
+    });
     await upsert('AFTER_INACTIVITY_6M', { period_days: 180 });
-    await upsert('MANY_SENDERS_TO_ONE_10_PER_MONTH', { period_days: 30, min_count: 10 });
+    await upsert('MANY_SENDERS_TO_ONE_10_PER_MONTH', {
+      period_days: 30,
+      min_count: 10,
+    });
   }
 
-  // Evaluate and return detailed reason; used by shouldAllowTransaction
-  async evaluateTriggeredDetailed(ctx: AntiFraudContext): Promise<{ key: AntiFraudRuleKey; reason: string } | null> {
+  async evaluateTriggeredDetailed(
+    ctx: AntiFraudContext,
+  ): Promise<{ key: AntiFraudRuleKey; reason: string } | null> {
     await this.ensureDefaults();
-    const rules = await this.prisma.antiFraudRule.findMany({ where: { enabled: true } });
+    const rules = await this.prisma.antiFraudRule.findMany({
+      where: { enabled: true },
+    });
     const amountSom = await this.toSom(ctx.asset, ctx.amount);
 
-    const fmt = (n: number) => Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 6 });
+    const fmt = (n: number) =>
+      Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 6 });
 
     const now = new Date();
     const sinceDays = async (days: number) => {
@@ -238,7 +325,7 @@ export class AntiFraudService {
       switch (r.key) {
         case 'FIAT_ANY_GE_1M': {
           const th = Number(r.threshold_som || 0);
-          if ((ctx.asset === 'SOM') && amountSom >= th)
+          if (ctx.asset === 'SOM' && amountSom >= th)
             return {
               key: r.key,
               reason: `FIAT_ANY_GE_1M: сумма операции ${fmt(amountSom)} СОМ >= порога ${fmt(th)} (актив=${ctx.asset})`,
@@ -263,7 +350,7 @@ export class AntiFraudService {
             where: {
               sender_customer_id: ctx.sender_customer_id,
               createdAt: { gte: from },
-              amount_out: { gte: (r.threshold_som || '0') },
+              amount_out: { gte: r.threshold_som || '0' },
             },
           });
           if (count >= minCount)
@@ -283,7 +370,7 @@ export class AntiFraudService {
             where: {
               receiver_customer_id: ctx.sender_customer_id,
               createdAt: { gte: from },
-              amount_out: { gte: (r.threshold_som || '0') },
+              amount_out: { gte: r.threshold_som || '0' },
             },
           });
           const inflowSom = Number(inflow._sum.amount_out || 0);
@@ -301,7 +388,10 @@ export class AntiFraudService {
           const from = await sinceDays(period);
           const agg = await this.prisma.transaction.aggregate({
             _sum: { amount_out: true },
-            where: { sender_customer_id: ctx.sender_customer_id, createdAt: { gte: from } },
+            where: {
+              sender_customer_id: ctx.sender_customer_id,
+              createdAt: { gte: from },
+            },
           });
           const total = Number(agg._sum.amount_out || 0);
           if (total >= th)
@@ -318,11 +408,19 @@ export class AntiFraudService {
           const from = await sinceDays(period);
           const deposits = await this.prisma.transaction.groupBy({
             by: ['sender_customer_id'],
-            where: { receiver_customer_id: ctx.receiver_customer_id, createdAt: { gte: from } },
+            where: {
+              receiver_customer_id: ctx.receiver_customer_id,
+              createdAt: { gte: from },
+            },
             _sum: { amount_out: true },
           });
-          const uniqueSenders = deposits.filter(d => Number(d._sum.amount_out || 0) > 0).length;
-          const total = deposits.reduce((s, d) => s + Number(d._sum.amount_out || 0), 0);
+          const uniqueSenders = deposits.filter(
+            (d) => Number(d._sum.amount_out || 0) > 0,
+          ).length;
+          const total = deposits.reduce(
+            (s, d) => s + Number(d._sum.amount_out || 0),
+            0,
+          );
           if (uniqueSenders >= minCount && total >= th)
             return {
               key: r.key,
@@ -349,7 +447,10 @@ export class AntiFraudService {
           const from = await sinceDays(period);
           const senders = await this.prisma.transaction.groupBy({
             by: ['sender_customer_id'],
-            where: { receiver_customer_id: ctx.receiver_customer_id, createdAt: { gte: from } },
+            where: {
+              receiver_customer_id: ctx.receiver_customer_id,
+              createdAt: { gte: from },
+            },
             _count: { sender_customer_id: true },
           });
           if (senders.length >= minCount)
@@ -364,7 +465,6 @@ export class AntiFraudService {
     return null;
   }
 
-  // Check if there exists an approved antifraud case for an identical transaction
   async hasApprovedIdentical(plan: {
     kind: TransactionKind;
     sender_customer_id?: number;
@@ -382,10 +482,15 @@ export class AntiFraudService {
       amount_in: plan.amount_in.toString(),
       asset_out: plan.asset_out,
     };
-    if (plan.receiver_customer_id) whereTx.receiver_customer_id = plan.receiver_customer_id;
-    if (plan.receiver_wallet_address) whereTx.receiver_wallet_address = plan.receiver_wallet_address;
+    if (plan.receiver_customer_id)
+      whereTx.receiver_customer_id = plan.receiver_customer_id;
+    if (plan.receiver_wallet_address)
+      whereTx.receiver_wallet_address = plan.receiver_wallet_address;
     if (plan.external_address) whereTx.external_address = plan.external_address;
-    const prev = await this.prisma.transaction.findFirst({ where: whereTx, orderBy: { createdAt: 'desc' } });
+    const prev = await this.prisma.transaction.findFirst({
+      where: whereTx,
+      orderBy: { createdAt: 'desc' },
+    });
     if (!prev) return false;
     const caseApproved = await this.prisma.antiFraudCase.findFirst({
       where: {
@@ -396,7 +501,6 @@ export class AntiFraudService {
     return !!caseApproved;
   }
 
-  // Main decision method: true -> allow; false -> blocked and recorded
   async shouldAllowTransaction(plan: {
     kind: TransactionKind;
     amount_in: number;
@@ -458,7 +562,7 @@ export class AntiFraudService {
     }
 
     const tx = await this.prisma.transaction.create({
-      data: ({
+      data: {
         kind: plan.kind,
         status: 'REJECTED',
         amount_in: plan.amount_in.toString(),
@@ -470,7 +574,7 @@ export class AntiFraudService {
         receiver_wallet_address: plan.receiver_wallet_address ?? undefined,
         external_address: plan.external_address ?? undefined,
         comment: plan.comment ? `${plan.comment} - ${reason}` : reason,
-      }),
+      },
     });
 
     const antiFraudCase = await this.openCase(tx.id, detail.key, reason);
@@ -483,8 +587,14 @@ export class AntiFraudService {
     };
   }
 
-  private async openCase(txId: number, key: AntiFraudRuleKey, reason: string): Promise<{ id: number }> {
-    const created = await this.prisma.antiFraudCase.create({ data: { transaction_id: txId, rule_key: key, reason } });
+  private async openCase(
+    txId: number,
+    key: AntiFraudRuleKey,
+    reason: string,
+  ): Promise<{ id: number }> {
+    const created = await this.prisma.antiFraudCase.create({
+      data: { transaction_id: txId, rule_key: key, reason },
+    });
     return { id: created.id };
   }
 }

@@ -1,16 +1,23 @@
 import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { SettingsService } from '../config/settings/settings.service';
 import { SettingsDto } from './dto/settings.dto';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 import { SettingsPartialDto } from './dto/settings-partial.dto';
-import { TariffSettingDto, TariffSettingsUpdateDto } from './dto/tariff-settings.dto';
+import {
+  TariffSettingDto,
+  TariffSettingsUpdateDto,
+} from './dto/tariff-settings.dto';
 
 @ApiTags('Конфигурация блокчейна')
 @Controller('blockchain-config')
 export class BlockchainConfigController {
-  constructor(private readonly settingsService: SettingsService) {
-  }
+  constructor(private readonly settingsService: SettingsService) {}
 
   @Get('settings')
   @ApiOperation({ summary: 'Получить текущие настройки системы' })
@@ -42,7 +49,9 @@ export class BlockchainConfigController {
   @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Обновить тарифную сетку клиентов' })
   @ApiResponse({ status: 200, type: [TariffSettingDto] })
-  async updateTariffs(@Body() dto: TariffSettingsUpdateDto): Promise<TariffSettingDto[]> {
+  async updateTariffs(
+    @Body() dto: TariffSettingsUpdateDto,
+  ): Promise<TariffSettingDto[]> {
     return await this.settingsService.updateTariffs(dto);
   }
 }

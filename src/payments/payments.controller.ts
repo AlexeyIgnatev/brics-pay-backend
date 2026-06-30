@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Headers, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { TransferDto } from './dto/payment.dto';
 import { PaymentsService } from './payments.service';
 import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
@@ -8,7 +16,10 @@ import { GetTransactions } from './dto/get-transactions.dto';
 import { TransactionDto } from './dto/transaction.dto';
 import { StatusOKDto } from '../common/dto/status.dto';
 import { ConvertDto } from './dto/convert.dto';
-import { TransactionReceiptDto, TransactionReceiptRequestDto } from './dto/transaction-receipt.dto';
+import {
+  TransactionReceiptDto,
+  TransactionReceiptRequestDto,
+} from './dto/transaction-receipt.dto';
 import { SettingsService } from '../config/settings/settings.service';
 import { PaymentFeeDto } from './dto/payment-fee.dto';
 import { UsdtDepositWebhookDto } from './dto/usdt-deposit.dto';
@@ -20,8 +31,7 @@ export class PaymentsController {
     private readonly paymentsService: PaymentsService,
     private readonly settingsService: SettingsService,
     private readonly usdtTreasuryOrchestrator: UsdtTreasuryOrchestratorService,
-  ) {
-  }
+  ) {}
 
   @Post('transfer')
   @ApiBearerAuth('Basic')
@@ -40,9 +50,7 @@ export class PaymentsController {
   @Get('fees')
   @ApiBearerAuth('Basic')
   @UseGuards(BasicAuthGuard)
-  async getFees(
-    @Req() req: { user: UserInfoDto },
-  ): Promise<PaymentFeeDto[]> {
+  async getFees(@Req() req: { user: UserInfoDto }): Promise<PaymentFeeDto[]> {
     return this.settingsService.getTariffs();
   }
 
@@ -57,7 +65,9 @@ export class PaymentsController {
     let authContext: { username?: string; password?: string } | undefined;
     if (authHeader?.startsWith('Basic ')) {
       try {
-        const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
+        const decoded = Buffer.from(authHeader.slice(6), 'base64').toString(
+          'utf-8',
+        );
         const separatorIndex = decoded.indexOf(':');
         if (separatorIndex > 0) {
           authContext = {
@@ -65,12 +75,14 @@ export class PaymentsController {
             password: decoded.slice(separatorIndex + 1),
           };
         }
-      } catch {
-        // Ignore parse errors: guard already validated credentials.
-      }
+      } catch {}
     }
 
-    return this.paymentsService.convert(dto, req?.user.customer_id, authContext);
+    return this.paymentsService.convert(
+      dto,
+      req?.user.customer_id,
+      authContext,
+    );
   }
 
   @Post('history')
@@ -80,7 +92,10 @@ export class PaymentsController {
     @Body() getTransactions: GetTransactions,
     @Req() req: { user: UserInfoDto },
   ): Promise<TransactionDto[]> {
-    return this.paymentsService.getHistory(getTransactions, req?.user.customer_id);
+    return this.paymentsService.getHistory(
+      getTransactions,
+      req?.user.customer_id,
+    );
   }
 
   @Post('receipt')
@@ -98,7 +113,10 @@ export class PaymentsController {
     @Body() dto: UsdtDepositWebhookDto,
     @Headers('x-webhook-secret') webhookSecret?: string,
   ): Promise<StatusOKDto> {
-    return this.usdtTreasuryOrchestrator.handleUsdtDepositWebhook(dto, webhookSecret);
+    return this.usdtTreasuryOrchestrator.handleUsdtDepositWebhook(
+      dto,
+      webhookSecret,
+    );
   }
 
   @Post('usdt/reconcile')

@@ -14,9 +14,18 @@ import { CryptoModule } from '../config/crypto/crypto.module';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
 
 @Module({
-  imports: [EthereumModule, BricsModule, UsersModule, ConfigModule, SettingsModule, ExchangeModule, UserManagementModule, AntiFraudModule, CryptoModule],
+  imports: [
+    EthereumModule,
+    BricsModule,
+    UsersModule,
+    ConfigModule,
+    SettingsModule,
+    ExchangeModule,
+    UserManagementModule,
+    AntiFraudModule,
+    CryptoModule,
+  ],
   controllers: [PaymentsController],
   providers: [PaymentsService, UsdtTreasuryOrchestratorService, PrismaClient],
 })
-export class PaymentsModule {
-}
+export class PaymentsModule {}

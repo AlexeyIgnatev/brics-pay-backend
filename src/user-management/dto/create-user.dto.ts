@@ -22,11 +22,17 @@ export class CreateUserDto {
   @IsEmail()
   email: string;
 
-  @ApiProperty({ description: 'Блокчейн-адрес пользователя', example: '0x1234abcd5678ef00...' })
+  @ApiProperty({
+    description: 'Блокчейн-адрес пользователя',
+    example: '0x1234abcd5678ef00...',
+  })
   @IsString()
   address: string;
 
-  @ApiProperty({ description: 'Приватный ключ пользователя', example: '0xabcdef...' })
+  @ApiProperty({
+    description: 'Приватный ключ пользователя',
+    example: '0xabcdef...',
+  })
   @IsString()
   private_key: string;
 }

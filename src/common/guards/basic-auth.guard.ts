@@ -37,20 +37,17 @@ export class BasicAuthGuard implements CanActivate {
     }
 
     try {
-      request.user = await this.usersService.getUserInfo(
-        username,
-        password,
-      );
+      request.user = await this.usersService.getUserInfo(username, password);
 
       return true;
     } catch (error) {
       const details =
-        error instanceof Error
-          ? error.message
-          : 'Unknown authorization error';
+        error instanceof Error ? error.message : 'Unknown authorization error';
 
       this.logger.warn(`Authorization failed: ${details}`);
-      throw new UnauthorizedException(`Неверные учетные данные. Детали: ${details}`);
+      throw new UnauthorizedException(
+        `Неверные учетные данные. Детали: ${details}`,
+      );
     }
   }
 }

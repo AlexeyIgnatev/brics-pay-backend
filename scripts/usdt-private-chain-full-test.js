@@ -56,9 +56,7 @@ function requestJson(url, method, body, headers = {}) {
           let parsed = data;
           try {
             parsed = data ? JSON.parse(data) : null;
-          } catch {
-            // keep raw string if response isn't JSON
-          }
+          } catch {}
           resolve({ status: res.statusCode, data: parsed, raw: data });
         });
       },
@@ -74,17 +72,70 @@ function requestJson(url, method, body, headers = {}) {
 }
 
 async function waitTx(rpcUrl, txHash, label) {
-  for (let i = 0; i < 60; i += 1) {
-    const res = await requestJson(
-      `${rpcUrl.replace(/\/+$/, '')}/wallet/gettransactioninfobyid`,
-      'POST',
-      { value: txHash },
-    );
-    const info = typeof res.data === 'object' && res.data ? res.data : {};
-    if (Number(info.blockNumber || 0) > 0) {
-      console.log(`${label}-confirmed=`, JSON.stringify(info, null, 2));
-      return info;
+  const isConfirmedPayload = (info) => {
+    const blockNumber = Number(info?.blockNumber ?? 0);
+    if (Number.isFinite(blockNumber) && blockNumber > 0) {
+      return true;
     }
+
+    const blockTimeStamp = Number(info?.blockTimeStamp ?? 0);
+    const minedTxId =
+      typeof info?.id === 'string'
+        ? info.id
+        : typeof info?.txID === 'string'
+          ? info.txID
+          : undefined;
+
+    if (
+      minedTxId === txHash &&
+      Number.isFinite(blockTimeStamp) &&
+      blockTimeStamp > 0
+    ) {
+      return true;
+    }
+
+    if (info && Object.keys(info).length > 0 && !('result' in info)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  for (let i = 0; i < 60; i += 1) {
+    const [txInfoRes, txRawRes] = await Promise.all([
+      requestJson(
+        `${rpcUrl.replace(/\/+$/, '')}/wallet/gettransactioninfobyid`,
+        'POST',
+        { value: txHash },
+      ),
+      requestJson(
+        `${rpcUrl.replace(/\/+$/, '')}/wallet/gettransactionbyid`,
+        'POST',
+        { value: txHash },
+      ),
+    ]);
+
+    const txInfo =
+      typeof txInfoRes.data === 'object' && txInfoRes.data
+        ? txInfoRes.data
+        : {};
+    const txRaw =
+      typeof txRawRes.data === 'object' && txRawRes.data ? txRawRes.data : {};
+
+    if (isConfirmedPayload(txInfo)) {
+      console.log(`${label}-confirmed=`, JSON.stringify(txInfo, null, 2));
+      return txInfo;
+    }
+
+    if (isConfirmedPayload(txRaw)) {
+      console.log(`${label}-confirmed-raw=`, JSON.stringify(txRaw, null, 2));
+      return txRaw;
+    }
+
+    if (i % 10 === 0) {
+      console.log(`${label}-poll=`, JSON.stringify({ txInfo, txRaw }, null, 2));
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
@@ -150,25 +201,29 @@ async function main() {
       1,
       treasuryPk,
     );
+    const tx1 = dep1.txid || dep1.transaction?.txID || dep1.transaction?.txid;
+
+    if (!tx1) {
+      throw new Error(`deposit tx missing: ${JSON.stringify({ dep1 }, null, 2)}`);
+    }
+
+    console.log('deposit-1-send=', JSON.stringify(dep1, null, 2));
+    await waitTx(rpcUrl, tx1, 'deposit-1');
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
     const dep2 = await tron.trx.sendTransaction(
       customers[1].address,
       1,
       treasuryPk,
     );
-
-    const tx1 = dep1.txid || dep1.transaction?.txID || dep1.transaction?.txid;
     const tx2 = dep2.txid || dep2.transaction?.txID || dep2.transaction?.txid;
 
-    if (!tx1 || !tx2) {
-      throw new Error(
-        `deposit tx missing: ${JSON.stringify({ dep1, dep2 }, null, 2)}`,
-      );
+    if (!tx2) {
+      throw new Error(`deposit tx missing: ${JSON.stringify({ dep2 }, null, 2)}`);
     }
 
-    console.log('deposit-1-send=', JSON.stringify(dep1, null, 2));
     console.log('deposit-2-send=', JSON.stringify(dep2, null, 2));
-
-    await waitTx(rpcUrl, tx1, 'deposit-1');
     await waitTx(rpcUrl, tx2, 'deposit-2');
 
     const webhook1 = await requestJson(

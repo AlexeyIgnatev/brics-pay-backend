@@ -90,7 +90,9 @@ describe('SupportService', () => {
 
     expect(prisma.supportTicket.create).not.toHaveBeenCalled();
     expect(prisma.supportMessage.create).toHaveBeenCalledTimes(2);
-    expect(prisma.supportMessage.create.mock.calls[1][0].data.ticket_id).toBe(44);
+    expect(prisma.supportMessage.create.mock.calls[1][0].data.ticket_id).toBe(
+      44,
+    );
   });
 
   it('creates ADMIN reply for OPEN ticket', async () => {
@@ -124,7 +126,10 @@ describe('SupportService', () => {
     expect(result.role).toBe(SupportMessageRole.ADMIN);
     expect(result.ticket_id).toBe(5);
     expect(prisma.supportMessage.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ ticket_id: 5, role: SupportMessageRole.ADMIN }),
+      data: expect.objectContaining({
+        ticket_id: 5,
+        role: SupportMessageRole.ADMIN,
+      }),
     });
   });
 
@@ -179,7 +184,9 @@ describe('SupportService', () => {
 
     const service = new SupportService(prisma as any);
 
-    await expect(service.replyToTicket(12, 1, 'text')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.replyToTicket(12, 1, 'text')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('returns user history in ascending order request', async () => {
@@ -188,16 +195,32 @@ describe('SupportService', () => {
     const second = new Date('2026-05-06T10:00:00.000Z');
 
     prisma.supportMessage.findMany.mockResolvedValue([
-      { id: 1, ticket_id: 1, customer_id: 2, role: SupportMessageRole.USER, text: 'a', createdAt: first },
-      { id: 2, ticket_id: 1, customer_id: 2, role: SupportMessageRole.ADMIN, text: 'b', createdAt: second },
+      {
+        id: 1,
+        ticket_id: 1,
+        customer_id: 2,
+        role: SupportMessageRole.USER,
+        text: 'a',
+        createdAt: first,
+      },
+      {
+        id: 2,
+        ticket_id: 1,
+        customer_id: 2,
+        role: SupportMessageRole.ADMIN,
+        text: 'b',
+        createdAt: second,
+      },
     ]);
 
     const service = new SupportService(prisma as any);
     const history = await service.getSupportHistory(2, 40, 0);
 
-    expect(prisma.supportMessage.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      orderBy: { createdAt: 'asc' },
-    }));
+    expect(prisma.supportMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
     expect(history.map((m) => m.id)).toEqual([1, 2]);
   });
 
@@ -206,6 +229,8 @@ describe('SupportService', () => {
     prisma.supportTicket.findUnique.mockResolvedValue(null);
 
     const service = new SupportService(prisma as any);
-    await expect(service.getTicketMessages(999)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getTicketMessages(999)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

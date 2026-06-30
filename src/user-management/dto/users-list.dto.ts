@@ -1,29 +1,69 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 import { CustomerResidency, TariffCategory } from '@prisma/client';
 
-export enum UserStatusDtoEnum { ACTIVE = 'ACTIVE', FRAUD = 'FRAUD', BLOCKED = 'BLOCKED' }
+export enum UserStatusDtoEnum {
+  ACTIVE = 'ACTIVE',
+  FRAUD = 'FRAUD',
+  BLOCKED = 'BLOCKED',
+}
 
 export class UsersListQueryDto {
-  @ApiPropertyOptional({ description: 'Поиск по ФИО/телефону/email', example: 'Иван' })
+  @ApiPropertyOptional({
+    description: 'Поиск по ФИО/телефону/email',
+    example: 'Иван',
+  })
   @IsOptional()
   @IsString()
   search?: string;
 
-  @ApiPropertyOptional({ enum: UserStatusDtoEnum, isArray: true, description: 'Фильтр по статусу' })
+  @ApiPropertyOptional({
+    enum: UserStatusDtoEnum,
+    isArray: true,
+    description: 'Фильтр по статусу',
+  })
   @IsOptional()
   @IsArray()
-  @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))
+  @Transform(({ value }) =>
+    value == null ? undefined : Array.isArray(value) ? value : [value],
+  )
   status?: UserStatusDtoEnum[];
 
   @ApiPropertyOptional({
-    enum: ['customer_id', 'fio', 'phone', 'email', 'status', 'som_balance', 'total_balance', 'createdAt', 'last_login_at'],
+    enum: [
+      'customer_id',
+      'fio',
+      'phone',
+      'email',
+      'status',
+      'som_balance',
+      'total_balance',
+      'createdAt',
+      'last_login_at',
+    ],
     default: 'createdAt',
   })
   @IsOptional()
   @IsString()
-  sort_by?: 'customer_id' | 'fio' | 'phone' | 'email' | 'status' | 'som_balance' | 'total_balance' | 'createdAt' | 'last_login_at' = 'createdAt';
+  sort_by?:
+    | 'customer_id'
+    | 'fio'
+    | 'phone'
+    | 'email'
+    | 'status'
+    | 'som_balance'
+    | 'total_balance'
+    | 'createdAt'
+    | 'last_login_at' = 'createdAt';
 
   @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'desc' })
   @IsOptional()
@@ -65,11 +105,21 @@ export class UsersListItemDto {
   @ApiProperty({ enum: CustomerResidency }) residency: CustomerResidency;
   @ApiProperty({ type: () => UserBalancesDto }) balances: UserBalancesDto;
   @ApiProperty({ description: 'Баланс СОМ', example: 0 }) som_balance: number;
-  @ApiProperty({ description: 'Общий баланс (САЛАМ + СОМ + крипта в САЛАМ)', example: 0 }) total_balance: number;
+  @ApiProperty({
+    description: 'Общий баланс (САЛАМ + СОМ + крипта в САЛАМ)',
+    example: 0,
+  })
+  total_balance: number;
   @ApiProperty({ required: false }) createdAt?: Date;
-  @ApiProperty({ required: false, description: 'Дата и время последнего логина' }) last_login_at?: Date;
-  @ApiProperty({ required: false, description: 'IP последнего логина' }) last_login_ip?: string;
-  @ApiProperty({ required: false, description: 'Устройство последнего логина' }) last_login_device?: string;
+  @ApiProperty({
+    required: false,
+    description: 'Дата и время последнего логина',
+  })
+  last_login_at?: Date;
+  @ApiProperty({ required: false, description: 'IP последнего логина' })
+  last_login_ip?: string;
+  @ApiProperty({ required: false, description: 'Устройство последнего логина' })
+  last_login_device?: string;
 }
 
 export class UsersListResponseDto {

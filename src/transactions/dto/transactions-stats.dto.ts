@@ -1,6 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsArray, IsDateString, IsIn, IsInt, IsOptional, Min } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsOptional,
+  Min,
+} from 'class-validator';
 import { TransactionsListResponseDto } from './transactions-list.dto';
 
 export class TransactionsStatsTodayDto {
@@ -40,19 +47,28 @@ export class TransactionsStatsQueryDto {
   @ApiPropertyOptional({ type: [String], description: 'Статусы транзакций' })
   @IsOptional()
   @IsArray()
-  @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))
+  @Transform(({ value }) =>
+    value == null ? undefined : Array.isArray(value) ? value : [value],
+  )
   status?: string[];
 
   @ApiPropertyOptional({ type: [String], description: 'Типы операций' })
   @IsOptional()
   @IsArray()
-  @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))
+  @Transform(({ value }) =>
+    value == null ? undefined : Array.isArray(value) ? value : [value],
+  )
   kind?: string[];
 
-  @ApiPropertyOptional({ type: [String], description: 'Валюты (Asset): SOM, ESOM, USDT_TRC20' })
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Валюты (Asset): SOM, ESOM, USDT_TRC20',
+  })
   @IsOptional()
   @IsArray()
-  @Transform(({ value }) => (value == null ? undefined : Array.isArray(value) ? value : [value]))
+  @Transform(({ value }) =>
+    value == null ? undefined : Array.isArray(value) ? value : [value],
+  )
   asset?: string[];
 
   @ApiPropertyOptional({ enum: ['sum', 'count'], default: 'sum' })
@@ -101,7 +117,9 @@ export class TransactionsStatsSummaryDto {
   @ApiPropertyOptional({ description: 'Валюта с наибольшим количеством' })
   top_currency_by_count?: string;
 
-  @ApiPropertyOptional({ description: 'Наиболее активный день (по количеству), ISO' })
+  @ApiPropertyOptional({
+    description: 'Наиболее активный день (по количеству), ISO',
+  })
   most_active_day?: string;
 
   @ApiPropertyOptional({ description: 'Средний чек, SOM' })
@@ -115,6 +133,9 @@ export class TransactionsStatsResponseDto {
   @ApiProperty({ type: () => TransactionsStatsSummaryDto })
   summary: TransactionsStatsSummaryDto;
 
-  @ApiPropertyOptional({ description: 'Данные таблицы транзакций (та же структура, что и /transactions/list)' })
+  @ApiPropertyOptional({
+    description:
+      'Данные таблицы транзакций (та же структура, что и /transactions/list)',
+  })
   table?: TransactionsListResponseDto;
 }

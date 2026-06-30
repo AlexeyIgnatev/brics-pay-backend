@@ -1,9 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import { Asset, PrismaClient } from '@prisma/client';
-import { UsersListQueryDto, UsersListResponseDto, AdminUpdateUserDto, UsersListItemDto, UserStatusDtoEnum } from './dto/users-list.dto';
+import {
+  UsersListQueryDto,
+  UsersListResponseDto,
+  AdminUpdateUserDto,
+  UsersListItemDto,
+  UserStatusDtoEnum,
+} from './dto/users-list.dto';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 import { PriceCacheService } from './price-cache.service';
-import { BalanceCacheService, UserAssetBalances } from './balance-cache.service';
+import {
+  BalanceCacheService,
+  UserAssetBalances,
+} from './balance-cache.service';
 
 @Injectable()
 export class UserManagementService {
@@ -32,8 +41,11 @@ export class UserManagementService {
         out[key] = val;
       }
     }
-    // Ensure USDT_TRC20 mapped to 1 if absent
-    if (out['USDT_TRC20'] == null) { this.priceCache.set('USD:USDT_TRC20', 1); out['USDT_TRC20'] = 1; }
+
+    if (out['USDT_TRC20'] == null) {
+      this.priceCache.set('USD:USDT_TRC20', 1);
+      out['USDT_TRC20'] = 1;
+    }
     return out;
   }
 
@@ -51,7 +63,6 @@ export class UserManagementService {
       ];
     }
 
-    // fetch customers and their balances
     const [itemsRaw, total] = await this.prisma.$transaction([
       this.prisma.customer.findMany({
         where,
@@ -78,27 +89,42 @@ export class UserManagementService {
       this.prisma.customer.count({ where }),
     ]);
 
-    const settings = await this.prisma.settings.findUnique({ where: { id: 1 } });
+    const settings = await this.prisma.settings.findUnique({
+      where: { id: 1 },
+    });
     const esomPerUsd = Number(settings?.esom_per_usd || 0);
     const prices = await this.getUsdPricesCached();
 
     const items: UsersListItemDto[] = itemsRaw.map((c) => {
       const cached = this.balanceCache.get(c.customer_id);
-      let ESOM: number, SOM: number, BTC: number, ETH: number, USDT_TRC20: number;
+      let ESOM: number,
+        SOM: number,
+        BTC: number,
+        ETH: number,
+        USDT_TRC20: number;
       if (cached) {
         ({ ESOM, SOM, BTC, ETH, USDT_TRC20 } = cached);
       } else {
-        const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as Record<string, number>;
+        const bal = Object.fromEntries(
+          c.balances.map((b) => [b.asset, Number(b.balance)]),
+        ) as Record<string, number>;
         ESOM = Number(bal.ESOM || 0);
         SOM = Number(bal.SOM || 0);
         BTC = Number(bal.BTC || 0);
         ETH = Number(bal.ETH || 0);
         USDT_TRC20 = Number(bal.USDT_TRC20 || 0);
-        this.balanceCache.set(c.customer_id, { ESOM, SOM, BTC, ETH, USDT_TRC20 });
+        this.balanceCache.set(c.customer_id, {
+          ESOM,
+          SOM,
+          BTC,
+          ETH,
+          USDT_TRC20,
+        });
       }
 
-      const total_crypto_usd = BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
-      const total_salam = SOM + ESOM + total_crypto_usd * esomPerUsd; // Общий баланс по ТЗ
+      const total_crypto_usd =
+        BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
+      const total_salam = SOM + ESOM + total_crypto_usd * esomPerUsd;
 
       return {
         customer_id: c.customer_id,
@@ -107,7 +133,12 @@ export class UserManagementService {
         last_name: c.last_name ?? undefined,
         phone: c.phone ?? undefined,
         email: c.email ?? undefined,
-        status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : (c.status === 'FRAUD' ? UserStatusDtoEnum.FRAUD : UserStatusDtoEnum.ACTIVE),
+        status:
+          c.status === 'BLOCKED'
+            ? UserStatusDtoEnum.BLOCKED
+            : c.status === 'FRAUD'
+              ? UserStatusDtoEnum.FRAUD
+              : UserStatusDtoEnum.ACTIVE,
         tariff_category: c.tariff_category,
         residency: c.residency,
         balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
@@ -134,25 +165,33 @@ export class UserManagementService {
     if (dto.phone !== undefined) data.phone = dto.phone;
     if (dto.email !== undefined) data.email = dto.email;
     if (dto.status !== undefined) data.status = dto.status;
-    if (dto.tariff_category !== undefined) data.tariff_category = dto.tariff_category;
+    if (dto.tariff_category !== undefined)
+      data.tariff_category = dto.tariff_category;
     if (dto.residency !== undefined) data.residency = dto.residency;
 
-    const c = await this.prisma.customer.update({ where: { customer_id: id }, data, include: { balances: true } });
+    const c = await this.prisma.customer.update({
+      where: { customer_id: id },
+      data,
+      include: { balances: true },
+    });
     this.balanceCache.invalidate(id);
 
-    const settings = await this.prisma.settings.findUnique({ where: { id: 1 } });
+    const settings = await this.prisma.settings.findUnique({
+      where: { id: 1 },
+    });
     const esomPerUsd = Number(settings?.esom_per_usd || 0);
     const prices = await this.getUsdPricesCached();
 
-    // compute aggregated balances
-
-    const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as Record<string, number>;
+    const bal = Object.fromEntries(
+      c.balances.map((b) => [b.asset, Number(b.balance)]),
+    ) as Record<string, number>;
     const ESOM = Number(bal.ESOM || 0);
     const SOM = Number(bal.SOM || 0);
     const BTC = Number(bal.BTC || 0);
     const ETH = Number(bal.ETH || 0);
     const USDT_TRC20 = Number(bal.USDT_TRC20 || 0);
-    const total_crypto_usd = BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
+    const total_crypto_usd =
+      BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
     const total_salam = SOM + ESOM + total_crypto_usd * esomPerUsd;
 
     return {
@@ -162,7 +201,12 @@ export class UserManagementService {
       last_name: c.last_name ?? undefined,
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
-      status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : (c.status === 'FRAUD' ? UserStatusDtoEnum.FRAUD : UserStatusDtoEnum.ACTIVE),
+      status:
+        c.status === 'BLOCKED'
+          ? UserStatusDtoEnum.BLOCKED
+          : c.status === 'FRAUD'
+            ? UserStatusDtoEnum.FRAUD
+            : UserStatusDtoEnum.ACTIVE,
       tariff_category: c.tariff_category,
       residency: c.residency,
       balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
@@ -172,26 +216,30 @@ export class UserManagementService {
       last_login_at: c.last_login_at ?? undefined,
       last_login_ip: c.last_login_ip ?? undefined,
       last_login_device: c.last_login_device ?? undefined,
-
     };
   }
 
   async getById(id: number): Promise<UsersListItemDto | null> {
-    const c = await this.prisma.customer.findUnique({ where: { customer_id: id }, include: { balances: true } });
+    const c = await this.prisma.customer.findUnique({
+      where: { customer_id: id },
+      include: { balances: true },
+    });
     if (!c) return null;
 
-    const settings = await this.prisma.settings.findUnique({ where: { id: 1 } });
+    const settings = await this.prisma.settings.findUnique({
+      where: { id: 1 },
+    });
     const esomPerUsd = Number(settings?.esom_per_usd || 0);
     const prices = await this.getUsdPricesCached();
 
     const cached = this.balanceCache.get(c.customer_id);
     let ESOM: number, SOM: number, BTC: number, ETH: number, USDT_TRC20: number;
     if (cached) {
-      // snapshot balances
-
       ({ ESOM, SOM, BTC, ETH, USDT_TRC20 } = cached);
     } else {
-      const bal = Object.fromEntries(c.balances.map(b => [b.asset, Number(b.balance)])) as Record<string, number>;
+      const bal = Object.fromEntries(
+        c.balances.map((b) => [b.asset, Number(b.balance)]),
+      ) as Record<string, number>;
       ESOM = Number(bal.ESOM || 0);
       SOM = Number(bal.SOM || 0);
       BTC = Number(bal.BTC || 0);
@@ -200,7 +248,8 @@ export class UserManagementService {
       this.balanceCache.set(c.customer_id, { ESOM, SOM, BTC, ETH, USDT_TRC20 });
     }
 
-    const total_crypto_usd = BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
+    const total_crypto_usd =
+      BTC * prices.BTC + ETH * prices.ETH + USDT_TRC20 * prices.USDT_TRC20;
     const total_salam = SOM + ESOM + total_crypto_usd * esomPerUsd;
 
     return {
@@ -210,7 +259,12 @@ export class UserManagementService {
       last_name: c.last_name ?? undefined,
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
-      status: c.status === 'BLOCKED' ? UserStatusDtoEnum.BLOCKED : (c.status === 'FRAUD' ? UserStatusDtoEnum.FRAUD : UserStatusDtoEnum.ACTIVE),
+      status:
+        c.status === 'BLOCKED'
+          ? UserStatusDtoEnum.BLOCKED
+          : c.status === 'FRAUD'
+            ? UserStatusDtoEnum.FRAUD
+            : UserStatusDtoEnum.ACTIVE,
       tariff_category: c.tariff_category,
       residency: c.residency,
       balances: { ESOM, SOM, BTC, ETH, USDT_TRC20 },
@@ -224,6 +278,3 @@ export class UserManagementService {
     };
   }
 }
-
-
-

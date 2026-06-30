@@ -1,4 +1,9 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import {
+  CallHandler,
+  ExecutionContext,
+  Injectable,
+  NestInterceptor,
+} from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { PrismaClient } from '@prisma/client';
@@ -7,11 +12,22 @@ import { PrismaService } from '../config/prisma/prisma.service';
 function getClientIp(req: any): string {
   const xf = (req.headers?.['x-forwarded-for'] as string) || '';
   if (xf) return xf.split(',')[0].trim();
-  return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
+  return (
+    req.ip ||
+    req.connection?.remoteAddress ||
+    req.socket?.remoteAddress ||
+    'unknown'
+  );
 }
 
 function sanitize(obj: any): any {
-  const blacklist = new Set(['password', 'password_hash', 'private_key', 'accessToken', 'refreshToken']);
+  const blacklist = new Set([
+    'password',
+    'password_hash',
+    'private_key',
+    'accessToken',
+    'refreshToken',
+  ]);
   const recur = (val: any): any => {
     if (val == null) return val;
     if (Array.isArray(val)) return val.map(recur);
@@ -40,7 +56,11 @@ export class AdminActionLogInterceptor implements NestInterceptor {
     const ip = getClientIp(req);
     const url = (req?.originalUrl || req?.url || '').split('?')[0];
 
-    const details = sanitize({ params: req?.params, query: req?.query, body: req?.body });
+    const details = sanitize({
+      params: req?.params,
+      query: req?.query,
+      body: req?.body,
+    });
 
     return next.handle().pipe(
       tap(async () => {
@@ -54,9 +74,7 @@ export class AdminActionLogInterceptor implements NestInterceptor {
               details: JSON.stringify(details),
             },
           });
-        } catch (_) {
-          // swallow
-        }
+        } catch (_) {}
       }),
     );
   }

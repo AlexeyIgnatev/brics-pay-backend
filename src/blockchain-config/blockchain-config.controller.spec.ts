@@ -13,13 +13,18 @@ describe('BlockchainConfigController', () => {
       controllers: [BlockchainConfigController],
       providers: [
         { provide: SettingsService, useValue: {} },
-        { provide: AdminAuthGuard, useValue: { canActivate: jest.fn(() => true) } },
+        {
+          provide: AdminAuthGuard,
+          useValue: { canActivate: jest.fn(() => true) },
+        },
         { provide: JwtService, useValue: { verifyAsync: jest.fn() } },
         { provide: ConfigService, useValue: { get: jest.fn() } },
       ],
     }).compile();
 
-    controller = module.get<BlockchainConfigController>(BlockchainConfigController);
+    controller = module.get<BlockchainConfigController>(
+      BlockchainConfigController,
+    );
   });
 
   it('should be defined', () => {

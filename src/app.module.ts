@@ -33,5 +33,4 @@ import { SupportModule } from './support/support.module';
   controllers: [AppController],
   providers: [AppService, EthereumService],
 })
-export class AppModule {
-}
+export class AppModule {}

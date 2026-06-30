@@ -1,9 +1,20 @@
-import { BadRequestException, Injectable, Logger, Scope, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  Scope,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import * as cheerio from 'cheerio';
 import { BricsAccountDto, BricsCustomerDto } from './dto/brics.dto';
 import * as https from 'node:https';
+
+const BRICS_LOGIN_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36';
+const BRICS_LOGIN_ACCEPT =
+  'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7';
 
 @Injectable({ scope: Scope.REQUEST })
 export class BricsService {
@@ -16,7 +27,9 @@ export class BricsService {
 
   constructor(private readonly configService: ConfigService) {
     this.BRICS_API_ROOT = this.configService.get<string>('BRICS_API_ROOT')!;
-    this.INTEGRATION_API_ROOT = this.configService.get<string>('INTEGRATION_API_ROOT')!;
+    this.INTEGRATION_API_ROOT = this.configService.get<string>(
+      'INTEGRATION_API_ROOT',
+    )!;
     this.CT_ACCOUNT_NO = this.configService.get<string>('CT_ACCOUNT_NO')!;
 
     this.axiosInstance = axios.create({
@@ -30,33 +43,47 @@ export class BricsService {
   private updateCookies(setCookieHeaders?: string[]) {
     if (!setCookieHeaders) return;
 
-    // Разбираем новые куки
     const newCookies = setCookieHeaders.map(
       (cookieString) => cookieString.split(';')[0],
-    ); // Берём только "ключ=значение"
+    );
 
-    // Если уже были куки, добавляем новые
     const existingCookies = this.cookies
       ? this.cookies.split('; ').reduce(
-        (acc, cookie) => {
-          const [key, value] = cookie.split('=');
-          acc[key] = value;
-          return acc;
-        },
-        {} as Record<string, string>,
-      )
+          (acc, cookie) => {
+            const [key, value] = cookie.split('=');
+            acc[key] = value;
+            return acc;
+          },
+          {} as Record<string, string>,
+        )
       : {};
 
-    // Обновляем существующие куки новыми
     newCookies.forEach((cookie) => {
       const [key, value] = cookie.split('=');
       existingCookies[key] = value;
     });
 
-    // Сохраняем обновлённую строку кук
     this.cookies = Object.entries(existingCookies)
       .map(([key, value]) => `${key}=${value}`)
       .join('; ');
+  }
+
+  private getCookieHeader(): string | undefined {
+    return this.cookies.length > 0 ? this.cookies : undefined;
+  }
+
+  private buildLoginHeaders(loginUrl: URL): Record<string, string | undefined> {
+    const origin = `${loginUrl.protocol}//${loginUrl.host}`;
+    return {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': BRICS_LOGIN_USER_AGENT,
+      Accept: BRICS_LOGIN_ACCEPT,
+      'Accept-Encoding': 'gzip, deflate, br, zstd',
+      'Accept-Language': 'ru-RU,ru;q=0.9',
+      Referer: `${origin}/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking`,
+      Origin: origin,
+      Cookie: this.getCookieHeader(),
+    };
   }
 
   private extractBricsErrorMessage(data: unknown): string | null {
@@ -69,21 +96,20 @@ export class BricsService {
       if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
         try {
           const $ = cheerio.load(text);
-          const alertText = $('.alert__body p').first().text().trim()
-            || $('.alert_type_error .alert__body').first().text().trim()
-            || $('title').first().text().trim();
+          const alertText =
+            $('.alert__body p').first().text().trim() ||
+            $('.alert_type_error .alert__body').first().text().trim() ||
+            $('title').first().text().trim();
           if (alertText) return alertText.replace(/\s+/g, ' ').trim();
-        } catch {
-          // ignore parser failure and fallback below
-        }
+        } catch {}
       }
 
       return text.replace(/\s+/g, ' ').trim().slice(0, 300);
     }
 
     if (typeof data === 'object') {
-      const anyData = data as any;
-      const message = anyData?.message || anyData?.error || anyData?.title;
+      const record = data as Record<string, unknown>;
+      const message = record.message || record.error || record.title;
       if (typeof message === 'string' && message.trim()) return message.trim();
 
       try {
@@ -103,9 +129,10 @@ export class BricsService {
 
     try {
       const $ = cheerio.load(text);
-      const alertText = $('.alert.alert_type_error .alert__body p').first().text().trim()
-        || $('.alert_type_error .alert__body p').first().text().trim()
-        || $('.alert.alert_type_error .alert__body').first().text().trim();
+      const alertText =
+        $('.alert.alert_type_error .alert__body p').first().text().trim() ||
+        $('.alert_type_error .alert__body p').first().text().trim() ||
+        $('.alert.alert_type_error .alert__body').first().text().trim();
       return alertText ? alertText.replace(/\s+/g, ' ').trim() : null;
     } catch {
       return null;
@@ -115,13 +142,17 @@ export class BricsService {
   private throwBricsRequestError(action: string, error: unknown): void {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
-      const extractedMessage = this.extractBricsErrorMessage(error.response?.data);
+      const extractedMessage = this.extractBricsErrorMessage(
+        error.response?.data,
+      );
 
       const details = [
         `ABS ${action} failed`,
         status != null ? `status=${status}` : null,
         extractedMessage ? `message=${extractedMessage}` : null,
-      ].filter(Boolean).join(', ');
+      ]
+        .filter(Boolean)
+        .join(', ');
 
       this.logger.error(details);
       throw new BadRequestException(details);
@@ -155,10 +186,7 @@ export class BricsService {
       Schedule: null;
     },
   ) {
-    this.logger.verbose(
-      'Send createTransfer request',
-      transactionBody,
-    );
+    this.logger.verbose('Send createTransfer request', transactionBody);
 
     const response = await this.axiosInstance.post(
       this.buildBricsUrl('/ru-RU/Accounts/InternalTransaction'),
@@ -167,7 +195,7 @@ export class BricsService {
         withCredentials: true,
         headers: {
           __requestverificationtoken: token,
-          Cookie: this.cookies != null ? this.cookies : undefined,
+          Cookie: this.getCookieHeader(),
         },
       },
     );
@@ -206,17 +234,15 @@ export class BricsService {
 
     let innerHtml: string | null;
 
-    // Ищем скрипт с нужным id
     const scriptTag = $('script#template-page');
 
     if (scriptTag.length > 0) {
-      // Если нашли скрипт, достаем содержимое
       innerHtml = scriptTag.html();
       if (!innerHtml) {
         this.logger.error('Script tag found but empty');
         throw new BadRequestException('Script tag found but empty');
       }
-      // Загружаем заново как HTML
+
       $ = cheerio.load(innerHtml);
     }
 
@@ -257,9 +283,6 @@ export class BricsService {
     try {
       const token = await this.init();
       const loginUrl = new URL(this.buildBricsUrl('/Account/Login'));
-      const origin = `${loginUrl.protocol}//${loginUrl.host}`;
-      const referer = `${origin}/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking`;
-
       const body = new URLSearchParams();
       body.append('__RequestVerificationToken', token);
       body.append('UserName', username);
@@ -271,18 +294,7 @@ export class BricsService {
         body,
         {
           withCredentials: true,
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-            Accept:
-              'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br, zstd',
-            'Accept-Language': 'ru-RU,ru;q=0.9',
-            Referer: referer,
-            Origin: origin,
-            Cookie: this.cookies != null ? this.cookies : undefined,
-          },
+          headers: this.buildLoginHeaders(loginUrl),
           maxRedirects: 0,
           validateStatus: (status: number) => status >= 200 && status < 400,
         },
@@ -313,10 +325,15 @@ export class BricsService {
         const message = error.message || 'request failed';
         const details = `status=${status}, url=${url}, message=${message}`;
         this.logger.error(`BRICS auth request failed: ${details}`);
-        throw new UnauthorizedException(`BRICS auth request failed: ${details}`);
+        throw new UnauthorizedException(
+          `BRICS auth request failed: ${details}`,
+        );
       }
 
-      this.logger.error('BRICS auth failed', error as any);
+      this.logger.error(
+        'BRICS auth failed',
+        error instanceof Error ? error.stack || error.message : String(error),
+      );
       throw error;
     }
   }
@@ -328,7 +345,7 @@ export class BricsService {
         {
           withCredentials: true,
           headers: {
-            Cookie: this.cookies != null ? this.cookies : undefined,
+            Cookie: this.getCookieHeader(),
             Accept: 'application/json',
           },
         },
@@ -356,7 +373,7 @@ export class BricsService {
         {
           withCredentials: true,
           headers: {
-            Cookie: this.cookies != null ? this.cookies : undefined,
+            Cookie: this.getCookieHeader(),
           },
         },
       );
@@ -401,22 +418,28 @@ export class BricsService {
         `Received getCustomerAccounts response ${response.status}`,
       );
       const rawResult = response.data?.Result;
-      const accounts: any[] = Array.isArray(rawResult)
+      const accounts: Array<Record<string, unknown>> = Array.isArray(rawResult)
         ? rawResult
         : Array.isArray(response.data)
           ? response.data
           : Object.values(rawResult ?? {});
-      const normalizedAccounts: BricsAccountDto[] = accounts.map((item: any) => ({
+      const normalizedAccounts: BricsAccountDto[] = accounts.map((item) => ({
         ...item,
-        AccountNo:
+        AccountNo: String(
           item?.AccountNo ??
-          item?.accountNo ??
-          item?.AccountNumber ??
-          item?.account_number ??
-          item?.Iban ??
-          item?.IBAN,
-        CurrencyID: Number(item?.CurrencyID ?? item?.currencyId ?? item?.currency_id),
-        CustomerID: Number(item?.CustomerID ?? item?.customerId ?? item?.customer_id),
+            item?.accountNo ??
+            item?.AccountNumber ??
+            item?.account_number ??
+            item?.Iban ??
+            item?.IBAN ??
+            '',
+        ),
+        CurrencyID: Number(
+          item?.CurrencyID ?? item?.currencyId ?? item?.currency_id,
+        ),
+        CustomerID: Number(
+          item?.CustomerID ?? item?.customerId ?? item?.customer_id,
+        ),
         Balance: Number(item?.Balance ?? item?.balance ?? 0),
       }));
 
@@ -426,16 +449,23 @@ export class BricsService {
 
       if (!account) {
         const currencyIds = normalizedAccounts
-          .map((item: any) => item?.CurrencyID)
-          .filter((v: any) => v != null)
+          .map((item) => item?.CurrencyID)
+          .filter((v): v is number => v != null)
           .join(',');
         throw new BadRequestException(
           `ABS SOM account not found for customer ${customerId}. CurrencyID=417 is required. AvailableCurrencyIDs=[${currencyIds}]`,
         );
       }
       if (!account.AccountNo) {
-        const matchedRawAccount = accounts.find((item: any) => Number(item?.CurrencyID ?? item?.currencyId ?? item?.currency_id) === 417);
-        const rawKeys = matchedRawAccount ? Object.keys(matchedRawAccount).join(',') : 'unknown';
+        const matchedRawAccount = accounts.find(
+          (item) =>
+            Number(
+              item?.CurrencyID ?? item?.currencyId ?? item?.currency_id,
+            ) === 417,
+        );
+        const rawKeys = matchedRawAccount
+          ? Object.keys(matchedRawAccount).join(',')
+          : 'unknown';
         throw new BadRequestException(
           `ABS account is missing account number for customer ${customerId} (CurrencyID=${account.CurrencyID}). Expected one of [AccountNo,accountNo,AccountNumber,account_number,Iban,IBAN]. RawKeys=[${rawKeys}]`,
         );
@@ -513,7 +543,7 @@ export class BricsService {
         {
           withCredentials: true,
           headers: {
-            Cookie: this.cookies != null ? this.cookies : undefined,
+            Cookie: this.getCookieHeader(),
           },
         },
       );
@@ -534,11 +564,13 @@ export class BricsService {
     try {
       this.logger.verbose(`Send initTransactionScreen request ${accountNo}`);
       const response = await this.axiosInstance.get(
-        this.buildBricsUrl(`/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`),
+        this.buildBricsUrl(
+          `/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`,
+        ),
         {
           withCredentials: true,
           headers: {
-            Cookie: this.cookies != null ? this.cookies : undefined,
+            Cookie: this.getCookieHeader(),
           },
         },
       );
@@ -561,7 +593,9 @@ export class BricsService {
     }
   }
 
-  async ensureTransferSourceAccountAccessible(accountNo: string): Promise<void> {
+  async ensureTransferSourceAccountAccessible(
+    accountNo: string,
+  ): Promise<void> {
     await this.initTransactionScreen(accountNo);
   }
 
@@ -677,9 +711,9 @@ export class BricsService {
           ? this.extractBricsErrorMessage(error.response?.data)
           : null;
         const shouldRetryWithSafeComment =
-          axios.isAxiosError(error)
-          && error.response?.status === 500
-          && this.isInvalidUri1023Error(extractedMessage);
+          axios.isAxiosError(error) &&
+          error.response?.status === 500 &&
+          this.isInvalidUri1023Error(extractedMessage);
 
         if (!shouldRetryWithSafeComment) {
           throw error;
@@ -690,10 +724,10 @@ export class BricsService {
           `ABS create transfer failed with 1023 Invalid URI, retrying with safe comment. originalComment="${comment}" fallbackComment="${fallbackComment}"`,
         );
 
-        response = await this.sendCreateTransferRequest(
-          token,
-          { ...transactionBody, Comment: fallbackComment },
-        );
+        response = await this.sendCreateTransferRequest(token, {
+          ...transactionBody,
+          Comment: fallbackComment,
+        });
       }
 
       const operationId = response.data.operationID;
@@ -719,7 +753,7 @@ export class BricsService {
       {
         withCredentials: true,
         headers: {
-          Cookie: this.cookies != null ? this.cookies : undefined,
+          Cookie: this.getCookieHeader(),
         },
       },
     );
@@ -741,7 +775,7 @@ export class BricsService {
       {
         withCredentials: true,
         headers: {
-          Cookie: this.cookies != null ? this.cookies : undefined,
+          Cookie: this.getCookieHeader(),
         },
       },
     );
@@ -752,4 +786,3 @@ export class BricsService {
     return response.status === 200;
   }
 }
-

@@ -28,14 +28,20 @@ export class UsersService {
     try {
       await this.prisma.customer.update({
         where: { customer_id: customerId },
-        data: { last_login_at: new Date(), last_login_ip: ip, last_login_device: device },
+        data: {
+          last_login_at: new Date(),
+          last_login_ip: ip,
+          last_login_device: device,
+        },
       });
-    } catch (_) {
-      // ignore if user not created yet; getUserInfo will handle creation
-    }
+    } catch (_) {}
   }
 
-  async saveFcmToken(customerId: number, token: string, platform: 'android' | 'ios'): Promise<void> {
+  async saveFcmToken(
+    customerId: number,
+    token: string,
+    platform: 'android' | 'ios',
+  ): Promise<void> {
     const trimmedToken = token.trim();
     const pushPlatform = this.toPushPlatform(platform);
 
@@ -56,17 +62,17 @@ export class UsersService {
     });
   }
 
-  async updatePushSettings(customerId: number, pushEnabled: boolean): Promise<void> {
+  async updatePushSettings(
+    customerId: number,
+    pushEnabled: boolean,
+  ): Promise<void> {
     await this.prisma.customer.update({
       where: { customer_id: customerId },
       data: { push_enabled: pushEnabled },
     });
   }
 
-  async getUserInfo(
-    username: string,
-    password: string,
-  ): Promise<UserInfoDto> {
+  async getUserInfo(username: string, password: string): Promise<UserInfoDto> {
     const auth = await this.bricsService.auth(username, password);
     if (!auth) {
       throw new UnauthorizedException('Неверный логин или пароль');
@@ -79,8 +85,10 @@ export class UsersService {
       },
     });
 
-    const first_name = customerInfo.CustomerNameTranslit || customerInfo.CustomerName;
-    const middle_name = customerInfo.OtchestvoTranslit || customerInfo.Otchestvo;
+    const first_name =
+      customerInfo.CustomerNameTranslit || customerInfo.CustomerName;
+    const middle_name =
+      customerInfo.OtchestvoTranslit || customerInfo.Otchestvo;
     const last_name = customerInfo.SurnameTranslit || customerInfo.Surname;
     const phone = customerInfo.ContactPhone1 || '';
     const email = customerInfo.EMail || '';
@@ -100,7 +108,6 @@ export class UsersService {
         },
       });
     } else {
-      // Обновлять только пустые поля — если админ ранее отредактировал, не перезаписываем
       const data: any = {};
       if (!user.first_name && first_name) data.first_name = first_name;
       if (!user.middle_name && middle_name) data.middle_name = middle_name;
@@ -108,7 +115,10 @@ export class UsersService {
       if (!user.phone && phone) data.phone = phone;
       if (!user.email && email) data.email = email;
       if (Object.keys(data).length) {
-        await this.prisma.customer.update({ where: { customer_id: customerInfo.CustomerID }, data });
+        await this.prisma.customer.update({
+          where: { customer_id: customerInfo.CustomerID },
+          data,
+        });
       }
     }
 
@@ -127,16 +137,79 @@ export class UsersService {
       where: { customer_id: userInfo.customer_id },
     });
 
-    const [somLive, esomBalance, settings, pricesUsd] = await Promise.all([
-      this.bricsService.getSomBalance(),
-      this.ethereumService.getEsomBalance(user.address),
-      this.settingsService.get(),
-      this.exchangeService.getUsdPrices(['BTC' as Asset, 'ETH' as Asset, 'USDT_TRC20' as Asset]),
-    ]);
+    const fallbackSettings = {
+      esom_per_usd: '1',
+      esom_som_conversion_fee_pct: '0',
+      esom_som_conversion_fee_min: '0',
+      btc_trade_fee_pct: '0',
+      eth_trade_fee_pct: '0',
+      usdt_trade_fee_pct: '0',
+      btc_withdraw_fee_fixed: '0',
+      eth_withdraw_fee_fixed: '0',
+      usdt_withdraw_fee_fixed: '0',
+      min_withdraw_btc: '0',
+      min_withdraw_eth: '0',
+      min_withdraw_usdt_trc20: '0',
+    };
+
+    const [somLiveResult, esomBalanceResult, settingsResult, pricesResult] =
+      await Promise.allSettled([
+        this.bricsService.getSomBalance(),
+        this.ethereumService.getEsomBalance(user.address),
+        this.settingsService.get(),
+        this.exchangeService.getUsdPrices([
+          'BTC' as Asset,
+          'ETH' as Asset,
+          'USDT_TRC20' as Asset,
+        ]),
+      ]);
+
+    if (somLiveResult.status === 'rejected') {
+      console.warn(
+        `Failed to fetch SOM balance for customer=${user.customer_id}: ${somLiveResult.reason}`,
+      );
+    }
+    if (esomBalanceResult.status === 'rejected') {
+      console.warn(
+        `Failed to fetch ESOM balance for customer=${user.customer_id}: ${esomBalanceResult.reason}`,
+      );
+    }
+    if (settingsResult.status === 'rejected') {
+      console.warn(
+        `Failed to fetch settings for customer=${user.customer_id}: ${settingsResult.reason}`,
+      );
+    }
+    if (pricesResult.status === 'rejected') {
+      console.warn(
+        `Failed to fetch USD prices for customer=${user.customer_id}: ${pricesResult.reason}`,
+      );
+    }
+
+    const somLive =
+      somLiveResult.status === 'fulfilled' ? somLiveResult.value : 0;
+    const esomBalance =
+      esomBalanceResult.status === 'fulfilled' ? esomBalanceResult.value : 0;
+    const settings =
+      settingsResult.status === 'fulfilled'
+        ? settingsResult.value
+        : fallbackSettings;
+    const pricesUsd =
+      pricesResult.status === 'fulfilled'
+        ? pricesResult.value
+        : { BTC: '0', ETH: '0', USDT_TRC20: '1' };
 
     await this.prisma.userAssetBalance.upsert({
-      where: { customer_id_asset: { customer_id: user.customer_id, asset: 'SOM' as Asset } },
-      create: { customer_id: user.customer_id, asset: 'SOM' as Asset, balance: somLive.toString() },
+      where: {
+        customer_id_asset: {
+          customer_id: user.customer_id,
+          asset: 'SOM' as Asset,
+        },
+      },
+      create: {
+        customer_id: user.customer_id,
+        asset: 'SOM' as Asset,
+        balance: somLive.toString(),
+      },
       update: { balance: somLive.toString() },
     });
 
@@ -204,7 +277,9 @@ export class UsersService {
       },
       {
         currency: Currency.BTC,
-        address: this.cryptoService.bech32AddressFromPrivateKey(user.private_key),
+        address: this.cryptoService.bech32AddressFromPrivateKey(
+          user.private_key,
+        ),
         balance: Number(btcBalanceRec?.balance ?? 0),
         buy_rate: btcBuy,
         sell_rate: btcSell,

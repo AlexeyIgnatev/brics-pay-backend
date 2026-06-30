@@ -24,7 +24,9 @@ export class FirebasePushService {
 
     try {
       if (!admin.apps.length) {
-        const rawJson = this.configService.get<string>('FIREBASE_SERVICE_ACCOUNT_JSON');
+        const rawJson = this.configService.get<string>(
+          'FIREBASE_SERVICE_ACCOUNT_JSON',
+        );
 
         if (rawJson && rawJson.trim()) {
           const serviceAccount = JSON.parse(rawJson);
@@ -59,7 +61,10 @@ export class FirebasePushService {
   }
 
   private isInvalidTokenErrorCode(code?: string): boolean {
-    return code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token';
+    return (
+      code === 'messaging/registration-token-not-registered' ||
+      code === 'messaging/invalid-registration-token'
+    );
   }
 
   private async deactivateToken(token: string, reason: string): Promise<void> {
@@ -72,7 +77,10 @@ export class FirebasePushService {
     });
   }
 
-  async sendToToken(token: string, content: PushContent): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+  async sendToToken(
+    token: string,
+    content: PushContent,
+  ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
     if (!this.ensureInitialized()) {
       return { ok: false, error: 'firebase_not_initialized' };
     }
@@ -103,7 +111,12 @@ export class FirebasePushService {
     customerId: number,
     content: PushContent,
     platform: PushPlatform = PushPlatform.ANDROID,
-  ): Promise<{ sent: number; failed: number; skipped: boolean; details: string[] }> {
+  ): Promise<{
+    sent: number;
+    failed: number;
+    skipped: boolean;
+    details: string[];
+  }> {
     const customer = await this.prisma.customer.findUnique({
       where: { customer_id: customerId },
       select: { push_enabled: true },
@@ -123,7 +136,12 @@ export class FirebasePushService {
     });
 
     if (!tokens.length) {
-      return { sent: 0, failed: 0, skipped: false, details: ['no_active_tokens'] };
+      return {
+        sent: 0,
+        failed: 0,
+        skipped: false,
+        details: ['no_active_tokens'],
+      };
     }
 
     let sent = 0;
@@ -144,9 +162,12 @@ export class FirebasePushService {
     return { sent, failed, skipped: false, details };
   }
 
-  async sendBroadcastToActiveAndroid(
-    content: PushContent,
-  ): Promise<{ sent: number; failed: number; skipped: boolean; details: string[] }> {
+  async sendBroadcastToActiveAndroid(content: PushContent): Promise<{
+    sent: number;
+    failed: number;
+    skipped: boolean;
+    details: string[];
+  }> {
     const activeTokens = await this.prisma.userPushToken.findMany({
       where: {
         is_active: true,
@@ -159,7 +180,12 @@ export class FirebasePushService {
     });
 
     if (!activeTokens.length) {
-      return { sent: 0, failed: 0, skipped: true, details: ['no_active_tokens'] };
+      return {
+        sent: 0,
+        failed: 0,
+        skipped: true,
+        details: ['no_active_tokens'],
+      };
     }
 
     let sent = 0;
@@ -169,7 +195,9 @@ export class FirebasePushService {
     const chunkSize = 100;
     for (let i = 0; i < activeTokens.length; i += chunkSize) {
       const chunk = activeTokens.slice(i, i + chunkSize);
-      const results = await Promise.all(chunk.map((row) => this.sendToToken(row.token, content)));
+      const results = await Promise.all(
+        chunk.map((row) => this.sendToToken(row.token, content)),
+      );
 
       for (let j = 0; j < chunk.length; j += 1) {
         const token = chunk[j].token;
@@ -180,7 +208,8 @@ export class FirebasePushService {
           if (details.length < 200) details.push(`ok:${token.slice(0, 12)}`);
         } else {
           failed += 1;
-          if (details.length < 200) details.push(`fail:${token.slice(0, 12)}:${result.error}`);
+          if (details.length < 200)
+            details.push(`fail:${token.slice(0, 12)}:${result.error}`);
         }
       }
     }

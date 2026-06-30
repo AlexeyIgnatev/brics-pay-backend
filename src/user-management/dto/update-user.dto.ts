@@ -27,12 +27,18 @@ export class UpdateUserDto {
   @IsOptional()
   email?: string;
 
-  @ApiPropertyOptional({ description: 'Блокчейн-адрес пользователя', example: '0x1234abcd5678ef00...' })
+  @ApiPropertyOptional({
+    description: 'Блокчейн-адрес пользователя',
+    example: '0x1234abcd5678ef00...',
+  })
   @IsString()
   @IsOptional()
   address?: string;
 
-  @ApiPropertyOptional({ description: 'Приватный ключ пользователя', example: '0xabcdef...' })
+  @ApiPropertyOptional({
+    description: 'Приватный ключ пользователя',
+    example: '0xabcdef...',
+  })
   @IsString()
   @IsOptional()
   private_key?: string;

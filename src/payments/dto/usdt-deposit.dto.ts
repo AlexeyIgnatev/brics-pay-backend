@@ -35,4 +35,3 @@ export class UsdtDepositWebhookDto {
   @IsOptional()
   payload?: Record<string, unknown>;
 }
-

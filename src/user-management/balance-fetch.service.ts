@@ -16,13 +16,17 @@ export class BalanceFetchService {
     private readonly btc: BitcoinService,
   ) {}
 
-  async refreshAllBalancesForUser(customer_id: number, assets?: Asset[]): Promise<void> {
-    const customer = await this.prisma.customer.findUnique({ where: { customer_id } });
+  async refreshAllBalancesForUser(
+    customer_id: number,
+    assets?: Asset[],
+  ): Promise<void> {
+    const customer = await this.prisma.customer.findUnique({
+      where: { customer_id },
+    });
     if (!customer) return;
 
     const allow = (a: Asset) => !assets || assets.includes(a);
 
-    // ESOM (ERC-20)
     if (allow('ESOM')) {
       try {
         const esom = await this.eth.getEsomBalance(customer.address);
@@ -32,10 +36,11 @@ export class BalanceFetchService {
       }
     }
 
-    // ETH native
     if (allow('ETH')) {
       try {
-        const ethAddress = this.crypto.ethAddressFromPrivateKey(customer.private_key);
+        const ethAddress = this.crypto.ethAddressFromPrivateKey(
+          customer.private_key,
+        );
         const ethBal = await this.eth.getNativeBalance(ethAddress);
         await this.upsertBalance(customer_id, 'ETH', ethBal);
       } catch (e) {
@@ -43,30 +48,34 @@ export class BalanceFetchService {
       }
     }
 
-    // TRON USDT (TRC-20)
     if (allow('USDT_TRC20')) {
       try {
-        const tronAddress = this.crypto.trxAddressFromPrivateKey(customer.private_key);
-        const usdtContract = process.env.TRON_USDT_CONTRACT || 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj'; // Mainnet USDT contract
+        const tronAddress = this.crypto.trxAddressFromPrivateKey(
+          customer.private_key,
+        );
+        const usdtContract =
+          process.env.TRON_USDT_CONTRACT ||
+          'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj';
         const usdt = await this.tron.getTrc20Balance(tronAddress, usdtContract);
         await this.upsertBalance(customer_id, 'USDT_TRC20', usdt);
       } catch (e) {
-        this.logger.warn(`USDT_TRC20 balance fetch failed for ${customer_id}: ${e}`);
+        this.logger.warn(
+          `USDT_TRC20 balance fetch failed for ${customer_id}: ${e}`,
+        );
       }
     }
 
-    // BTC
     if (allow('BTC')) {
       try {
-        const btcAddress = this.crypto.bech32AddressFromPrivateKey(customer.private_key);
+        const btcAddress = this.crypto.bech32AddressFromPrivateKey(
+          customer.private_key,
+        );
         const btcBal = await this.btc.getBtcBalance(btcAddress);
         await this.upsertBalance(customer_id, 'BTC', btcBal);
       } catch (e) {
         this.logger.warn(`BTC balance fetch failed for ${customer_id}: ${e}`);
       }
     }
-
-    // SOM фиат хранится во внешней системе; если у нас есть локальный кеш — пропускаем
   }
 
   private async upsertBalance(customer_id: number, asset: Asset, amt: number) {

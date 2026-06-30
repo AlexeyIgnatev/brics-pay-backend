@@ -5,25 +5,28 @@ import { TransactionType } from './enums/transaction-type';
 import { ReceiptConversionSide } from './dto/transaction-receipt.dto';
 
 describe('PaymentsService', () => {
-  const makeService = (prismaMock: any): PaymentsService => new PaymentsService(
-    prismaMock as any,
-    {} as any,
-    {} as any,
-    { create: jest.fn() } as any,
-    { get: jest.fn() } as any,
-    { get: jest.fn() } as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    { processInternalTransfer: jest.fn(), processWithdraw: jest.fn() } as any,
-  );
+  const makeService = (prismaMock: any): PaymentsService =>
+    new PaymentsService(
+      prismaMock as any,
+      {} as any,
+      {} as any,
+      { create: jest.fn() } as any,
+      { get: jest.fn() } as any,
+      { get: jest.fn() } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      { processInternalTransfer: jest.fn(), processWithdraw: jest.fn() } as any,
+    );
 
   it('builds receipt by transaction_id and masks accounts', async () => {
     const createdAt = new Date('2026-01-01T00:00:00.000Z');
     const prismaMock = {
       customer: {
-        findUnique: jest.fn().mockResolvedValue({ address: 'TABCDEF1234567890' }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ address: 'TABCDEF1234567890' }),
       },
       transaction: {
         findUnique: jest.fn().mockResolvedValue({
@@ -68,7 +71,9 @@ describe('PaymentsService', () => {
     const createdAt = new Date('2026-02-01T00:00:00.000Z');
     const prismaMock = {
       customer: {
-        findUnique: jest.fn().mockResolvedValue({ address: '0xmywallet00001111' }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ address: '0xmywallet00001111' }),
       },
       transaction: {
         findUnique: jest.fn().mockResolvedValue({
@@ -184,10 +189,13 @@ describe('PaymentsService', () => {
     };
     const service = makeService(prismaMock);
 
-    const receipt = await service.getReceipt({
-      transaction_id: 88,
-      conversion_side: ReceiptConversionSide.OUT,
-    }, 7);
+    const receipt = await service.getReceipt(
+      {
+        transaction_id: 88,
+        conversion_side: ReceiptConversionSide.OUT,
+      },
+      7,
+    );
 
     expect(receipt.amount).toBe(0.002);
     expect(receipt.currency).toBe('USDT_TRC20');
@@ -204,7 +212,9 @@ describe('PaymentsService', () => {
     };
     const service = makeService(prismaMock);
 
-    await expect(service.getReceipt({ transaction_id: 99999 }, 7)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.getReceipt({ transaction_id: 99999 }, 7),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('throws ForbiddenException when transaction does not belong to user', async () => {
@@ -243,7 +253,9 @@ describe('PaymentsService', () => {
     };
     const service = makeService(prismaMock);
 
-    await expect(service.getReceipt({ transaction_id: 10 }, 7)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.getReceipt({ transaction_id: 10 }, 7),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('returns transaction id in history rows', async () => {
@@ -304,11 +316,14 @@ describe('PaymentsService', () => {
     };
     const service = makeService(prismaMock);
 
-    const rows = await service.getHistory({
-      currency: ['USDT_TRC20'] as any,
-      take: 5,
-      skip: 0,
-    } as any, 7);
+    const rows = await service.getHistory(
+      {
+        currency: ['USDT_TRC20'] as any,
+        take: 5,
+        skip: 0,
+      } as any,
+      7,
+    );
 
     expect(rows).toEqual([
       {
@@ -363,13 +378,16 @@ describe('PaymentsService', () => {
     };
     const service = makeService(prismaMock);
 
-    const rows = await service.getHistory({
-      currency: ['ESOM', 'USDT_TRC20'] as any,
-      take: 10,
-      skip: 0,
-    } as any, 7);
+    const rows = await service.getHistory(
+      {
+        currency: ['ESOM', 'USDT_TRC20'] as any,
+        take: 10,
+        skip: 0,
+      } as any,
+      7,
+    );
 
-    expect(rows.map(row => row.id)).toEqual([327]);
+    expect(rows.map((row) => row.id)).toEqual([327]);
     expect(rows[0].currency).toBe('USDT_TRC20');
   });
 });

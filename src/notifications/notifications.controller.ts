@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 import { NotificationsService } from './notifications.service';
@@ -6,14 +16,16 @@ import { NotificationDto } from './dto/notification.dto';
 import { PaginateParams } from '../common/params/pagination.params';
 import { BasicAuthGuard } from '../common/guards/basic-auth.guard';
 import { UserInfoDto } from '../users/dto/user-info.dto';
-import { SendFinancialReportRequestDto, SendFinancialReportResponseDto } from './dto/financial-report.dto';
+import {
+  SendFinancialReportRequestDto,
+  SendFinancialReportResponseDto,
+} from './dto/financial-report.dto';
 import { PushDataPayloadDto, TestPushToTokenDto } from './dto/push-test.dto';
 
 @Controller('notifications')
 @ApiTags('Notifications')
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {
-  }
+  constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get()
   @ApiBearerAuth('Basic')
@@ -42,9 +54,7 @@ export class NotificationsController {
   @Post('push/test/token')
   @ApiBearerAuth('Bearer')
   @UseGuards(AdminAuthGuard)
-  async testPushToToken(
-    @Body() dto: TestPushToTokenDto,
-  ) {
+  async testPushToToken(@Body() dto: TestPushToTokenDto) {
     return this.notificationsService.sendTestPushToToken(dto);
   }
 
@@ -61,9 +71,7 @@ export class NotificationsController {
   @Post('push/broadcast')
   @ApiBearerAuth('Bearer')
   @UseGuards(AdminAuthGuard)
-  async broadcastPush(
-    @Body() dto: PushDataPayloadDto,
-  ) {
+  async broadcastPush(@Body() dto: PushDataPayloadDto) {
     return this.notificationsService.sendBroadcastPush(dto);
   }
 }

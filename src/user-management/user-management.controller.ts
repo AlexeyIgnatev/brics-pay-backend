@@ -1,7 +1,26 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Put, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
-import { UsersListQueryDto, UsersListResponseDto, AdminUpdateUserDto } from './dto/users-list.dto';
+import {
+  UsersListQueryDto,
+  UsersListResponseDto,
+  AdminUpdateUserDto,
+} from './dto/users-list.dto';
 import { UserManagementService } from './user-management.service';
 
 @ApiTags('Управление пользователями')
@@ -12,7 +31,10 @@ export class UserManagementController {
   constructor(private readonly svc: UserManagementService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Список пользователей', description: 'Пагинация, фильтры, сортировка' })
+  @ApiOperation({
+    summary: 'Список пользователей',
+    description: 'Пагинация, фильтры, сортировка',
+  })
   @ApiResponse({ status: 200, type: UsersListResponseDto })
   async list(@Query() query: UsersListQueryDto): Promise<UsersListResponseDto> {
     return this.svc.list(query);
@@ -26,7 +48,10 @@ export class UserManagementController {
   }
 
   @Put(':id')
-  @ApiOperation({ summary: 'Редактирование пользователя', description: 'ФИО, телефон, email, статус' })
+  @ApiOperation({
+    summary: 'Редактирование пользователя',
+    description: 'ФИО, телефон, email, статус',
+  })
   @ApiParam({ name: 'id', example: 101 })
   @ApiResponse({ status: 200, type: UsersListResponseDto })
   async update(
