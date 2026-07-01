@@ -493,4 +493,89 @@ describe('PaymentsService', () => {
       amount: '9900',
     });
   });
+
+  it('normalizes ESOM wallet to ethereum address during USDT to ESOM conversion', async () => {
+    const prismaMock = {
+      customer: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ status: 'ACTIVE' })
+          .mockResolvedValueOnce({
+            tariff_category: 'K1',
+            residency: 'RESIDENT',
+          }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          customer_id: 7,
+          address: 'TWrongTronAddress123456789',
+          private_key:
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      userAssetBalance: {
+        findUnique: jest.fn().mockResolvedValue({ balance: '10' }),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      tariffSetting: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      transaction: {
+        create: jest.fn().mockResolvedValue({ id: 501 }),
+      },
+    };
+
+    const ethereumService = {
+      getAddressFromPrivateKey: jest
+        .fn()
+        .mockReturnValue('0x1111111111111111111111111111111111111111'),
+      validateAddress: jest.fn().mockReturnValue(false),
+      generateAddress: jest.fn(),
+      transferFromFiat: jest.fn().mockResolvedValue({ success: true }),
+    };
+
+    const service = new PaymentsService(
+      prismaMock as any,
+      ethereumService as any,
+      {} as any,
+      { create: jest.fn() } as any,
+      {} as any,
+      {
+        get: jest.fn().mockResolvedValue({
+          esom_per_usd: '1',
+          btc_trade_fee_pct: '0',
+          eth_trade_fee_pct: '0',
+          usdt_trade_fee_pct: '0',
+        }),
+      } as any,
+      {} as any,
+      { refreshAllBalancesForUser: jest.fn().mockResolvedValue(undefined) } as any,
+      {
+        checkTransactionDetailed: jest.fn().mockResolvedValue({ allowed: true }),
+      } as any,
+      {} as any,
+      {} as any,
+    );
+
+    await service.convert(
+      {
+        asset_from: 'USDT_TRC20' as any,
+        asset_to: 'ESOM' as any,
+        amount_from: 5,
+      },
+      7,
+    );
+
+    expect(prismaMock.customer.update).toHaveBeenCalledWith({
+      where: { customer_id: 7 },
+      data: {
+        address: '0x1111111111111111111111111111111111111111',
+        private_key:
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      },
+    });
+    expect(ethereumService.transferFromFiat).toHaveBeenCalledWith(
+      '0x1111111111111111111111111111111111111111',
+      5,
+    );
+  });
 });

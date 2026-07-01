@@ -976,12 +976,15 @@ export class PaymentsService {
       this.logger.verbose(
         `[convert] start customer=${customer_id} from=${dto.asset_from} to=${dto.asset_to} amount_from=${dto.amount_from}`,
       );
-      const user = await this.prisma.customer.findUniqueOrThrow({
+      let user = await this.prisma.customer.findUniqueOrThrow({
         where: { customer_id },
       });
       const s = await this.settingsService.get();
       const from = dto.asset_from as unknown as Asset;
       const to = dto.asset_to as unknown as Asset;
+      if (from === 'ESOM' || to === 'ESOM') {
+        user = await this.ensureEsomWallet(user);
+      }
       const amountFrom = dto.amount_from;
       if (!Number.isFinite(amountFrom) || amountFrom <= 0) {
         throw new BadRequestException('Amount must be positive');
