@@ -20,6 +20,24 @@ export class EthereumService {
     this.ADMIN_PRIVATE_KEY =
       this.configService.get<string>('ADMIN_PRIVATE_KEY')!;
     this.web3 = new Web3(this.RPC_URL);
+    this.assertEthereumConfig();
+  }
+
+  private assertEthereumConfig(): void {
+    const invalidKeys: string[] = [];
+
+    if (!this.web3.utils.isAddress(this.TOKEN_ADDRESS)) {
+      invalidKeys.push(`TOKEN_ADDRESS=${this.TOKEN_ADDRESS}`);
+    }
+    if (!this.web3.utils.isAddress(this.ADMIN_ADDRESS)) {
+      invalidKeys.push(`ADMIN_ADDRESS=${this.ADMIN_ADDRESS}`);
+    }
+
+    if (invalidKeys.length) {
+      throw new BadRequestException(
+        `Ethereum config is invalid: ${invalidKeys.join(', ')}. Expected 0x... Ethereum addresses, not TRON addresses.`,
+      );
+    }
   }
 
   generateAddress(): { address: string; privateKey: string } {

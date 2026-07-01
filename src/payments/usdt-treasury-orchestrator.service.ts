@@ -95,8 +95,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private hasRuntimeConfig(): boolean {
     return Boolean(
       this.getUsdtRpcUrl() &&
-        (this.configService.get<string>('USDT_TOKEN_ADDRESS') ||
-          this.configService.get<string>('TOKEN_ADDRESS')) &&
+        this.configService.get<string>('USDT_TOKEN_ADDRESS') &&
         this.getTreasuryPrivateKey(),
     );
   }
@@ -104,8 +103,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private getUsdtRpcUrl(): string | undefined {
     return (
       this.configService.get<string>('USDT_RPC_URL') ||
-      this.configService.get<string>('TRON_FULL_NODE') ||
-      this.configService.get<string>('RPC_URL')
+      this.configService.get<string>('TRON_FULL_NODE')
     )?.trim();
   }
 
@@ -148,8 +146,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
     const rpcUrl = this.getUsdtRpcUrl();
     const tokenAddress =
-      this.configService.get<string>('USDT_TOKEN_ADDRESS') ||
-      this.configService.get<string>('TOKEN_ADDRESS');
+      this.configService.get<string>('USDT_TOKEN_ADDRESS');
     const treasuryPrivateKey = this.getTreasuryPrivateKey();
     if (!rpcUrl || !tokenAddress || !treasuryPrivateKey) {
       throw new BadRequestException('USDT treasury runtime config is missing');
