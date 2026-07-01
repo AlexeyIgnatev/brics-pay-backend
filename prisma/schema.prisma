@@ -317,6 +317,7 @@ model Transaction {
   receiver_customer Customer?      @relation("tx_receiver", fields: [receiver_customer_id], references: [customer_id])
   anti_fraud_case   AntiFraudCase?
   ledger_entries    LedgerEntry[]
+  accounting_postings AccountingPosting[]
 
   @@index([kind])
   @@index([status])
@@ -380,6 +381,7 @@ model PaymentOperation {
   reversals               PaymentOperation[]      @relation("payment_operation_reversal")
   blockchain_transactions BlockchainTransaction[]
   ledger_entries          LedgerEntry[]
+  accounting_postings     AccountingPosting[]
 
   @@index([customer_id, status])
   @@index([operation_type, status])
@@ -449,6 +451,31 @@ model LedgerEntry {
   @@index([payment_operation_id, status])
   @@index([customer_id, asset, createdAt])
   @@map("ledger_entries")
+}
+
+model AccountingPosting {
+  id                   Int      @id @default(autoincrement())
+  posting_group_key    String
+  sequence             Int
+  transaction_id       Int?
+  payment_operation_id Int?
+  debit_account_no     String
+  debit_account_name   String
+  credit_account_no    String
+  credit_account_name  String
+  asset                Asset
+  amount               Decimal  @db.Decimal(38, 18)
+  comment              String?
+  metadata             Json?
+  createdAt            DateTime @default(now())
+
+  transaction        Transaction?      @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
+  payment_operation  PaymentOperation? @relation(fields: [payment_operation_id], references: [id], onDelete: SetNull)
+
+  @@index([posting_group_key])
+  @@index([transaction_id])
+  @@index([payment_operation_id])
+  @@map("accounting_postings")
 }
 
 model Admin {

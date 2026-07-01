@@ -42,6 +42,96 @@ import {
 import { TransactionDto } from './dto/transaction.dto';
 import { TransactionType } from './enums/transaction-type';
 
+type AccountingMetadata = Record<string, unknown>;
+
+const SOM_PURCHASE_ACCOUNTS = {
+  customerSom: {
+    account_no: '20201',
+    account_name: 'Счет клиента в сомах',
+  },
+  cryptoExchange: {
+    account_no: '20001',
+    account_name: 'Счет криптобиржи',
+  },
+  bankSalamLiability: {
+    account_no: '21199',
+    account_name: 'Обязательство банка по Салам',
+  },
+  commissionTransit: {
+    account_no: '21113',
+    account_name: 'Транзитный счет комиссий',
+  },
+  bankFeeIncome: {
+    account_no: '60699',
+    account_name: 'Доходы банка по комиссиям',
+  },
+  partnerSettlement: {
+    account_no: '21111',
+    account_name: 'Расчеты с партнером',
+  },
+  govCryptoReserve: {
+    account_no: '21115',
+    account_name: 'Расчеты с гос. крипторезервом',
+  },
+  cryptoSettlement: {
+    account_no: '11531',
+    account_name: 'Счета к оплате Крипто/расчет с биржой',
+  },
+  offBalanceAsset: {
+    account_no: '90001',
+    account_name:
+      'Забалансовый учет клиентских криптоактивов, по номиналу',
+  },
+  offBalanceCounter: {
+    account_no: '92602',
+    account_name:
+      'Контр счет, Забалансовый учет клиентских криптоактивов, по номиналу',
+  },
+} as const;
+
+const SOM_PURCHASE_FEE_SPLIT = {
+  bankPercent: 40,
+  partnerPercent: 10,
+  reservePercent: 50,
+} as const;
+
+const SOM_REDEMPTION_ACCOUNTS = {
+  customerSom: {
+    account_no: '20201',
+    account_name: 'Счет клиента в сомах',
+  },
+  bankSalamLiability: {
+    account_no: '21199',
+    account_name: 'Обязательство банка по Салам',
+  },
+  commissionTransit: {
+    account_no: '21113',
+    account_name: 'Транзитный счет комиссий',
+  },
+  bankFeeIncome: {
+    account_no: '60699',
+    account_name: 'Доходы банка по комиссиям',
+  },
+  partnerSettlement: {
+    account_no: '21111',
+    account_name: 'Расчеты с партнером',
+  },
+  govCryptoReserve: {
+    account_no: '21115',
+    account_name: 'Расчеты с гос. крипторезервом',
+  },
+  offBalanceAsset: {
+    account_no: '90001',
+    account_name:
+      'Забалансовый учет клиентских криптоактивов, по номиналу',
+  },
+  offBalanceCounter: {
+    account_no: '92602',
+    account_name:
+      'Контр счет, Забалансовый учет клиентских криптоактивов, по номиналу',
+  },
+} as const;
+
 @Injectable()
 export class PaymentsService {
   constructor(
@@ -173,6 +263,266 @@ export class PaymentsService {
     at: Date,
   ): string {
     return `${clientFio}, ID транзакции ${transactionRef}, ${this.formatAbsTime(at)}`;
+  }
+
+  private splitSomPurchaseCommission(amount: number): {
+    bankShare: number;
+    partnerShare: number;
+    reserveShare: number;
+  } {
+    const bankShare =
+      (amount * SOM_PURCHASE_FEE_SPLIT.bankPercent) / 100;
+    const partnerShare =
+      (amount * SOM_PURCHASE_FEE_SPLIT.partnerPercent) / 100;
+    const reserveShare =
+      (amount * SOM_PURCHASE_FEE_SPLIT.reservePercent) / 100;
+    return { bankShare, partnerShare, reserveShare };
+  }
+
+  private async createSomPurchaseAccountingPostings(
+    client:
+      | PrismaClient
+      | {
+          accountingPosting: PrismaClient['accountingPosting'];
+        },
+    input: {
+      transactionId?: number | null;
+      paymentOperationId?: number | null;
+      postingGroupKey: string;
+      grossAmount: number;
+      commissionAmount: number;
+      netAmount: number;
+      bankOperationId?: number | null;
+      transactionRef: string;
+      internalBridge?: boolean;
+    },
+  ): Promise<void> {
+    const split = this.splitSomPurchaseCommission(input.commissionAmount);
+    const metadataBase: AccountingMetadata = {
+      flow: 'SOM_PURCHASE',
+      transaction_ref: input.transactionRef,
+      gross_amount: input.grossAmount,
+      commission_amount: input.commissionAmount,
+      net_amount: input.netAmount,
+      bank_operation_id: input.bankOperationId ?? null,
+      internal_bridge: input.internalBridge ?? false,
+      fee_split: SOM_PURCHASE_FEE_SPLIT,
+      account_catalog: SOM_PURCHASE_ACCOUNTS,
+    };
+
+    const postings = [
+      {
+        sequence: 1,
+        debit_account_no: SOM_PURCHASE_ACCOUNTS.customerSom.account_no,
+        debit_account_name: SOM_PURCHASE_ACCOUNTS.customerSom.account_name,
+        credit_account_no: SOM_PURCHASE_ACCOUNTS.bankSalamLiability.account_no,
+        credit_account_name:
+          SOM_PURCHASE_ACCOUNTS.bankSalamLiability.account_name,
+        amount: input.grossAmount,
+        comment: 'Покупка KGST клиентом',
+      },
+      {
+        sequence: 2,
+        debit_account_no: SOM_PURCHASE_ACCOUNTS.bankSalamLiability.account_no,
+        debit_account_name:
+          SOM_PURCHASE_ACCOUNTS.bankSalamLiability.account_name,
+        credit_account_no: SOM_PURCHASE_ACCOUNTS.commissionTransit.account_no,
+        credit_account_name:
+          SOM_PURCHASE_ACCOUNTS.commissionTransit.account_name,
+        amount: input.commissionAmount,
+        comment: 'Удержание комиссии',
+      },
+      {
+        sequence: 3,
+        debit_account_no: SOM_PURCHASE_ACCOUNTS.commissionTransit.account_no,
+        debit_account_name:
+          SOM_PURCHASE_ACCOUNTS.commissionTransit.account_name,
+        credit_account_no: SOM_PURCHASE_ACCOUNTS.bankFeeIncome.account_no,
+        credit_account_name:
+          SOM_PURCHASE_ACCOUNTS.bankFeeIncome.account_name,
+        amount: split.bankShare,
+        comment: 'Доля банка',
+      },
+      {
+        sequence: 4,
+        debit_account_no: SOM_PURCHASE_ACCOUNTS.commissionTransit.account_no,
+        debit_account_name:
+          SOM_PURCHASE_ACCOUNTS.commissionTransit.account_name,
+        credit_account_no: SOM_PURCHASE_ACCOUNTS.partnerSettlement.account_no,
+        credit_account_name:
+          SOM_PURCHASE_ACCOUNTS.partnerSettlement.account_name,
+        amount: split.partnerShare,
+        comment: 'Доля партнера',
+      },
+      {
+        sequence: 5,
+        debit_account_no: SOM_PURCHASE_ACCOUNTS.commissionTransit.account_no,
+        debit_account_name:
+          SOM_PURCHASE_ACCOUNTS.commissionTransit.account_name,
+        credit_account_no: SOM_PURCHASE_ACCOUNTS.govCryptoReserve.account_no,
+        credit_account_name:
+          SOM_PURCHASE_ACCOUNTS.govCryptoReserve.account_name,
+        amount: split.reserveShare,
+        comment: '0.5% госрезерв',
+      },
+      {
+        sequence: 6,
+        debit_account_no: SOM_PURCHASE_ACCOUNTS.offBalanceAsset.account_no,
+        debit_account_name: SOM_PURCHASE_ACCOUNTS.offBalanceAsset.account_name,
+        credit_account_no: SOM_PURCHASE_ACCOUNTS.offBalanceCounter.account_no,
+        credit_account_name:
+          SOM_PURCHASE_ACCOUNTS.offBalanceCounter.account_name,
+        amount: input.netAmount,
+        comment: 'Учет актива забаланс',
+      },
+    ];
+
+    await client.accountingPosting.createMany({
+      data: postings.map((posting) => ({
+        posting_group_key: input.postingGroupKey,
+        sequence: posting.sequence,
+        transaction_id: input.transactionId ?? null,
+        payment_operation_id: input.paymentOperationId ?? null,
+        debit_account_no: posting.debit_account_no,
+        debit_account_name: posting.debit_account_name,
+        credit_account_no: posting.credit_account_no,
+        credit_account_name: posting.credit_account_name,
+        asset: 'SOM' as Asset,
+        amount: posting.amount.toString(),
+        comment: posting.comment,
+        metadata: {
+          ...metadataBase,
+          sequence: posting.sequence,
+          debit_account_no: posting.debit_account_no,
+          debit_account_name: posting.debit_account_name,
+          credit_account_no: posting.credit_account_no,
+          credit_account_name: posting.credit_account_name,
+          posting_comment: posting.comment,
+        } as any,
+      })),
+    });
+  }
+
+  private async createSomRedemptionAccountingPostings(
+    client:
+      | PrismaClient
+      | {
+          accountingPosting: PrismaClient['accountingPosting'];
+        },
+    input: {
+      transactionId?: number | null;
+      paymentOperationId?: number | null;
+      postingGroupKey: string;
+      grossAmount: number;
+      commissionAmount: number;
+      netAmount: number;
+      bankOperationId?: number | null;
+      transactionRef: string;
+    },
+  ): Promise<void> {
+    const split = this.splitSomPurchaseCommission(input.commissionAmount);
+    const metadataBase: AccountingMetadata = {
+      flow: 'SOM_REDEMPTION',
+      transaction_ref: input.transactionRef,
+      gross_amount: input.grossAmount,
+      commission_amount: input.commissionAmount,
+      net_amount: input.netAmount,
+      bank_operation_id: input.bankOperationId ?? null,
+      fee_split: SOM_PURCHASE_FEE_SPLIT,
+      account_catalog: SOM_REDEMPTION_ACCOUNTS,
+    };
+
+    const postings = [
+      {
+        sequence: 1,
+        debit_account_no: SOM_REDEMPTION_ACCOUNTS.bankSalamLiability.account_no,
+        debit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.bankSalamLiability.account_name,
+        credit_account_no: SOM_REDEMPTION_ACCOUNTS.customerSom.account_no,
+        credit_account_name: SOM_REDEMPTION_ACCOUNTS.customerSom.account_name,
+        amount: input.grossAmount,
+        comment: 'Выплата клиенту',
+      },
+      {
+        sequence: 2,
+        debit_account_no: SOM_REDEMPTION_ACCOUNTS.bankSalamLiability.account_no,
+        debit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.bankSalamLiability.account_name,
+        credit_account_no: SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_no,
+        credit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_name,
+        amount: input.commissionAmount,
+        comment: 'Удержание комиссии',
+      },
+      {
+        sequence: 3,
+        debit_account_no: SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_no,
+        debit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_name,
+        credit_account_no: SOM_REDEMPTION_ACCOUNTS.bankFeeIncome.account_no,
+        credit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.bankFeeIncome.account_name,
+        amount: split.bankShare,
+        comment: 'Доля банка',
+      },
+      {
+        sequence: 4,
+        debit_account_no: SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_no,
+        debit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_name,
+        credit_account_no: SOM_REDEMPTION_ACCOUNTS.partnerSettlement.account_no,
+        credit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.partnerSettlement.account_name,
+        amount: split.partnerShare,
+        comment: 'Доля партнера',
+      },
+      {
+        sequence: 5,
+        debit_account_no: SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_no,
+        debit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_name,
+        credit_account_no: SOM_REDEMPTION_ACCOUNTS.govCryptoReserve.account_no,
+        credit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.govCryptoReserve.account_name,
+        amount: split.reserveShare,
+        comment: '0.5% госрезерв',
+      },
+      {
+        sequence: 6,
+        debit_account_no: SOM_REDEMPTION_ACCOUNTS.offBalanceCounter.account_no,
+        debit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.offBalanceCounter.account_name,
+        credit_account_no: SOM_REDEMPTION_ACCOUNTS.offBalanceAsset.account_no,
+        credit_account_name: SOM_REDEMPTION_ACCOUNTS.offBalanceAsset.account_name,
+        amount: input.netAmount,
+        comment: 'Учет актива забаланс',
+      },
+    ];
+
+    await client.accountingPosting.createMany({
+      data: postings.map((posting) => ({
+        posting_group_key: input.postingGroupKey,
+        sequence: posting.sequence,
+        transaction_id: input.transactionId ?? null,
+        payment_operation_id: input.paymentOperationId ?? null,
+        debit_account_no: posting.debit_account_no,
+        debit_account_name: posting.debit_account_name,
+        credit_account_no: posting.credit_account_no,
+        credit_account_name: posting.credit_account_name,
+        asset: 'SOM' as Asset,
+        amount: posting.amount.toString(),
+        comment: posting.comment,
+        metadata: {
+          ...metadataBase,
+          sequence: posting.sequence,
+          debit_account_no: posting.debit_account_no,
+          debit_account_name: posting.debit_account_name,
+          credit_account_no: posting.credit_account_no,
+          credit_account_name: posting.credit_account_name,
+          posting_comment: posting.comment,
+        } as any,
+      })),
+    });
   }
 
   private calcSomEsomConversionFee(
@@ -1186,12 +1536,13 @@ export class PaymentsService {
     const requestedAt = new Date();
     const transactionRef = this.buildAbsTransactionRef();
 
-    const customer = await this.prisma.customer.findUnique({
+    let customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
     });
     if (!customer) {
       throw new BadRequestException('Customer not found');
     }
+    customer = await this.ensureEsomWallet(customer);
 
     const s = await this.settingsService.get();
     const {
@@ -1256,38 +1607,55 @@ export class PaymentsService {
       throw new BadRequestException('Ethereum transaction failed');
     }
 
-    const createdTransaction = await this.prisma.transaction.create({
-      data: {
-        kind: TransactionKind.BANK_TO_WALLET,
-        status: TransactionStatus.SUCCESS,
-        amount_in: amount.toString(),
-        asset_in: 'SOM',
-        amount_out: netAmount.toString(),
-        asset_out: 'ESOM',
-        fee_amount: conversionFee.toString(),
-        tx_hash: ethTransaction.txHash,
-        bank_op_id: bricsTransaction,
-        sender_customer_id: customer.customer_id,
-        receiver_wallet_address: customer.address,
-        comment: isInternalBridge
-          ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef})`
-          : `Пополнение Салам (${transactionRef})`,
-      },
-    });
+    const createdTransaction = await this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.create({
+        data: {
+          kind: TransactionKind.BANK_TO_WALLET,
+          status: TransactionStatus.SUCCESS,
+          amount_in: amount.toString(),
+          asset_in: 'SOM',
+          amount_out: netAmount.toString(),
+          asset_out: 'ESOM',
+          fee_amount: conversionFee.toString(),
+          tx_hash: ethTransaction.txHash,
+          bank_op_id: bricsTransaction,
+          sender_customer_id: customer.customer_id,
+          receiver_wallet_address: customer.address,
+          comment: isInternalBridge
+            ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef})`
+            : `Пополнение Салам (${transactionRef})`,
+        },
+      });
 
-    await this.prisma.userAssetBalance.upsert({
-      where: {
-        customer_id_asset: {
+      await tx.userAssetBalance.upsert({
+        where: {
+          customer_id_asset: {
+            customer_id: customer.customer_id,
+            asset: 'SOM' as Asset,
+          },
+        },
+        create: {
           customer_id: customer.customer_id,
           asset: 'SOM' as Asset,
+          balance: (-amount).toString(),
         },
-      },
-      create: {
-        customer_id: customer.customer_id,
-        asset: 'SOM' as Asset,
-        balance: (-amount).toString(),
-      },
-      update: { balance: { decrement: amount.toString() } },
+        update: { balance: { decrement: amount.toString() } },
+      });
+
+      if (!isInternalBridge) {
+        await this.createSomPurchaseAccountingPostings(tx, {
+          transactionId: transaction.id,
+          postingGroupKey: `som-purchase-${transaction.id}`,
+          grossAmount: amount,
+          commissionAmount: conversionFee,
+          netAmount,
+          bankOperationId: bricsTransaction,
+          transactionRef,
+          internalBridge: false,
+        });
+      }
+
+      return transaction;
     });
 
     return new StatusOKDto(createdTransaction.id);
@@ -1304,12 +1672,13 @@ export class PaymentsService {
     const requestedAt = new Date();
     const transactionRef = this.buildAbsTransactionRef();
 
-    const customer = await this.prisma.customer.findUnique({
+    let customer = await this.prisma.customer.findUnique({
       where: { customer_id: customer_id },
     });
     if (!customer) {
       throw new BadRequestException('Customer not found');
     }
+    customer = await this.ensureEsomWallet(customer);
 
     const s = await this.settingsService.get();
     const {
@@ -1601,6 +1970,18 @@ export class PaymentsService {
       update: { balance: { increment: netAmount.toString() } },
     });
 
+    if (!isInternalBridge) {
+      await this.createSomRedemptionAccountingPostings(this.prisma, {
+        transactionId: createdTransaction.id,
+        postingGroupKey: `som-redemption-${createdTransaction.id}`,
+        grossAmount: amount,
+        commissionAmount: conversionFee,
+        netAmount,
+        bankOperationId: bricsTransaction,
+        transactionRef,
+      });
+    }
+
     return new StatusOKDto(createdTransaction.id);
   }
 
@@ -1608,6 +1989,58 @@ export class PaymentsService {
     const trimmed = address.trim();
     if (asset === 'USDT_TRC20') return trimmed;
     return trimmed.toLowerCase();
+  }
+
+  private isValidEsomWallet(customer: {
+    address: string | null;
+    private_key: string | null;
+  }): boolean {
+    if (!customer.address?.trim() || !customer.private_key?.trim()) {
+      return false;
+    }
+
+    try {
+      const expectedAddress = this.ethereumService
+        .getAddressFromPrivateKey(customer.private_key)
+        .trim()
+        .toLowerCase();
+
+      return (
+        this.ethereumService.validateAddress(customer.address) &&
+        customer.address.trim().toLowerCase() === expectedAddress
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async ensureEsomWallet<T extends {
+    customer_id: number;
+    address: string | null;
+    private_key: string | null;
+  }>(customer: T): Promise<T & { address: string; private_key: string }> {
+    if (this.isValidEsomWallet(customer)) {
+      return {
+        ...customer,
+        address: customer.address!,
+        private_key: customer.private_key!,
+      };
+    }
+
+    const wallet = this.ethereumService.generateAddress();
+    await this.prisma.customer.update({
+      where: { customer_id: customer.customer_id },
+      data: {
+        address: wallet.address,
+        private_key: wallet.privateKey,
+      },
+    });
+
+    return {
+      ...customer,
+      address: wallet.address,
+      private_key: wallet.privateKey,
+    };
   }
 
   private async findInternalRecipientByAddress(

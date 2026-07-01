@@ -390,4 +390,107 @@ describe('PaymentsService', () => {
     expect(rows.map((row) => row.id)).toEqual([327]);
     expect(rows[0].currency).toBe('USDT_TRC20');
   });
+
+  it('creates SOM purchase accounting postings with the provided account map', async () => {
+    const createMany = jest.fn().mockResolvedValue({ count: 6 });
+    const service = makeService({
+      accountingPosting: {
+        createMany,
+      },
+    });
+
+    await (service as any).createSomPurchaseAccountingPostings(
+      {
+        accountingPosting: {
+          createMany,
+        },
+      },
+      {
+        transactionId: 42,
+        paymentOperationId: 9,
+        postingGroupKey: 'som-purchase-42',
+        grossAmount: 10000,
+        commissionAmount: 100,
+        netAmount: 9900,
+        bankOperationId: 123456,
+        transactionRef: 'ABS-1',
+        internalBridge: false,
+      },
+    );
+
+    expect(createMany).toHaveBeenCalledTimes(1);
+    const payload = createMany.mock.calls[0][0];
+    expect(payload.data).toHaveLength(6);
+    expect(payload.data[0]).toMatchObject({
+      posting_group_key: 'som-purchase-42',
+      sequence: 1,
+      debit_account_no: '20201',
+      credit_account_no: '21199',
+      amount: '10000',
+    });
+    expect(payload.data[1]).toMatchObject({
+      sequence: 2,
+      debit_account_no: '21199',
+      credit_account_no: '21113',
+      amount: '100',
+    });
+    expect(payload.data[5]).toMatchObject({
+      sequence: 6,
+      debit_account_no: '90001',
+      credit_account_no: '92602',
+      amount: '9900',
+    });
+  });
+
+  it('creates SOM redemption accounting postings with the provided account map', async () => {
+    const createMany = jest.fn().mockResolvedValue({ count: 6 });
+    const service = makeService({
+      accountingPosting: {
+        createMany,
+      },
+    });
+
+    await (service as any).createSomRedemptionAccountingPostings(
+      {
+        accountingPosting: {
+          createMany,
+        },
+      },
+      {
+        transactionId: 43,
+        paymentOperationId: 10,
+        postingGroupKey: 'som-redemption-43',
+        grossAmount: 10000,
+        commissionAmount: 100,
+        netAmount: 9900,
+        bankOperationId: 654321,
+        transactionRef: 'ABS-2',
+      },
+    );
+
+    expect(createMany).toHaveBeenCalledTimes(1);
+    const payload = createMany.mock.calls[0][0];
+    expect(payload.data).toHaveLength(6);
+    expect(payload.data[0]).toMatchObject({
+      posting_group_key: 'som-redemption-43',
+      sequence: 1,
+      debit_account_no: '21199',
+      credit_account_no: '20201',
+      amount: '10000',
+      comment: 'Выплата клиенту',
+    });
+    expect(payload.data[1]).toMatchObject({
+      sequence: 2,
+      debit_account_no: '21199',
+      credit_account_no: '21113',
+      amount: '100',
+      comment: 'Удержание комиссии',
+    });
+    expect(payload.data[5]).toMatchObject({
+      sequence: 6,
+      debit_account_no: '92602',
+      credit_account_no: '90001',
+      amount: '9900',
+    });
+  });
 });

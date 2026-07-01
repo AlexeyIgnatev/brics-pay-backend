@@ -1,6 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaClient, Asset, PushPlatform } from '@prisma/client';
-import { randomBytes } from 'crypto';
 import { BricsService } from 'src/config/brics/brics.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { UserInfoDto } from './dto/user-info.dto';
@@ -53,12 +52,15 @@ export class UsersService {
     }
 
     try {
-      const expectedAddress = this.cryptoService
-        .trxAddressFromPrivateKey(user.private_key)
+      const expectedAddress = this.ethereumService
+        .getAddressFromPrivateKey(user.private_key)
         .trim()
         .toLowerCase();
 
-      return user.address.trim().toLowerCase() === expectedAddress;
+      return (
+        this.ethereumService.validateAddress(user.address) &&
+        user.address.trim().toLowerCase() === expectedAddress
+      );
     } catch {
       return false;
     }
@@ -74,11 +76,7 @@ export class UsersService {
       email: string;
     },
   ): Promise<void> {
-    const privateKey = randomBytes(32).toString('hex');
-    const wallet = {
-      privateKey,
-      address: this.cryptoService.trxAddressFromPrivateKey(privateKey),
-    };
+    const wallet = this.ethereumService.generateAddress();
 
     await this.prisma.customer.upsert({
       where: { customer_id: customerId },
@@ -212,9 +210,22 @@ export class UsersService {
   }
 
   async getUserWallets(userInfo: UserInfoDto): Promise<WalletDto[]> {
-    const user = await this.prisma.customer.findUniqueOrThrow({
+    let user = await this.prisma.customer.findUniqueOrThrow({
       where: { customer_id: userInfo.customer_id },
     });
+
+    if (!this.isValidCustomerWallet(user)) {
+      await this.repairCustomerWallet(user.customer_id, {
+        first_name: userInfo.first_name,
+        middle_name: userInfo.middle_name,
+        last_name: userInfo.last_name,
+        phone: userInfo.phone,
+        email: userInfo.email,
+      });
+      user = await this.prisma.customer.findUniqueOrThrow({
+        where: { customer_id: userInfo.customer_id },
+      });
+    }
 
     const fallbackSettings = {
       esom_per_usd: '1',
