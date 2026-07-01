@@ -76,7 +76,18 @@ export class UsersService {
       email: string;
     },
   ): Promise<void> {
-    const wallet = this.ethereumService.generateAddress();
+    const existing = await this.prisma.customer.findUnique({
+      where: { customer_id: customerId },
+      select: { private_key: true },
+    });
+    const wallet = existing?.private_key?.trim()
+      ? {
+          privateKey: existing.private_key,
+          address: this.ethereumService.getAddressFromPrivateKey(
+            existing.private_key,
+          ),
+        }
+      : this.ethereumService.generateAddress();
 
     await this.prisma.customer.upsert({
       where: { customer_id: customerId },

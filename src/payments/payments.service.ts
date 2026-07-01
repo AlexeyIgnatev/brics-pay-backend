@@ -2027,7 +2027,15 @@ export class PaymentsService {
       };
     }
 
-    const wallet = this.ethereumService.generateAddress();
+    const wallet = customer.private_key?.trim()
+      ? {
+          privateKey: customer.private_key,
+          address: this.ethereumService.getAddressFromPrivateKey(
+            customer.private_key,
+          ),
+        }
+      : this.ethereumService.generateAddress();
+
     await this.prisma.customer.update({
       where: { customer_id: customer.customer_id },
       data: {
