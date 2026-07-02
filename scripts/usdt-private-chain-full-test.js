@@ -152,6 +152,36 @@ async function sendUsdtTransfer(tron, tokenAddress, fromPrivateKey, toAddress, a
   const issuerAddressHex = tron.address.toHex(fromAddress);
   const recipientHex = tron.address.toHex(toAddress);
 
+  try {
+    const contractInfo = await tron.trx.getContract(tokenAddress);
+    console.log(
+      'usdt-contract-check=',
+      JSON.stringify(
+        {
+          tokenAddress,
+          contractAddress: contractInfo?.contract_address || null,
+          originAddress: contractInfo?.origin_address || null,
+          name: contractInfo?.name || null,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (error) {
+    console.log(
+      'usdt-contract-check=',
+      JSON.stringify(
+        {
+          tokenAddress,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        null,
+        2,
+      ),
+    );
+    throw error;
+  }
+
   const built = await tron.transactionBuilder.triggerSmartContract(
     tokenAddress,
     'transfer(address,uint256)',
@@ -299,11 +329,17 @@ async function main() {
     if (!tokenAddress) {
       throw new Error('USDT_TOKEN_ADDRESS is required');
     }
+    console.log('tokenAddress=', tokenAddress);
 
     const customers = [
       { id: 2566667, address: 'TB2vZNBU4CAhpXwfixd5DFMmdVp8V2LpWn' },
       { id: 2566678, address: 'TXF8XYkW9SePRjEnWpNaF4yHevopj7jFUp' },
     ];
+
+    const tokenContractPreview = await tron.trx.getContract(tokenAddress).catch((error) => ({
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    console.log('tokenContractPreview=', JSON.stringify(tokenContractPreview, null, 2));
 
     const runId = String(Date.now());
     const startedAt = new Date();
