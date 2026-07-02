@@ -47,6 +47,9 @@ const TOKEN_BYTECODE = fs
   .readFileSync(path.join(__dirname, 'usdt-local-contract.bytecode.txt'), 'utf8')
   .trim();
 
+const DEPLOY_FREEZE_SUN = 1_000_000_000;
+const DEPLOY_FEE_LIMIT = 1_000_000_000;
+
 function getTronWebCtor() {
   const candidate =
     TronWebModule.TronWeb ||
@@ -302,23 +305,23 @@ async function main() {
       const initialSupply = (1_000_000_000n * 1_000_000n).toString();
       console.log('deploy-only-prep=', JSON.stringify({
         action: 'freezeAccountBandwidth',
-        amount_sun: 100_000_000,
+        amount_sun: DEPLOY_FREEZE_SUN,
       }, null, 2));
-      await freezeAccountBandwidth(deployTron, deployPk, 100_000_000, 'deploy-only-freeze-bandwidth');
-      await sleep(5000);
+      await freezeAccountBandwidth(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-bandwidth');
+      await sleep(15000);
 
       console.log('deploy-only-prep=', JSON.stringify({
         action: 'freezeAccountEnergy',
-        amount_sun: 100_000_000,
+        amount_sun: DEPLOY_FREEZE_SUN,
       }, null, 2));
-      await freezeAccountEnergy(deployTron, deployPk, 100_000_000, 'deploy-only-freeze-energy');
-      await sleep(5000);
+      await freezeAccountEnergy(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-energy');
+      await sleep(15000);
 
       const contract = await deployTron.contract(TOKEN_ABI).new(
         {
           abi: TOKEN_ABI,
           bytecode: TOKEN_BYTECODE,
-          feeLimit: 100_000_000,
+          feeLimit: DEPLOY_FEE_LIMIT,
           callValue: 0,
           userFeePercentage: 0,
           originEnergyLimit: 0,
