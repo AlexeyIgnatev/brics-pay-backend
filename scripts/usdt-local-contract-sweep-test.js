@@ -176,6 +176,16 @@ async function freezeAccountBandwidth(tron, privateKey, amountSun, label) {
   return txHash;
 }
 
+async function freezeAccountEnergy(tron, privateKey, amountSun, label) {
+  const freeze = await tron.trx.freezeBalance(amountSun, 3, 'ENERGY', { privateKey });
+  const txHash = freeze?.txid || freeze?.transaction?.txID || freeze?.transaction?.txid;
+  if (!txHash) {
+    throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(freeze, null, 2)}`);
+  }
+  await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
+  return txHash;
+}
+
 async function waitTx(rpcUrl, txHash, label) {
   for (let i = 0; i < 90; i += 1) {
     const [txInfoRes, txRawRes] = await Promise.all([
@@ -310,6 +320,14 @@ async function main() {
           amount_sun: 100_000_000,
         }, null, 2));
         await freezeAccountBandwidth(tron, deployPk, 100_000_000, 'deploy-only-freeze-bandwidth');
+        await sleep(5000);
+
+        console.log('deploy-only-energy-fix=', JSON.stringify({
+          action: 'freezeAccountEnergy',
+          amount_sun: 100_000_000,
+        }, null, 2));
+        await freezeAccountEnergy(tron, deployPk, 100_000_000, 'deploy-only-freeze-energy');
+        await sleep(5000);
 
         const contract = await tron.contract(TOKEN_ABI).new(
           {
