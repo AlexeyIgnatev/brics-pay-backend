@@ -126,7 +126,7 @@ async function getTrxBalanceSun(rpcUrl, address, TronWebCtor) {
 }
 
 async function waitForContract(tron, contractAddress, label) {
-  for (let i = 0; i < 60; i += 1) {
+  for (let i = 0; i < 180; i += 1) {
     try {
       const contract = await tron.trx.getContract(contractAddress);
       if (contract?.contract_address) {
