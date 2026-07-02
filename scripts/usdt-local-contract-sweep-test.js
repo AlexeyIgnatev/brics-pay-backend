@@ -327,12 +327,15 @@ async function main() {
 
   const rpcUrl = process.env.TRON_FULL_NODE || process.env.USDT_RPC_URL || 'http://172.17.0.1:8090';
   const appUrl = process.env.APP_URL || 'http://127.0.0.1:8000';
-  const deployPk = process.env.USDT_DEPLOYER_PRIVATE_KEY || 'da146374a75310b9666e834ee4ad0866d6f4035967bfc76217c5a495fff9f0d0';
+  const witnessPk = process.env.USDT_WITNESS_PRIVATE_KEY || 'da146374a75310b9666e834ee4ad0866d6f4035967bfc76217c5a495fff9f0d0';
+  const deployPk = process.env.USDT_DEPLOYER_PRIVATE_KEY || crypto.randomBytes(32).toString('hex');
   const treasuryPk = fs.readFileSync('/run/secrets/usdt_treasury_private_key', 'utf8').trim();
   const webhookSecret = fs.readFileSync('/run/secrets/usdt_webhook_secret', 'utf8').trim();
   const TronWebCtor = getTronWebCtor();
   const treasuryTron = new TronWebCtor({ fullHost: rpcUrl, privateKey: treasuryPk });
+  const witnessTron = new TronWebCtor({ fullHost: rpcUrl, privateKey: witnessPk });
   const deployTron = new TronWebCtor({ fullHost: rpcUrl, privateKey: deployPk });
+  const deployAddress = TronWebCtor.address.fromPrivateKey(deployPk);
   const treasuryAddress = TronWebCtor.address.fromPrivateKey(treasuryPk);
   const prisma = new PrismaClient();
 
@@ -341,32 +344,79 @@ async function main() {
 
     if (mode === 'deploy-only') {
       const initialSupply = (1_000_000_000n * 1_000_000n).toString();
+      const deployerBalanceBefore = await getTrxBalanceSun(rpcUrl, deployAddress, TronWebCtor).catch(() => 0);
+
+      console.log('deploy-only-account=', JSON.stringify({
+        deployAddress,
+        deployerBalanceBefore,
+        deployPkSource: process.env.USDT_DEPLOYER_PRIVATE_KEY ? 'env' : 'generated',
+      }, null, 2));
+
+      if (!process.env.USDT_DEPLOYER_PRIVATE_KEY) {
+        const fundingSun = 20_000_000;
+        console.log('deploy-only-prep=', JSON.stringify({
+          action: 'fundDeployAccount',
+          from: TronWebCtor.address.fromPrivateKey(witnessPk),
+          to: deployAddress,
+          amount_sun: fundingSun,
+        }, null, 2));
+        await sendTrx(witnessTron, witnessPk, deployAddress, 20, 'deploy-only-fund-deployer');
+        await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-deployer-funded');
+      }
+
       console.log('deploy-only-prep=', JSON.stringify({
         action: 'freezeAccountBandwidth',
         amount_sun: DEPLOY_FREEZE_SUN,
       }, null, 2));
       await freezeAccountBandwidth(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-bandwidth');
-      await waitForResourceUpdate(rpcUrl, TronWebCtor.address.fromPrivateKey(deployPk), TronWebCtor, 'deploy-only-bandwidth');
+      await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-bandwidth');
 
       console.log('deploy-only-prep=', JSON.stringify({
         action: 'freezeAccountEnergy',
         amount_sun: DEPLOY_FREEZE_SUN,
       }, null, 2));
       await freezeAccountEnergy(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-energy');
-      await waitForResourceUpdate(rpcUrl, TronWebCtor.address.fromPrivateKey(deployPk), TronWebCtor, 'deploy-only-energy');
+      await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-energy');
 
-      const contract = await deployTron.contract(TOKEN_ABI).new(
-        {
-          abi: TOKEN_ABI,
-          bytecode: TOKEN_BYTECODE,
-          feeLimit: DEPLOY_FEE_LIMIT,
-          callValue: 0,
-          userFeePercentage: 0,
-          originEnergyLimit: 0,
-          parameters: [treasuryAddress, initialSupply],
-        },
-        deployPk,
-      );
+      let contract;
+      try {
+        contract = await deployTron.contract(TOKEN_ABI).new(
+          {
+            abi: TOKEN_ABI,
+            bytecode: TOKEN_BYTECODE,
+            feeLimit: DEPLOY_FEE_LIMIT,
+            callValue: 0,
+            userFeePercentage: 0,
+            originEnergyLimit: 0,
+            parameters: [treasuryAddress, initialSupply],
+          },
+          deployPk,
+        );
+      } catch (error) {
+        if (!isBandwidthResourceError(error)) {
+          throw error;
+        }
+
+        console.log('deploy-only-retry=', JSON.stringify({
+          reason: 'bandwidth_error',
+          action: 'refreezeAndRedeploy',
+        }, null, 2));
+        await freezeAccountBandwidth(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-bandwidth-retry');
+        await freezeAccountEnergy(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-energy-retry');
+        await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-retry-resources');
+        contract = await deployTron.contract(TOKEN_ABI).new(
+          {
+            abi: TOKEN_ABI,
+            bytecode: TOKEN_BYTECODE,
+            feeLimit: DEPLOY_FEE_LIMIT,
+            callValue: 0,
+            userFeePercentage: 0,
+            originEnergyLimit: 0,
+            parameters: [treasuryAddress, initialSupply],
+          },
+          deployPk,
+        );
+      }
 
       const deployedAddress = normalizeTronAddress(
         contract?.address || contract?.options?.address,
