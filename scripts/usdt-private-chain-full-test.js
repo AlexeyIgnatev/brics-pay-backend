@@ -71,6 +71,176 @@ function requestJson(url, method, body, headers = {}) {
   });
 }
 
+function normalizeTronAddress(value, TronWebCtor) {
+  if (typeof value !== 'string' || !value.length) {
+    return value;
+  }
+
+  if (value.startsWith('T')) {
+    return value;
+  }
+
+  const hex = value.startsWith('0x') ? value.slice(2) : value;
+  const normalizedHex = hex.startsWith('41') ? hex : `41${hex}`;
+  return TronWebCtor.address.fromHex(normalizedHex);
+}
+
+async function waitForContract(tron, contractAddress, label, probeAddress) {
+  for (let i = 0; i < 60; i += 1) {
+    try {
+      const contract = await tron.trx.getContract(contractAddress);
+      if (contract?.contract_address) {
+        return contract;
+      }
+    } catch (error) {
+      if (i % 10 === 0) {
+        console.log(
+          `${label}-poll=`,
+          JSON.stringify(
+            {
+              contractAddress,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            null,
+            2,
+          ),
+        );
+      }
+    }
+
+    if (probeAddress && i % 10 === 0) {
+      try {
+        const contract = await tron.contract(TOKEN_ABI, contractAddress);
+        await contract.balanceOf(probeAddress).call();
+        return { contract_address: contractAddress };
+      } catch (error) {
+        console.log(
+          `${label}-probe=`,
+          JSON.stringify(
+            {
+              contractAddress,
+              probeAddress,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            null,
+            2,
+          ),
+        );
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  throw new Error(`${label} contract is not deployed yet: ${contractAddress}`);
+}
+
+async function deployFallbackTokenContract({
+  TronWebCtor,
+  tron,
+  witnessPk,
+  treasuryAddress,
+  rpcUrl,
+}) {
+  const deployAddress = TronWebCtor.address.fromPrivateKey(witnessPk);
+  const initialSupply = (1_000_000_000n * 1_000_000n).toString();
+
+  console.log(
+    'token-redeploy-account=',
+    JSON.stringify(
+      {
+        deployAddress,
+        treasuryAddress,
+        initialSupply,
+      },
+      null,
+      2,
+    ),
+  );
+
+  const createSmartContract = tron.transactionBuilder.createSmartContract
+    ? tron.transactionBuilder.createSmartContract.bind(tron.transactionBuilder)
+    : null;
+
+  if (!createSmartContract) {
+    throw new Error('TronWeb createSmartContract is unavailable');
+  }
+
+  const unsigned = await createSmartContract(
+    {
+      abi: [
+        {
+          inputs: [
+            { internalType: 'address', name: 'initialHolder', type: 'address' },
+            { internalType: 'uint256', name: 'initialSupply', type: 'uint256' },
+          ],
+          stateMutability: 'nonpayable',
+          type: 'constructor',
+        },
+        {
+          inputs: [{ internalType: 'address', name: 'account', type: 'address' }],
+          name: 'balanceOf',
+          outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+          stateMutability: 'view',
+          type: 'function',
+        },
+        {
+          inputs: [
+            { internalType: 'address', name: 'to', type: 'address' },
+            { internalType: 'uint256', name: 'amount', type: 'uint256' },
+          ],
+          name: 'transfer',
+          outputs: [{ internalType: 'bool', name: '', type: 'bool' }],
+          stateMutability: 'nonpayable',
+          type: 'function',
+        },
+      ],
+      bytecode: fs.readFileSync(
+        require('path').join(__dirname, 'usdt-local-contract.bytecode.txt'),
+        'utf8',
+      ).trim(),
+      feeLimit: 1_000_000_000,
+      callValue: 0,
+      userFeePercentage: 10,
+      originEnergyLimit: 10_000_000,
+      parameters: [treasuryAddress, initialSupply],
+      name: 'USDT',
+    },
+    deployAddress,
+  );
+
+  logJson('token-redeploy-unsigned=', {
+    txID: unsigned?.txID || null,
+    contract_address: unsigned?.contract_address || null,
+    raw_data: unsigned?.raw_data || null,
+  });
+
+  const signed = await tron.trx.sign(unsigned, witnessPk);
+  logJson('token-redeploy-signed=', {
+    txID: signed?.txID || null,
+    signatureCount: Array.isArray(signed?.signature) ? signed.signature.length : 0,
+    contract_address: signed?.contract_address || null,
+  });
+
+  const broadcast = await tron.trx.sendRawTransaction(signed);
+  logJson('token-redeploy-broadcast=', broadcast);
+
+  const contractAddress =
+    broadcast?.contract_address ||
+    broadcast?.transaction?.contract_address ||
+    signed?.contract_address ||
+    unsigned?.contract_address;
+
+  if (!contractAddress) {
+    throw new Error(`Token redeploy did not return a contract address: ${JSON.stringify(broadcast, null, 2)}`);
+  }
+
+  const normalizedAddress = normalizeTronAddress(contractAddress, TronWebCtor);
+  await waitForContract(tron, normalizedAddress, 'token-redeploy', treasuryAddress);
+  console.log('token-redeploy-address=', normalizedAddress);
+  return normalizedAddress;
+}
+
 async function waitTx(rpcUrl, txHash, label) {
   const isConfirmedPayload = (info) => {
     const blockNumber = Number(info?.blockNumber ?? 0);
@@ -314,6 +484,9 @@ async function main() {
       process.env.USDT_RPC_URL ||
       'http://172.17.0.1:8090';
     const appUrl = process.env.APP_URL || 'http://127.0.0.1:8000';
+    const witnessPk =
+      process.env.USDT_WITNESS_PRIVATE_KEY ||
+      'da146374a75310b9666e834ee4ad0866d6f4035967bfc76217c5a495fff9f0d0';
     const tokenAddress =
       process.env.USDT_TOKEN_ADDRESS || process.env.TRON_USDT_CONTRACT;
     const webhookSecret = fs
@@ -336,10 +509,37 @@ async function main() {
       { id: 2566678, address: 'TXF8XYkW9SePRjEnWpNaF4yHevopj7jFUp' },
     ];
 
-    const tokenContractPreview = await tron.trx.getContract(tokenAddress).catch((error) => ({
+    let resolvedTokenAddress = tokenAddress;
+    let tokenContractPreview = await tron.trx.getContract(resolvedTokenAddress).catch((error) => ({
       error: error instanceof Error ? error.message : String(error),
     }));
     console.log('tokenContractPreview=', JSON.stringify(tokenContractPreview, null, 2));
+
+    if (!tokenContractPreview?.contract_address) {
+      console.log(
+        'token-contract-redeploy=',
+        JSON.stringify(
+          {
+            tokenAddress,
+            reason: 'env token address is not a live smart contract on the current node',
+          },
+          null,
+          2,
+        ),
+      );
+      resolvedTokenAddress = await deployFallbackTokenContract({
+        TronWebCtor,
+        tron,
+        witnessPk,
+        treasuryAddress,
+        rpcUrl,
+      });
+      tokenContractPreview = await tron.trx.getContract(resolvedTokenAddress).catch((error) => ({
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      console.log('tokenContractPreview-after-redeploy=', JSON.stringify(tokenContractPreview, null, 2));
+    }
+    console.log('resolvedTokenAddress=', resolvedTokenAddress);
 
     const runId = String(Date.now());
     const startedAt = new Date();
@@ -360,7 +560,7 @@ async function main() {
     const feeWarmup = await warmUpTreasuryBandwidth({
       TronWebCtor,
       tron,
-      tokenAddress,
+      tokenAddress: resolvedTokenAddress,
       treasuryPk,
       treasuryAddress,
       rpcUrl,
@@ -370,7 +570,7 @@ async function main() {
 
     const tx1 = await sendUsdtTransfer(
       tron,
-      tokenAddress,
+      resolvedTokenAddress,
       treasuryPk,
       customers[0].address,
       11,
@@ -382,7 +582,7 @@ async function main() {
 
     console.log(
       'deposit-1-send=',
-      JSON.stringify({ txid: tx1, tokenAddress, to: customers[0].address }, null, 2),
+      JSON.stringify({ txid: tx1, tokenAddress: resolvedTokenAddress, to: customers[0].address }, null, 2),
     );
     await waitTx(rpcUrl, tx1, 'deposit-1');
 
@@ -390,7 +590,7 @@ async function main() {
 
     const tx2 = await sendUsdtTransfer(
       tron,
-      tokenAddress,
+      resolvedTokenAddress,
       treasuryPk,
       customers[1].address,
       11,
@@ -402,7 +602,7 @@ async function main() {
 
     console.log(
       'deposit-2-send=',
-      JSON.stringify({ txid: tx2, tokenAddress, to: customers[1].address }, null, 2),
+      JSON.stringify({ txid: tx2, tokenAddress: resolvedTokenAddress, to: customers[1].address }, null, 2),
     );
     await waitTx(rpcUrl, tx2, 'deposit-2');
 
