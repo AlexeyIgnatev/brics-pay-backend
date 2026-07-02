@@ -2,6 +2,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
+const path = require('path');
 const { NestFactory } = require('@nestjs/core');
 const { ConfigService } = require('@nestjs/config');
 const { PrismaClient } = require('@prisma/client');
@@ -15,6 +16,34 @@ const TronWebModule = require('tronweb');
 if (!globalThis.crypto) {
   globalThis.crypto = crypto.webcrypto;
 }
+
+const TOKEN_ABI = [
+  {
+    inputs: [
+      { internalType: 'address', name: 'initialHolder', type: 'address' },
+      { internalType: 'uint256', name: 'initialSupply', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+    type: 'constructor',
+  },
+  {
+    inputs: [{ internalType: 'address', name: 'account', type: 'address' }],
+    name: 'balanceOf',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { internalType: 'address', name: 'to', type: 'address' },
+      { internalType: 'uint256', name: 'amount', type: 'uint256' },
+    ],
+    name: 'transfer',
+    outputs: [{ internalType: 'bool', name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+];
 
 function getTronWebCtor() {
   const candidate =
@@ -200,7 +229,7 @@ async function deployFallbackTokenContract({
         },
       ],
       bytecode: fs.readFileSync(
-        require('path').join(__dirname, 'usdt-local-contract.bytecode.txt'),
+        path.join(__dirname, 'usdt-local-contract.bytecode.txt'),
         'utf8',
       ).trim(),
       feeLimit: 1_000_000_000,
