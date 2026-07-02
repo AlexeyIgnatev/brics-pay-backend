@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.5.17;
+pragma solidity 0.4.25;
 
 contract LocalUsdt {
     string public name = "USDT";
