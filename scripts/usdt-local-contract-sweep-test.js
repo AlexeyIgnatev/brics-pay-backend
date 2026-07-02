@@ -111,6 +111,20 @@ function normalizeTronAddress(value, TronWebCtor) {
   return TronWebCtor.address.fromHex(normalizedHex);
 }
 
+async function getTrxBalanceSun(rpcUrl, address, TronWebCtor) {
+  const normalizedAddress = normalizeTronAddress(address, TronWebCtor);
+  const hexAddress = TronWebCtor.address.toHex(normalizedAddress);
+  const result = await requestJson(`${rpcUrl.replace(/\/+$/, '')}/wallet/getaccount`, 'POST', {
+    address: hexAddress,
+  });
+
+  if (!result.ok && result.status !== 200) {
+    throw new Error(`getaccount failed for ${normalizedAddress}: ${JSON.stringify(result.data || result.raw)}`);
+  }
+
+  return Number(result.data?.balance || 0);
+}
+
 async function waitForContract(tron, contractAddress, label) {
   for (let i = 0; i < 60; i += 1) {
     try {
@@ -463,7 +477,7 @@ async function main() {
         TEST_CUSTOMERS.map(async (customer) => ({
           customer_id: customer.id,
           address: customer.address,
-          trx: await tron.trx.getBalance(customer.address),
+          trx: await getTrxBalanceSun(rpcUrl, customer.address, TronWebCtor),
           usdt: String(await tokenContract.balanceOf(customer.address).call()),
         })),
       ),
