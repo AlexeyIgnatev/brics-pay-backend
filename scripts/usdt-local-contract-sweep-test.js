@@ -255,8 +255,11 @@ async function waitTx(rpcUrl, txHash, label) {
     const txRaw = typeof txRawRes.data === 'object' && txRawRes.data ? txRawRes.data : {};
     const blockNumber = Number(txInfo.blockNumber || txRaw.blockNumber || 0);
     const receiptResult = txInfo?.receipt?.result || txRaw?.receipt?.result;
+    const rawContractResult = Array.isArray(txRaw?.ret)
+      ? txRaw.ret.find((item) => item && typeof item === 'object' && item.contractRet)?.contractRet
+      : undefined;
 
-    if (receiptResult === 'SUCCESS' || blockNumber > 0) {
+    if (receiptResult === 'SUCCESS' || rawContractResult === 'SUCCESS' || blockNumber > 0) {
       return { txInfo, txRaw };
     }
 
@@ -329,7 +332,7 @@ async function main() {
   const rpcUrl = process.env.TRON_FULL_NODE || process.env.USDT_RPC_URL || 'http://172.17.0.1:8090';
   const appUrl = process.env.APP_URL || 'http://127.0.0.1:8000';
   const witnessPk = process.env.USDT_WITNESS_PRIVATE_KEY || 'da146374a75310b9666e834ee4ad0866d6f4035967bfc76217c5a495fff9f0d0';
-  const deployPk = process.env.USDT_DEPLOYER_PRIVATE_KEY || crypto.randomBytes(32).toString('hex');
+  const deployPk = process.env.USDT_DEPLOYER_PRIVATE_KEY || witnessPk;
   const treasuryPk = fs.readFileSync('/run/secrets/usdt_treasury_private_key', 'utf8').trim();
   const webhookSecret = fs.readFileSync('/run/secrets/usdt_webhook_secret', 'utf8').trim();
   const TronWebCtor = getTronWebCtor();
@@ -337,6 +340,7 @@ async function main() {
   const witnessTron = new TronWebCtor({ fullHost: rpcUrl, privateKey: witnessPk });
   const deployTron = new TronWebCtor({ fullHost: rpcUrl, privateKey: deployPk });
   const deployAddress = TronWebCtor.address.fromPrivateKey(deployPk);
+  const deploySource = process.env.USDT_DEPLOYER_PRIVATE_KEY ? 'env' : 'witness';
   const treasuryAddress = TronWebCtor.address.fromPrivateKey(treasuryPk);
   const prisma = new PrismaClient();
 
@@ -350,11 +354,11 @@ async function main() {
       console.log('deploy-only-account=', JSON.stringify({
         deployAddress,
         deployerBalanceBefore,
-        deployPkSource: process.env.USDT_DEPLOYER_PRIVATE_KEY ? 'env' : 'generated',
+        deployPkSource: deploySource,
         deployFundingSun: DEPLOY_FUNDING_SUN,
       }, null, 2));
 
-      if (!process.env.USDT_DEPLOYER_PRIVATE_KEY) {
+      if (deploySource === 'env') {
         await sendTrx(
           witnessTron,
           witnessPk,
@@ -363,21 +367,25 @@ async function main() {
           'deploy-only-fund-deployer',
         );
         await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-funded');
+        console.log('deploy-only-prep=', JSON.stringify({
+          action: 'freezeAccountBandwidth',
+          amount_sun: DEPLOY_FREEZE_SUN,
+        }, null, 2));
+        await freezeAccountBandwidth(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-bandwidth');
+        await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-bandwidth');
+
+        console.log('deploy-only-prep=', JSON.stringify({
+          action: 'freezeAccountEnergy',
+          amount_sun: DEPLOY_FREEZE_SUN,
+        }, null, 2));
+        await freezeAccountEnergy(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-energy');
+        await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-energy');
+      } else {
+        console.log('deploy-only-prep=', JSON.stringify({
+          action: 'deployFromWitness',
+          reason: 'default deployer had insufficient TRON resources; witness account has abundant balance and resources on this private chain',
+        }, null, 2));
       }
-
-      console.log('deploy-only-prep=', JSON.stringify({
-        action: 'freezeAccountBandwidth',
-        amount_sun: DEPLOY_FREEZE_SUN,
-      }, null, 2));
-      await freezeAccountBandwidth(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-bandwidth');
-      await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-bandwidth');
-
-      console.log('deploy-only-prep=', JSON.stringify({
-        action: 'freezeAccountEnergy',
-        amount_sun: DEPLOY_FREEZE_SUN,
-      }, null, 2));
-      await freezeAccountEnergy(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-energy');
-      await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-energy');
 
       const createSmartContract = deployTron.transactionBuilder.createSmartContract
         ? deployTron.transactionBuilder.createSmartContract.bind(deployTron.transactionBuilder)
