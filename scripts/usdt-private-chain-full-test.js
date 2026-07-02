@@ -142,6 +142,126 @@ async function waitTx(rpcUrl, txHash, label) {
   throw new Error(`${label} confirmation timeout: ${txHash}`);
 }
 
+async function sendUsdtTransfer(tron, tokenAddress, fromPrivateKey, toAddress, amount) {
+  const amountSun = BigInt(Math.floor(amount * 10 ** 6));
+  if (amountSun <= 0n) {
+    throw new Error(`Invalid USDT amount: ${amount}`);
+  }
+
+  const fromAddress = tron.address.fromPrivateKey(fromPrivateKey);
+  const issuerAddressHex = tron.address.toHex(fromAddress);
+  const recipientHex = tron.address.toHex(toAddress);
+
+  const built = await tron.transactionBuilder.triggerSmartContract(
+    tokenAddress,
+    'transfer(address,uint256)',
+    {
+      feeLimit: 100_000_000,
+      callValue: 0,
+    },
+    [
+      { type: 'address', value: recipientHex },
+      { type: 'uint256', value: amountSun.toString() },
+    ],
+    issuerAddressHex,
+  );
+
+  if (!built?.result?.result || !built?.transaction) {
+    throw new Error(`Failed to build TRC20 transfer: ${JSON.stringify(built, null, 2)}`);
+  }
+
+  const signed = await tron.trx.sign(built.transaction, fromPrivateKey);
+  if (!signed?.signature?.length) {
+    throw new Error(`Failed to sign TRC20 transfer: ${JSON.stringify(signed, null, 2)}`);
+  }
+
+  const broadcast = await tron.trx.sendRawTransaction(signed);
+  if (!broadcast?.result && !broadcast?.txid && !broadcast?.transaction?.txID) {
+    throw new Error(`Failed to broadcast TRC20 transfer: ${JSON.stringify(broadcast, null, 2)}`);
+  }
+
+  return broadcast?.txid || signed?.txID || signed?.transaction?.txID || built?.transaction?.txID;
+}
+
+function extractTxResourceNumber(value) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function extractTxInfoResources(txInfo) {
+  const receipt = txInfo?.receipt ?? {};
+  const innerReceipt = receipt?.receipt ?? {};
+
+  const feeAmountRaw =
+    extractTxResourceNumber(receipt.fee) ||
+    extractTxResourceNumber(receipt.net_fee) ||
+    extractTxResourceNumber(innerReceipt.net_fee) ||
+    extractTxResourceNumber(innerReceipt.fee) ||
+    extractTxResourceNumber(receipt.energy_fee) ||
+    extractTxResourceNumber(innerReceipt.energy_fee);
+
+  const energyUsed =
+    extractTxResourceNumber(receipt.energy_usage_total) ||
+    extractTxResourceNumber(receipt.energy_usage) ||
+    extractTxResourceNumber(innerReceipt.energy_usage_total) ||
+    extractTxResourceNumber(innerReceipt.energy_usage);
+
+  const bandwidthUsed =
+    extractTxResourceNumber(receipt.net_usage) ||
+    extractTxResourceNumber(innerReceipt.net_usage);
+
+  return {
+    fee_amount_raw: feeAmountRaw,
+    energy_used: energyUsed,
+    bandwidth_used: bandwidthUsed,
+  };
+}
+
+async function warmUpTreasuryBandwidth({
+  TronWebCtor,
+  tron,
+  tokenAddress,
+  treasuryPk,
+  treasuryAddress,
+  rpcUrl,
+  iterations = 25,
+}) {
+  const probePk = crypto.randomBytes(32).toString('hex');
+  const probeAddress = TronWebCtor.address.fromPrivateKey(probePk);
+  let lastProbe = null;
+
+  for (let i = 0; i < iterations; i += 1) {
+    const probeTx = await sendUsdtTransfer(
+      tron,
+      tokenAddress,
+      treasuryPk,
+      probeAddress,
+      1,
+    );
+    const probeInfo = await waitTx(rpcUrl, probeTx, `fee-probe-${i + 1}`);
+    const resources = extractTxInfoResources(probeInfo);
+    lastProbe = { probeTx, probeInfo, resources };
+    console.log(
+      `fee-probe-${i + 1}=`,
+      JSON.stringify(
+        {
+          probeTx,
+          treasuryAddress,
+          probeAddress,
+          ...resources,
+        },
+        null,
+        2,
+      ),
+    );
+    if (resources.fee_amount_raw > 0) {
+      return lastProbe;
+    }
+  }
+
+  return lastProbe;
+}
+
 async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: false,
@@ -164,6 +284,8 @@ async function main() {
       process.env.USDT_RPC_URL ||
       'http://172.17.0.1:8090';
     const appUrl = process.env.APP_URL || 'http://127.0.0.1:8000';
+    const tokenAddress =
+      process.env.USDT_TOKEN_ADDRESS || process.env.TRON_USDT_CONTRACT;
     const webhookSecret = fs
       .readFileSync('/run/secrets/usdt_webhook_secret', 'utf8')
       .trim();
@@ -174,6 +296,9 @@ async function main() {
     const TronWebCtor = getTronWebCtor();
     const tron = new TronWebCtor({ fullHost: rpcUrl, privateKey: treasuryPk });
     const treasuryAddress = TronWebCtor.address.fromPrivateKey(treasuryPk);
+    if (!tokenAddress) {
+      throw new Error('USDT_TOKEN_ADDRESS is required');
+    }
 
     const customers = [
       { id: 2566667, address: 'TB2vZNBU4CAhpXwfixd5DFMmdVp8V2LpWn' },
@@ -196,34 +321,53 @@ async function main() {
     console.log('rpcUrl=', rpcUrl);
     console.log('beforeBalances=', JSON.stringify(beforeBalances, null, 2));
 
-    const dep1 = await tron.trx.sendTransaction(
-      customers[0].address,
-      1,
+    const feeWarmup = await warmUpTreasuryBandwidth({
+      TronWebCtor,
+      tron,
+      tokenAddress,
       treasuryPk,
+      treasuryAddress,
+      rpcUrl,
+      iterations: 30,
+    });
+    console.log('feeWarmup=', JSON.stringify(feeWarmup, null, 2));
+
+    const tx1 = await sendUsdtTransfer(
+      tron,
+      tokenAddress,
+      treasuryPk,
+      customers[0].address,
+      11,
     );
-    const tx1 = dep1.txid || dep1.transaction?.txID || dep1.transaction?.txid;
 
     if (!tx1) {
-      throw new Error(`deposit tx missing: ${JSON.stringify({ dep1 }, null, 2)}`);
+      throw new Error(`deposit tx missing: ${JSON.stringify({ tokenAddress }, null, 2)}`);
     }
 
-    console.log('deposit-1-send=', JSON.stringify(dep1, null, 2));
+    console.log(
+      'deposit-1-send=',
+      JSON.stringify({ txid: tx1, tokenAddress, to: customers[0].address }, null, 2),
+    );
     await waitTx(rpcUrl, tx1, 'deposit-1');
 
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
-    const dep2 = await tron.trx.sendTransaction(
-      customers[1].address,
-      1,
+    const tx2 = await sendUsdtTransfer(
+      tron,
+      tokenAddress,
       treasuryPk,
+      customers[1].address,
+      11,
     );
-    const tx2 = dep2.txid || dep2.transaction?.txID || dep2.transaction?.txid;
 
     if (!tx2) {
-      throw new Error(`deposit tx missing: ${JSON.stringify({ dep2 }, null, 2)}`);
+      throw new Error(`deposit tx missing: ${JSON.stringify({ tokenAddress }, null, 2)}`);
     }
 
-    console.log('deposit-2-send=', JSON.stringify(dep2, null, 2));
+    console.log(
+      'deposit-2-send=',
+      JSON.stringify({ txid: tx2, tokenAddress, to: customers[1].address }, null, 2),
+    );
     await waitTx(rpcUrl, tx2, 'deposit-2');
 
     const webhook1 = await requestJson(
@@ -410,6 +554,27 @@ async function main() {
       },
     });
 
+    const accountingPostings = await prisma.accountingPosting.findMany({
+      where: { createdAt: { gte: startedAt } },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        posting_group_key: true,
+        sequence: true,
+        transaction_id: true,
+        payment_operation_id: true,
+        debit_account_no: true,
+        debit_account_name: true,
+        credit_account_no: true,
+        credit_account_name: true,
+        asset: true,
+        amount: true,
+        comment: true,
+        metadata: true,
+        createdAt: true,
+      },
+    });
+
     const afterBalances = await prisma.userAssetBalance.findMany({
       where: {
         customer_id: { in: customers.map((c) => c.id) },
@@ -434,6 +599,10 @@ async function main() {
       JSON.stringify(blockchainTransactions, null, 2),
     );
     console.log('ledgerEntries=', JSON.stringify(ledgerEntries, null, 2));
+    console.log(
+      'accountingPostings=',
+      JSON.stringify(accountingPostings, null, 2),
+    );
     console.log('afterBalances=', JSON.stringify(afterBalances, null, 2));
     console.log('withdrawAddress=', withdrawAddress);
   } finally {

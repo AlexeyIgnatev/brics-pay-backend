@@ -345,15 +345,23 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           (transaction.raw_data as { timestamp?: number } | undefined)
             ?.timestamp,
       ) ?? null;
+    const receiptBlock = receipt as Record<string, unknown>;
+    const nestedReceipt = receiptBlock.receipt as
+      | Record<string, unknown>
+      | undefined;
     const feeRawNumber = Number(
-      receipt.fee ??
-        (receipt.receipt as { net_fee?: number } | undefined)?.net_fee ??
+      receiptBlock.fee ??
+        receiptBlock.net_fee ??
+        receiptBlock.energy_fee ??
+        nestedReceipt?.fee ??
+        nestedReceipt?.net_fee ??
+        nestedReceipt?.energy_fee ??
         0,
     );
     const feeAmountRaw =
-      Number.isFinite(feeRawNumber) && feeRawNumber > 0
+      Number.isFinite(feeRawNumber) && feeRawNumber >= 0
         ? String(feeRawNumber)
-        : null;
+        : '0';
     const confirmations =
       blockNumber && input.snapshot?.currentBlockNumber
         ? Math.max(input.snapshot.currentBlockNumber - blockNumber + 1, 0)
@@ -377,23 +385,25 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       confirmations,
       gas_payer_address: input.gasPayerAddress ?? null,
       fee_amount_raw: feeAmountRaw,
-      fee_asset: feeAmountRaw !== null ? 'TRX' : null,
+      fee_asset: 'TRX',
       energy_used:
         Number(
-          (receipt.receipt as { energy_usage_total?: number } | undefined)
-            ?.energy_usage_total ??
-            (receipt.receipt as { energy_usage?: number } | undefined)
-              ?.energy_usage ??
+          receiptBlock.energy_usage_total ??
+            receiptBlock.energy_usage ??
+            nestedReceipt?.energy_usage_total ??
+            nestedReceipt?.energy_usage ??
             0,
-        ) || null,
+        ) || 0,
       bandwidth_used:
         Number(
-          (receipt.receipt as { net_usage?: number } | undefined)?.net_usage ??
-            receipt.net_usage ??
+          receiptBlock.net_usage ??
+            nestedReceipt?.net_usage ??
             0,
-        ) || null,
+        ) || 0,
       receipt_status:
-        (receipt.receipt as { result?: string } | undefined)?.result ?? null,
+        (receiptBlock.result as string | undefined) ??
+        (nestedReceipt?.result as string | undefined) ??
+        null,
     };
 
     if (existing) {

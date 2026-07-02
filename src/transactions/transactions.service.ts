@@ -36,13 +36,17 @@ export class TransactionsService {
   private parseNetworkFee(
     tx: Pick<BlockchainTransaction, 'fee_amount_raw' | 'fee_asset'> | undefined,
   ): { amount?: number; asset?: string } {
-    if (!tx?.fee_amount_raw) {
+    if (!tx) {
       return {};
+    }
+
+    if (!tx.fee_amount_raw) {
+      return { amount: 0, asset: tx.fee_asset ?? 'TRX' };
     }
 
     const raw = Number(tx.fee_amount_raw);
     if (!Number.isFinite(raw) || raw <= 0) {
-      return {};
+      return { amount: 0, asset: tx.fee_asset ?? 'TRX' };
     }
 
     if (tx.fee_asset === 'TRX') {
@@ -270,11 +274,17 @@ export class TransactionsService {
         comment: item.comment ?? undefined,
         network_fee_amount: networkFee.amount,
         network_fee_asset: networkFee.asset,
-        energy_used: blockchainTransaction?.energy_used ?? undefined,
-        bandwidth_used: blockchainTransaction?.bandwidth_used ?? undefined,
-        brics_burned_amount: this.getBricsBurnedAmount(
-          postingsByTransactionId.get(item.id) ?? [],
-        ),
+        energy_used:
+          blockchainTransaction != null
+            ? blockchainTransaction.energy_used ?? 0
+            : undefined,
+        bandwidth_used:
+          blockchainTransaction != null
+            ? blockchainTransaction.bandwidth_used ?? 0
+            : undefined,
+        brics_burned_amount:
+          this.getBricsBurnedAmount(postingsByTransactionId.get(item.id) ?? []) ??
+          0,
         createdAt: item.createdAt,
         sender_customer: item.sender_customer
           ? {
