@@ -77,4 +77,26 @@ describe('UsdtTreasuryOrchestratorService', () => {
       network_fee_trx_total: 0,
     });
   });
+
+  it('returns reserve snapshot fallback when runtime lookup fails', async () => {
+    (service as any).getRuntime = jest.fn(() => {
+      throw new Error('runtime missing');
+    });
+
+    const snapshot = await service.getTreasuryReserveSnapshot();
+
+    expect(snapshot).toEqual({
+      treasury_address: '',
+      usdt_balance: 0,
+      trx_balance: 0,
+      energy_available: 0,
+      bandwidth_available: 0,
+      energy_spent_today: 0,
+      energy_spent_total: 0,
+      bandwidth_spent_today: 0,
+      bandwidth_spent_total: 0,
+      network_fee_trx_today: 0,
+      network_fee_trx_total: 0,
+    });
+  });
 });

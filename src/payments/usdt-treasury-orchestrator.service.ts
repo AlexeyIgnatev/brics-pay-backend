@@ -600,85 +600,106 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     network_fee_trx_today: number;
     network_fee_trx_total: number;
   }> {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    try {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
 
-    const runtime = this.getRuntime();
-    const [usdtBalance, accountSnapshot, todayTransactions, allTransactions] =
-      await Promise.all([
-        this.safeSnapshotValue(
-          'USDT balance',
-          this.getUsdtBalance(runtime.treasuryAddress),
-          0,
-        ),
-        this.safeSnapshotValue(
-          'treasury account resources',
-          this.getTreasuryAccountSnapshot(),
-          {
-            trxBalance: 0,
-            energyAvailable: 0,
-            bandwidthAvailable: 0,
-          },
-        ),
-        this.prisma.blockchainTransaction.findMany({
-          where: {
-            network: Network.TRON,
-            createdAt: { gte: startOfToday },
-          },
-          select: {
-            fee_amount_raw: true,
-            energy_used: true,
-            bandwidth_used: true,
-          },
-        }),
-        this.prisma.blockchainTransaction.findMany({
-          where: { network: Network.TRON },
-          select: {
-            fee_amount_raw: true,
-            energy_used: true,
-            bandwidth_used: true,
-          },
-        }),
-      ]);
+      const runtime = this.getRuntime();
+      const [usdtBalance, accountSnapshot, todayTransactions, allTransactions] =
+        await Promise.all([
+          this.safeSnapshotValue(
+            'USDT balance',
+            this.getUsdtBalance(runtime.treasuryAddress),
+            0,
+          ),
+          this.safeSnapshotValue(
+            'treasury account resources',
+            this.getTreasuryAccountSnapshot(),
+            {
+              trxBalance: 0,
+              energyAvailable: 0,
+              bandwidthAvailable: 0,
+            },
+          ),
+          this.prisma.blockchainTransaction.findMany({
+            where: {
+              network: Network.TRON,
+              createdAt: { gte: startOfToday },
+            },
+            select: {
+              fee_amount_raw: true,
+              energy_used: true,
+              bandwidth_used: true,
+            },
+          }),
+          this.prisma.blockchainTransaction.findMany({
+            where: { network: Network.TRON },
+            select: {
+              fee_amount_raw: true,
+              energy_used: true,
+              bandwidth_used: true,
+            },
+          }),
+        ]);
 
-    const sumFeeTrx = (
-      transactions: {
-        fee_amount_raw: string | null;
-        energy_used: number | null;
-        bandwidth_used: number | null;
-      }[],
-    ) =>
-      transactions.reduce((sum, transaction) => {
-        const rawFee = Number(transaction.fee_amount_raw ?? 0);
-        return sum + (Number.isFinite(rawFee) ? rawFee / TRON_SUN : 0);
-      }, 0);
+      const sumFeeTrx = (
+        transactions: {
+          fee_amount_raw: string | null;
+          energy_used: number | null;
+          bandwidth_used: number | null;
+        }[],
+      ) =>
+        transactions.reduce((sum, transaction) => {
+          const rawFee = Number(transaction.fee_amount_raw ?? 0);
+          return sum + (Number.isFinite(rawFee) ? rawFee / TRON_SUN : 0);
+        }, 0);
 
-    const sumUsage = (
-      transactions: {
-        fee_amount_raw: string | null;
-        energy_used: number | null;
-        bandwidth_used: number | null;
-      }[],
-      key: 'energy_used' | 'bandwidth_used',
-    ) =>
-      transactions.reduce((sum, transaction) => {
-        const value = Number(transaction[key] ?? 0);
-        return sum + (Number.isFinite(value) ? value : 0);
-      }, 0);
+      const sumUsage = (
+        transactions: {
+          fee_amount_raw: string | null;
+          energy_used: number | null;
+          bandwidth_used: number | null;
+        }[],
+        key: 'energy_used' | 'bandwidth_used',
+      ) =>
+        transactions.reduce((sum, transaction) => {
+          const value = Number(transaction[key] ?? 0);
+          return sum + (Number.isFinite(value) ? value : 0);
+        }, 0);
 
-    return {
-      treasury_address: runtime.treasuryAddress,
-      usdt_balance: usdtBalance,
-      trx_balance: accountSnapshot.trxBalance,
-      energy_available: accountSnapshot.energyAvailable,
-      bandwidth_available: accountSnapshot.bandwidthAvailable,
-      energy_spent_today: sumUsage(todayTransactions, 'energy_used'),
-      energy_spent_total: sumUsage(allTransactions, 'energy_used'),
-      bandwidth_spent_today: sumUsage(todayTransactions, 'bandwidth_used'),
-      bandwidth_spent_total: sumUsage(allTransactions, 'bandwidth_used'),
-      network_fee_trx_today: sumFeeTrx(todayTransactions),
-      network_fee_trx_total: sumFeeTrx(allTransactions),
-    };
+      return {
+        treasury_address: runtime.treasuryAddress,
+        usdt_balance: usdtBalance,
+        trx_balance: accountSnapshot.trxBalance,
+        energy_available: accountSnapshot.energyAvailable,
+        bandwidth_available: accountSnapshot.bandwidthAvailable,
+        energy_spent_today: sumUsage(todayTransactions, 'energy_used'),
+        energy_spent_total: sumUsage(allTransactions, 'energy_used'),
+        bandwidth_spent_today: sumUsage(todayTransactions, 'bandwidth_used'),
+        bandwidth_spent_total: sumUsage(allTransactions, 'bandwidth_used'),
+        network_fee_trx_today: sumFeeTrx(todayTransactions),
+        network_fee_trx_total: sumFeeTrx(allTransactions),
+      };
+    } catch (error) {
+      this.logger.error(
+        `USDT reserve snapshot failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return {
+        treasury_address: '',
+        usdt_balance: 0,
+        trx_balance: 0,
+        energy_available: 0,
+        bandwidth_available: 0,
+        energy_spent_today: 0,
+        energy_spent_total: 0,
+        bandwidth_spent_today: 0,
+        bandwidth_spent_total: 0,
+        network_fee_trx_today: 0,
+        network_fee_trx_total: 0,
+      };
+    }
   }
 
   private async sendUsdt(
