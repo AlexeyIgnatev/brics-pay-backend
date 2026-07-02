@@ -328,7 +328,7 @@ async function main() {
   const rpcUrl = process.env.TRON_FULL_NODE || process.env.USDT_RPC_URL || 'http://172.17.0.1:8090';
   const appUrl = process.env.APP_URL || 'http://127.0.0.1:8000';
   const witnessPk = process.env.USDT_WITNESS_PRIVATE_KEY || 'da146374a75310b9666e834ee4ad0866d6f4035967bfc76217c5a495fff9f0d0';
-  const deployPk = process.env.USDT_DEPLOYER_PRIVATE_KEY || crypto.randomBytes(32).toString('hex');
+  const deployPk = process.env.USDT_DEPLOYER_PRIVATE_KEY || witnessPk;
   const treasuryPk = fs.readFileSync('/run/secrets/usdt_treasury_private_key', 'utf8').trim();
   const webhookSecret = fs.readFileSync('/run/secrets/usdt_webhook_secret', 'utf8').trim();
   const TronWebCtor = getTronWebCtor();
@@ -349,20 +349,8 @@ async function main() {
       console.log('deploy-only-account=', JSON.stringify({
         deployAddress,
         deployerBalanceBefore,
-        deployPkSource: process.env.USDT_DEPLOYER_PRIVATE_KEY ? 'env' : 'generated',
+        deployPkSource: process.env.USDT_DEPLOYER_PRIVATE_KEY ? 'env' : 'witness-default',
       }, null, 2));
-
-      if (!process.env.USDT_DEPLOYER_PRIVATE_KEY) {
-        const fundingSun = 20_000_000;
-        console.log('deploy-only-prep=', JSON.stringify({
-          action: 'fundDeployAccount',
-          from: TronWebCtor.address.fromPrivateKey(witnessPk),
-          to: deployAddress,
-          amount_sun: fundingSun,
-        }, null, 2));
-        await sendTrx(witnessTron, witnessPk, deployAddress, 20, 'deploy-only-fund-deployer');
-        await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-deployer-funded');
-      }
 
       console.log('deploy-only-prep=', JSON.stringify({
         action: 'freezeAccountBandwidth',
