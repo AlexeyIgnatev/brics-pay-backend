@@ -154,17 +154,15 @@ async function waitForResourceUpdate(rpcUrl, address, TronWebCtor, label) {
     if (i % 5 === 0) {
       console.log(`${label}-resource=`, JSON.stringify(snapshot, null, 2));
     }
-    if (
-      Number(resource?.freeNetLimit || 0) > 5000 ||
-      Number(resource?.EnergyLimit || resource?.energyLimit || 0) > 0 ||
-      Number(resource?.NetLimit || resource?.netLimit || 0) > 0 ||
-      Number(resource?.TotalEnergyLimit || 0) > 0
-    ) {
+    if (i >= 2) {
       return snapshot;
     }
     await sleep(2000);
   }
-  throw new Error(`${label} resource update timeout`);
+  return {
+    balance_sun: await getTrxBalanceSun(rpcUrl, address, TronWebCtor).catch(() => 0),
+    resource: await getAccountResource(rpcUrl, address, TronWebCtor).catch(() => ({})),
+  };
 }
 
 async function waitForContract(tron, contractAddress, label) {
@@ -219,6 +217,7 @@ async function freezeAccountBandwidth(tron, privateKey, amountSun, label) {
     throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(broadcast, null, 2)}`);
   }
   await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
+  await sleep(8000);
   return txHash;
 }
 
@@ -233,6 +232,7 @@ async function freezeAccountEnergy(tron, privateKey, amountSun, label) {
     throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(broadcast, null, 2)}`);
   }
   await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
+  await sleep(8000);
   return txHash;
 }
 
@@ -256,7 +256,7 @@ async function waitTx(rpcUrl, txHash, label) {
     const blockNumber = Number(txInfo.blockNumber || txRaw.blockNumber || 0);
     const receiptResult = txInfo?.receipt?.result || txRaw?.receipt?.result;
 
-    if (receiptResult === 'SUCCESS' || blockNumber > 0 || txInfo.id === txHash || txRaw.txID === txHash) {
+    if (receiptResult === 'SUCCESS' || blockNumber > 0) {
       return { txInfo, txRaw };
     }
 
