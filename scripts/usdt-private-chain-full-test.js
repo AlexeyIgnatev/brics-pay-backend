@@ -71,6 +71,10 @@ function requestJson(url, method, body, headers = {}) {
   });
 }
 
+function logJson(label, value) {
+  console.log(label, JSON.stringify(value, null, 2));
+}
+
 function normalizeTronAddress(value, TronWebCtor) {
   if (typeof value !== 'string' || !value.length) {
     return value;
