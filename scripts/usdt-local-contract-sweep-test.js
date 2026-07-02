@@ -2,7 +2,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
-const solc = require('solc');
+const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 const TronWebModule = require('tronweb');
 
@@ -15,68 +15,37 @@ const TEST_CUSTOMERS = [
   { id: 2566678, address: 'TXF8XYkW9SePRjEnWpNaF4yHevopj7jFUp' },
 ];
 
-const TOKEN_SOURCE = `// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+const TOKEN_ABI = [
+  {
+    inputs: [
+      { internalType: 'address', name: 'initialHolder', type: 'address' },
+      { internalType: 'uint256', name: 'initialSupply', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+    type: 'constructor',
+  },
+  {
+    inputs: [{ internalType: 'address', name: 'account', type: 'address' }],
+    name: 'balanceOf',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { internalType: 'address', name: 'to', type: 'address' },
+      { internalType: 'uint256', name: 'amount', type: 'uint256' },
+    ],
+    name: 'transfer',
+    outputs: [{ internalType: 'bool', name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+];
 
-contract TestUSDT {
-    string public name = "Local Test USDT";
-    string public symbol = "USDT";
-    uint8 public decimals = 6;
-    uint256 public totalSupply;
-    address public owner;
-    mapping(address => uint256) private balances;
-
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "only owner");
-        _;
-    }
-
-    constructor(address initialHolder, uint256 initialSupply) {
-        owner = msg.sender;
-        _mint(initialHolder, initialSupply);
-    }
-
-    function balanceOf(address account) external view returns (uint256) {
-        return balances[account];
-    }
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        _transfer(msg.sender, to, amount);
-        return true;
-    }
-
-    function mint(address to, uint256 amount) external onlyOwner returns (bool) {
-        _mint(to, amount);
-        return true;
-    }
-
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "zero address");
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
-    }
-
-    function _transfer(address from, address to, uint256 amount) internal {
-        require(to != address(0), "zero address");
-        uint256 fromBalance = balances[from];
-        require(fromBalance >= amount, "insufficient balance");
-        unchecked {
-            balances[from] = fromBalance - amount;
-        }
-        balances[to] += amount;
-        emit Transfer(from, to, amount);
-    }
-
-    function _mint(address to, uint256 amount) internal {
-        require(to != address(0), "zero address");
-        balances[to] += amount;
-        totalSupply += amount;
-        emit Transfer(address(0), to, amount);
-    }
-}`;
+const TOKEN_BYTECODE = fs
+  .readFileSync(path.join(__dirname, 'usdt-local-contract.bytecode.txt'), 'utf8')
+  .trim();
 
 function getTronWebCtor() {
   const candidate =
@@ -132,41 +101,6 @@ function requestJson(url, method, body, headers = {}) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function compileToken() {
-  const input = {
-    language: 'Solidity',
-    sources: {
-      'TestUSDT.sol': { content: TOKEN_SOURCE },
-    },
-    settings: {
-      optimizer: { enabled: true, runs: 200 },
-      outputSelection: {
-        '*': {
-          '*': ['abi', 'evm.bytecode.object'],
-        },
-      },
-    },
-  };
-
-  const output = JSON.parse(solc.compile(JSON.stringify(input)));
-  if (Array.isArray(output.errors)) {
-    const fatal = output.errors.filter((item) => item.severity === 'error');
-    if (fatal.length > 0) {
-      throw new Error(fatal.map((item) => item.formattedMessage).join('\n'));
-    }
-  }
-
-  const artifact = output.contracts?.['TestUSDT.sol']?.TestUSDT;
-  if (!artifact?.abi?.length || !artifact?.evm?.bytecode?.object) {
-    throw new Error('Failed to compile local token contract');
-  }
-
-  return {
-    abi: artifact.abi,
-    bytecode: artifact.evm.bytecode.object,
-  };
 }
 
 function normalizeTronAddress(value, TronWebCtor) {
@@ -275,17 +209,16 @@ async function main() {
   const tron = new TronWebCtor({ fullHost: rpcUrl, privateKey: treasuryPk });
   const treasuryAddress = TronWebCtor.address.fromPrivateKey(treasuryPk);
   const prisma = new PrismaClient();
-  const compiledToken = compileToken();
 
   try {
     const tokenConfig = process.env.USDT_TOKEN_ADDRESS || process.env.TRON_USDT_CONTRACT || '';
 
     if (mode === 'deploy-only') {
       const initialSupply = (1_000_000_000n * 1_000_000n).toString();
-      const contract = await tron.contract(compiledToken.abi).new(
+      const contract = await tron.contract(TOKEN_ABI).new(
         {
-          abi: compiledToken.abi,
-          bytecode: compiledToken.bytecode,
+          abi: TOKEN_ABI,
+          bytecode: TOKEN_BYTECODE,
           feeLimit: 100_000_000,
           callValue: 0,
           userFeePercentage: 0,
@@ -340,7 +273,7 @@ async function main() {
     const initialTrxAirdrop = 5;
     const depositAmount = 1000;
 
-    const tokenAbi = compiledToken.abi;
+    const tokenAbi = TOKEN_ABI;
     const tokenContract = await tron.contract(tokenAbi, tokenAddress);
     const treasuryTokenBefore = await tokenContract.balanceOf(treasuryAddress).call();
     console.log('treasuryTokenBefore=', treasuryTokenBefore.toString());
