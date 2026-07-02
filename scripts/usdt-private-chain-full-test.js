@@ -141,27 +141,6 @@ async function waitForContract(tron, contractAddress, label, probeAddress) {
       }
     }
 
-    if (probeAddress && i % 10 === 0) {
-      try {
-        const contract = await tron.contract(TOKEN_ABI, contractAddress);
-        await contract.balanceOf(probeAddress).call();
-        return { contract_address: contractAddress };
-      } catch (error) {
-        console.log(
-          `${label}-probe=`,
-          JSON.stringify(
-            {
-              contractAddress,
-              probeAddress,
-              error: error instanceof Error ? error.message : String(error),
-            },
-            null,
-            2,
-          ),
-        );
-      }
-    }
-
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
@@ -258,9 +237,25 @@ async function deployFallbackTokenContract({
   const broadcast = await tron.trx.sendRawTransaction(signed);
   logJson('token-redeploy-broadcast=', broadcast);
 
+  const deployTxHash =
+    broadcast?.txid ||
+    signed?.txID ||
+    unsigned?.txID ||
+    broadcast?.transaction?.txID ||
+    broadcast?.transaction?.txid;
+
+  if (!deployTxHash) {
+    throw new Error(`Token redeploy did not return a tx hash: ${JSON.stringify(broadcast, null, 2)}`);
+  }
+
+  const confirmedDeploy = await waitTx(rpcUrl, deployTxHash, 'token-redeploy-confirmation');
+  logJson('token-redeploy-confirmed=', confirmedDeploy);
+
   const contractAddress =
     broadcast?.contract_address ||
     broadcast?.transaction?.contract_address ||
+    confirmedDeploy?.contract_address ||
+    confirmedDeploy?.transaction?.contract_address ||
     signed?.contract_address ||
     unsigned?.contract_address;
 
@@ -269,7 +264,7 @@ async function deployFallbackTokenContract({
   }
 
   const normalizedAddress = normalizeTronAddress(contractAddress, TronWebCtor);
-  await waitForContract(tron, normalizedAddress, 'token-redeploy', treasuryAddress);
+  await waitForContract(tron, normalizedAddress, 'token-redeploy');
   console.log('token-redeploy-address=', normalizedAddress);
   return normalizedAddress;
 }
