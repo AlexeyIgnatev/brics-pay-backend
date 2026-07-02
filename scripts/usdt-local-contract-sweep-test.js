@@ -192,7 +192,7 @@ async function waitForResourceUpdate(rpcUrl, address, TronWebCtor, label) {
   };
 }
 
-async function waitForContract(tron, contractAddress, label) {
+async function waitForContract(tron, contractAddress, label, probeAddress) {
   for (let i = 0; i < 180; i += 1) {
     try {
       const contract = await tron.trx.getContract(contractAddress);
@@ -200,18 +200,29 @@ async function waitForContract(tron, contractAddress, label) {
         return contract;
       }
     } catch (error) {
-      if (i % 10 === 0) {
-        console.log(
-          `${label}-poll=`,
-          JSON.stringify(
-            {
-              contractAddress,
-              error: error instanceof Error ? error.message : String(error),
-            },
-            null,
-            2,
-          ),
-        );
+      try {
+        if (probeAddress) {
+          const contract = await tron.contract(TOKEN_ABI, contractAddress);
+          await contract.balanceOf(probeAddress).call();
+          return { contract_address: contractAddress };
+        }
+      } catch (innerError) {
+        if (i % 10 === 0) {
+          console.log(
+            `${label}-poll=`,
+            JSON.stringify(
+              {
+                contractAddress,
+                error:
+                  innerError instanceof Error
+                    ? innerError.message
+                    : String(innerError),
+              },
+              null,
+              2,
+            ),
+          );
+        }
       }
     }
 
@@ -463,7 +474,12 @@ async function main() {
         broadcastContractAddress: broadcast?.contract_address || broadcast?.transaction?.contract_address || null,
       }, null, 2));
 
-      await waitForContract(treasuryTron, deployedAddress, 'deploy-only-contract');
+      await waitForContract(
+        treasuryTron,
+        deployedAddress,
+        'deploy-only-contract',
+        treasuryAddress,
+      );
 
       console.log(`USDT_TOKEN_ADDRESS=${deployedAddress}`);
       console.log(`TRON_USDT_CONTRACT=${deployedAddress}`);
@@ -476,7 +492,12 @@ async function main() {
 
     const tokenAddress = tokenConfig;
     const runId = String(Date.now());
-    await waitForContract(treasuryTron, tokenAddress, 'token');
+    await waitForContract(
+      treasuryTron,
+      tokenAddress,
+      'token',
+      treasuryAddress,
+    );
 
     const balancesBefore = await Promise.all(
       TEST_CUSTOMERS.map(async (customer) => {
