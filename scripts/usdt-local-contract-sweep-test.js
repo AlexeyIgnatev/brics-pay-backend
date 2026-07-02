@@ -4,6 +4,7 @@ const http = require('http');
 const https = require('https');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
+const { genContractAddress } = require('../node_modules/tronweb/lib/commonjs/lib/TransactionBuilder/helper.js');
 const TronWebModule = require('tronweb');
 
 if (!globalThis.crypto) {
@@ -113,6 +114,32 @@ function normalizeTronAddress(value, TronWebCtor) {
   const hex = value.startsWith('0x') ? value.slice(2) : value;
   const normalizedHex = hex.startsWith('41') ? hex : `41${hex}`;
   return TronWebCtor.address.fromHex(normalizedHex);
+}
+
+function resolveDeployedContractAddress(TronWebCtor, deployAddress, unsigned, signed, broadcast) {
+  const directAddress =
+    unsigned?.contract_address ||
+    signed?.contract_address ||
+    broadcast?.contract_address ||
+    broadcast?.transaction?.contract_address;
+
+  if (directAddress) {
+    return normalizeTronAddress(directAddress, TronWebCtor);
+  }
+
+  const txHash =
+    signed?.txID ||
+    unsigned?.txID ||
+    broadcast?.txid ||
+    broadcast?.transaction?.txID ||
+    broadcast?.transaction?.txid;
+
+  if (!txHash) {
+    return null;
+  }
+
+  const ownerAddress = TronWebCtor.address.toHex(deployAddress);
+  return normalizeTronAddress(genContractAddress(ownerAddress, txHash), TronWebCtor);
 }
 
 async function getTrxBalanceSun(rpcUrl, address, TronWebCtor) {
@@ -415,15 +442,28 @@ async function main() {
       if (!txHash) {
         throw new Error(`deploy tx hash missing: ${JSON.stringify(broadcast, null, 2)}`);
       }
-      const confirmed = await waitTx(rpcUrl, txHash, 'deploy-only-contract');
-      const deployedAddress = normalizeTronAddress(
-        unsigned?.contract_address || broadcast?.contract_address || confirmed?.txInfo?.contract_address,
+
+      const deployedAddress = resolveDeployedContractAddress(
         TronWebCtor,
+        deployAddress,
+        unsigned,
+        signed,
+        broadcast,
       );
 
       if (!deployedAddress) {
         throw new Error('Token deployment returned no address');
       }
+
+      console.log('deploy-only-contract=', JSON.stringify({
+        txHash,
+        deployedAddress,
+        unsignedContractAddress: unsigned?.contract_address || null,
+        signedContractAddress: signed?.contract_address || null,
+        broadcastContractAddress: broadcast?.contract_address || broadcast?.transaction?.contract_address || null,
+      }, null, 2));
+
+      await waitForContract(treasuryTron, deployedAddress, 'deploy-only-contract');
 
       console.log(`USDT_TOKEN_ADDRESS=${deployedAddress}`);
       console.log(`TRON_USDT_CONTRACT=${deployedAddress}`);
