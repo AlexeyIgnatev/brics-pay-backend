@@ -154,6 +154,28 @@ async function waitForContract(tron, contractAddress, label) {
   throw new Error(`${label} contract is not deployed yet: ${contractAddress}`);
 }
 
+function isBandwidthResourceError(error) {
+  const code = String(error?.code || error?.error || '').toUpperCase();
+  const message = String(error?.message || error?.response?.data?.message || error?.response?.data?.Error || '');
+  return (
+    code.includes('BANDWIDTH_ERROR') ||
+    code.includes('BANDWITH_ERROR') ||
+    message.includes('Account resource insufficient error') ||
+    message.includes('BANDWITH_ERROR') ||
+    message.includes('BANDWIDTH_ERROR')
+  );
+}
+
+async function freezeTreasuryBandwidth(tron, treasuryPk, amountSun, label) {
+  const freeze = await tron.trx.freezeBalance(amountSun, 3, 'BANDWIDTH', { privateKey: treasuryPk });
+  const txHash = freeze?.txid || freeze?.transaction?.txID || freeze?.transaction?.txid;
+  if (!txHash) {
+    throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(freeze, null, 2)}`);
+  }
+  await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
+  return txHash;
+}
+
 async function waitTx(rpcUrl, txHash, label) {
   for (let i = 0; i < 90; i += 1) {
     const [txInfoRes, txRawRes] = await Promise.all([
@@ -258,23 +280,54 @@ async function main() {
 
     if (mode === 'deploy-only') {
       const initialSupply = (1_000_000_000n * 1_000_000n).toString();
-      const contract = await tron.contract(TOKEN_ABI).new(
-        {
-          abi: TOKEN_ABI,
-          bytecode: TOKEN_BYTECODE,
-          feeLimit: 100_000_000,
-          callValue: 0,
-          userFeePercentage: 0,
-          originEnergyLimit: 0,
-          parameters: [treasuryAddress, initialSupply],
-        },
-        treasuryPk,
-      );
+      let deployedAddress = '';
+      try {
+        const contract = await tron.contract(TOKEN_ABI).new(
+          {
+            abi: TOKEN_ABI,
+            bytecode: TOKEN_BYTECODE,
+            feeLimit: 100_000_000,
+            callValue: 0,
+            userFeePercentage: 0,
+            originEnergyLimit: 0,
+            parameters: [treasuryAddress, initialSupply],
+          },
+          treasuryPk,
+        );
 
-      const deployedAddress = normalizeTronAddress(
-        contract?.address || contract?.options?.address,
-        TronWebCtor,
-      );
+        deployedAddress = normalizeTronAddress(
+          contract?.address || contract?.options?.address,
+          TronWebCtor,
+        );
+      } catch (error) {
+        if (!isBandwidthResourceError(error)) {
+          throw error;
+        }
+
+        console.log('deploy-only-bandwidth-fix=', JSON.stringify({
+          action: 'freezeTreasuryBandwidth',
+          amount_sun: 50_000_000,
+        }, null, 2));
+        await freezeTreasuryBandwidth(tron, treasuryPk, 50_000_000, 'deploy-only-freeze-bandwidth');
+
+        const contract = await tron.contract(TOKEN_ABI).new(
+          {
+            abi: TOKEN_ABI,
+            bytecode: TOKEN_BYTECODE,
+            feeLimit: 100_000_000,
+            callValue: 0,
+            userFeePercentage: 0,
+            originEnergyLimit: 0,
+            parameters: [treasuryAddress, initialSupply],
+          },
+          treasuryPk,
+        );
+
+        deployedAddress = normalizeTronAddress(
+          contract?.address || contract?.options?.address,
+          TronWebCtor,
+        );
+      }
 
       if (!deployedAddress) {
         throw new Error('Token deployment returned no address');
