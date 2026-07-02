@@ -47,7 +47,7 @@ const TOKEN_BYTECODE = fs
   .readFileSync(path.join(__dirname, 'usdt-local-contract.bytecode.txt'), 'utf8')
   .trim();
 
-const DEPLOY_FUNDING_TRX = 5000;
+const DEPLOY_FUNDING_SUN = 5_000_000_000;
 const DEPLOY_FREEZE_SUN = 2_000_000_000;
 const DEPLOY_FEE_LIMIT = 1_000_000_000;
 
@@ -351,7 +351,7 @@ async function main() {
         deployAddress,
         deployerBalanceBefore,
         deployPkSource: process.env.USDT_DEPLOYER_PRIVATE_KEY ? 'env' : 'generated',
-        deployFundingTrx: DEPLOY_FUNDING_TRX,
+        deployFundingSun: DEPLOY_FUNDING_SUN,
       }, null, 2));
 
       if (!process.env.USDT_DEPLOYER_PRIVATE_KEY) {
@@ -359,7 +359,7 @@ async function main() {
           witnessTron,
           witnessPk,
           deployAddress,
-          DEPLOY_FUNDING_TRX,
+          DEPLOY_FUNDING_SUN,
           'deploy-only-fund-deployer',
         );
         await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-funded');
@@ -379,8 +379,15 @@ async function main() {
       await freezeAccountEnergy(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-energy');
       await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-energy');
 
-      let contract;
-      contract = await deployTron.contract(TOKEN_ABI).new(
+      const createSmartContract = deployTron.transactionBuilder.createSmartContract
+        ? deployTron.transactionBuilder.createSmartContract.bind(deployTron.transactionBuilder)
+        : null;
+
+      if (!createSmartContract) {
+        throw new Error('TronWeb createSmartContract is unavailable');
+      }
+
+      const unsigned = await createSmartContract(
         {
           abi: TOKEN_ABI,
           bytecode: TOKEN_BYTECODE,
@@ -389,12 +396,20 @@ async function main() {
           userFeePercentage: 0,
           originEnergyLimit: 0,
           parameters: [treasuryAddress, initialSupply],
+          name: 'USDT',
         },
-        deployPk,
+        deployAddress,
       );
 
+      const signed = await deployTron.trx.sign(unsigned, deployPk);
+      const broadcast = await deployTron.trx.sendRawTransaction(signed);
+      const txHash = broadcast?.txid || signed?.txID || unsigned?.txID;
+      if (!txHash) {
+        throw new Error(`deploy tx hash missing: ${JSON.stringify(broadcast, null, 2)}`);
+      }
+      const confirmed = await waitTx(rpcUrl, txHash, 'deploy-only-contract');
       const deployedAddress = normalizeTronAddress(
-        contract?.address || contract?.options?.address,
+        unsigned?.contract_address || broadcast?.contract_address || confirmed?.txInfo?.contract_address,
         TronWebCtor,
       );
 
@@ -436,7 +451,7 @@ async function main() {
     console.log('tokenAddress=', tokenAddress);
     console.log('beforeBalances=', JSON.stringify(balancesBefore, null, 2));
 
-    const initialTrxAirdrop = 5;
+    const initialTrxAirdrop = 5_000_000;
     const depositAmount = 1000;
 
     const tokenAbi = TOKEN_ABI;
