@@ -280,8 +280,6 @@ async function main() {
         throw new Error('Token deployment returned no address');
       }
 
-      await waitForContract(tron, deployedAddress, 'deploy-only');
-
       console.log(`USDT_TOKEN_ADDRESS=${deployedAddress}`);
       console.log(`TRON_USDT_CONTRACT=${deployedAddress}`);
       return;
@@ -320,7 +318,7 @@ async function main() {
     const depositAmount = 1000;
 
     const tokenAbi = TOKEN_ABI;
-    const tokenContract = await tron.contract(tokenAbi).at(tokenAddress);
+    const tokenContract = tron.contract(tokenAbi, tokenAddress);
     const treasuryTokenBefore = await tokenContract.balanceOf(treasuryAddress).call();
     console.log('treasuryTokenBefore=', treasuryTokenBefore.toString());
 
