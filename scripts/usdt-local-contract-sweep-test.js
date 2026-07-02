@@ -167,20 +167,28 @@ function isBandwidthResourceError(error) {
 }
 
 async function freezeAccountBandwidth(tron, privateKey, amountSun, label) {
-  const freeze = await tron.trx.freezeBalance(amountSun, 3, 'BANDWIDTH', { privateKey });
-  const txHash = freeze?.txid || freeze?.transaction?.txID || freeze?.transaction?.txid;
+  const ownerAddress = tron.address.fromPrivateKey(privateKey);
+  const ownerHex = tron.address.toHex(ownerAddress);
+  const freezeTx = await tron.transactionBuilder.freezeBalanceV2(amountSun, 'BANDWIDTH', ownerHex);
+  const signed = await tron.trx.sign(freezeTx, privateKey);
+  const broadcast = await tron.trx.sendRawTransaction(signed);
+  const txHash = broadcast?.txid || signed?.txID || freezeTx?.txID;
   if (!txHash) {
-    throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(freeze, null, 2)}`);
+    throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(broadcast, null, 2)}`);
   }
   await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
   return txHash;
 }
 
 async function freezeAccountEnergy(tron, privateKey, amountSun, label) {
-  const freeze = await tron.trx.freezeBalance(amountSun, 3, 'ENERGY', { privateKey });
-  const txHash = freeze?.txid || freeze?.transaction?.txID || freeze?.transaction?.txid;
+  const ownerAddress = tron.address.fromPrivateKey(privateKey);
+  const ownerHex = tron.address.toHex(ownerAddress);
+  const freezeTx = await tron.transactionBuilder.freezeBalanceV2(amountSun, 'ENERGY', ownerHex);
+  const signed = await tron.trx.sign(freezeTx, privateKey);
+  const broadcast = await tron.trx.sendRawTransaction(signed);
+  const txHash = broadcast?.txid || signed?.txID || freezeTx?.txID;
   if (!txHash) {
-    throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(freeze, null, 2)}`);
+    throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(broadcast, null, 2)}`);
   }
   await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
   return txHash;
