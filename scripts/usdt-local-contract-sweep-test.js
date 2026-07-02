@@ -255,6 +255,26 @@ async function waitForDeployedContractAddress(rpcUrl, txHash, label) {
     const txInfo = typeof txInfoRes.data === 'object' && txInfoRes.data ? txInfoRes.data : {};
     const txRaw = typeof txRawRes.data === 'object' && txRawRes.data ? txRawRes.data : {};
     lastSnapshot = { txInfoRes, txRawRes, txInfo, txRaw };
+    const txInfoResult = String(txInfo?.result || '').toUpperCase();
+    const txInfoReceiptResult = String(txInfo?.receipt?.result || '').toUpperCase();
+    const txRawResult = String(txRaw?.result || txRaw?.ret?.[0]?.contractRet || '').toUpperCase();
+    const failureReason =
+      (txInfoResult && txInfoResult !== 'SUCCESS' && txInfoResult) ||
+      (txInfoReceiptResult && txInfoReceiptResult !== 'SUCCESS' && txInfoReceiptResult) ||
+      (txRawResult && txRawResult !== 'SUCCESS' && txRawResult) ||
+      null;
+
+    if (failureReason) {
+      logJson(`${label}-failed=`, {
+        txHash,
+        failureReason,
+        txInfo,
+        txRaw,
+      });
+      throw new Error(
+        `${label} failed: ${failureReason}; txHash=${txHash}; lastSnapshot=${JSON.stringify(lastSnapshot, null, 2)}`,
+      );
+    }
     const txInfoContractAddress =
       txInfo.contract_address ||
       txInfo?.transaction?.contract_address ||
@@ -275,6 +295,9 @@ async function waitForDeployedContractAddress(rpcUrl, txHash, label) {
         txRaw,
         txInfoContractAddress: txInfoContractAddress || null,
         txRawContractAddress: txRawContractAddress || null,
+        txInfoResult: txInfoResult || null,
+        txInfoReceiptResult: txInfoReceiptResult || null,
+        txRawResult: txRawResult || null,
       });
     }
 
