@@ -108,6 +108,10 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function logJson(label, value) {
+  console.log(label, JSON.stringify(value, null, 2));
+}
+
 function normalizeTronAddress(value, TronWebCtor) {
   if (typeof value !== 'string') return value;
   if (value.startsWith('T')) return value;
@@ -233,6 +237,7 @@ async function waitForContract(tron, contractAddress, label, probeAddress) {
 }
 
 async function waitForDeployedContractAddress(rpcUrl, txHash, label) {
+  let lastSnapshot = null;
   for (let i = 0; i < 180; i += 1) {
     const [txInfoRes, txRawRes] = await Promise.all([
       requestJson(
@@ -249,6 +254,7 @@ async function waitForDeployedContractAddress(rpcUrl, txHash, label) {
 
     const txInfo = typeof txInfoRes.data === 'object' && txInfoRes.data ? txInfoRes.data : {};
     const txRaw = typeof txRawRes.data === 'object' && txRawRes.data ? txRawRes.data : {};
+    lastSnapshot = { txInfoRes, txRawRes, txInfo, txRaw };
     const txInfoContractAddress =
       txInfo.contract_address ||
       txInfo?.transaction?.contract_address ||
@@ -264,23 +270,18 @@ async function waitForDeployedContractAddress(rpcUrl, txHash, label) {
     }
 
     if (i % 10 === 0) {
-      console.log(
-        `${label}-poll=`,
-        JSON.stringify(
-          {
-            txInfo,
-            txRaw,
-          },
-          null,
-          2,
-        ),
-      );
+      logJson(`${label}-poll=`, {
+        txInfo,
+        txRaw,
+        txInfoContractAddress: txInfoContractAddress || null,
+        txRawContractAddress: txRawContractAddress || null,
+      });
     }
 
     await sleep(2000);
   }
 
-  throw new Error(`${label} contract address not found for tx: ${txHash}`);
+  throw new Error(`${label} contract address not found for tx: ${txHash}; lastSnapshot=${JSON.stringify(lastSnapshot, null, 2)}`);
 }
 
 function isBandwidthResourceError(error) {
@@ -326,6 +327,7 @@ async function freezeAccountEnergy(tron, privateKey, amountSun, label) {
 }
 
 async function waitTx(rpcUrl, txHash, label) {
+  let lastSnapshot = null;
   for (let i = 0; i < 90; i += 1) {
     const [txInfoRes, txRawRes] = await Promise.all([
       requestJson(
@@ -342,6 +344,7 @@ async function waitTx(rpcUrl, txHash, label) {
 
     const txInfo = typeof txInfoRes.data === 'object' && txInfoRes.data ? txInfoRes.data : {};
     const txRaw = typeof txRawRes.data === 'object' && txRawRes.data ? txRawRes.data : {};
+    lastSnapshot = { txInfoRes, txRawRes, txInfo, txRaw };
     const blockNumber = Number(txInfo.blockNumber || txRaw.blockNumber || 0);
     const receiptResult = txInfo?.receipt?.result || txRaw?.receipt?.result;
     const rawContractResult = Array.isArray(txRaw?.ret)
@@ -353,13 +356,19 @@ async function waitTx(rpcUrl, txHash, label) {
     }
 
     if (i % 15 === 0) {
-      console.log(`${label}-poll=`, JSON.stringify({ txInfo, txRaw }, null, 2));
+      logJson(`${label}-poll=`, {
+        txInfo,
+        txRaw,
+        blockNumber,
+        receiptResult: receiptResult || null,
+        rawContractResult: rawContractResult || null,
+      });
     }
 
     await sleep(2000);
   }
 
-  throw new Error(`${label} confirmation timeout: ${txHash}`);
+  throw new Error(`${label} confirmation timeout: ${txHash}; lastSnapshot=${JSON.stringify(lastSnapshot, null, 2)}`);
 }
 
 async function sendTrx(tron, treasuryPk, toAddress, amountTrx, label) {
@@ -497,9 +506,33 @@ async function main() {
         },
         deployAddress,
       );
+      logJson('deploy-only-contract-unsigned=', {
+        txID: unsigned?.txID || null,
+        contract_address: unsigned?.contract_address || null,
+        fee_limit: unsigned?.raw_data?.fee_limit || unsigned?.fee_limit || null,
+        user_fee_percentage: unsigned?.raw_data?.contract?.[0]?.parameter?.value?.user_fee_percentage
+          ?? unsigned?.user_fee_percentage
+          ?? null,
+        origin_energy_limit: unsigned?.raw_data?.contract?.[0]?.parameter?.value?.origin_energy_limit
+          ?? unsigned?.origin_energy_limit
+          ?? null,
+        owner_address: unsigned?.raw_data?.contract?.[0]?.parameter?.value?.owner_address || null,
+        new_contract_address: unsigned?.raw_data?.contract?.[0]?.parameter?.value?.new_contract?.contract_address || null,
+        raw_data: unsigned?.raw_data || null,
+      });
 
       const signed = await deployTron.trx.sign(unsigned, deployPk);
+      logJson('deploy-only-contract-signed=', {
+        txID: signed?.txID || null,
+        signatureCount: Array.isArray(signed?.signature) ? signed.signature.length : 0,
+        contract_address: signed?.contract_address || null,
+        raw_data: signed?.raw_data || null,
+      });
       const broadcast = await deployTron.trx.sendRawTransaction(signed);
+      logJson('deploy-only-contract-broadcast=', broadcast);
+      if (broadcast && broadcast.result === false) {
+        throw new Error(`deploy broadcast failed: ${JSON.stringify(broadcast, null, 2)}`);
+      }
       const txHash = broadcast?.txid || signed?.txID || unsigned?.txID;
       if (!txHash) {
         throw new Error(`deploy tx hash missing: ${JSON.stringify(broadcast, null, 2)}`);
@@ -523,6 +556,9 @@ async function main() {
         unsignedContractAddress: unsigned?.contract_address || null,
         signedContractAddress: signed?.contract_address || null,
         broadcastContractAddress: broadcast?.contract_address || broadcast?.transaction?.contract_address || null,
+        rawBroadcastResult: broadcast?.result ?? null,
+        rawBroadcastCode: broadcast?.code ?? null,
+        rawBroadcastMessage: broadcast?.message ?? null,
       }, null, 2));
 
       const deployedAddressFromTx = await waitForDeployedContractAddress(
