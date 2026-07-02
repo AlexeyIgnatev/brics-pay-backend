@@ -282,7 +282,8 @@ async function main() {
   const treasuryPk = fs.readFileSync('/run/secrets/usdt_treasury_private_key', 'utf8').trim();
   const webhookSecret = fs.readFileSync('/run/secrets/usdt_webhook_secret', 'utf8').trim();
   const TronWebCtor = getTronWebCtor();
-  const tron = new TronWebCtor({ fullHost: rpcUrl, privateKey: treasuryPk });
+  const treasuryTron = new TronWebCtor({ fullHost: rpcUrl, privateKey: treasuryPk });
+  const deployTron = new TronWebCtor({ fullHost: rpcUrl, privateKey: deployPk });
   const treasuryAddress = TronWebCtor.address.fromPrivateKey(treasuryPk);
   const prisma = new PrismaClient();
 
@@ -291,62 +292,37 @@ async function main() {
 
     if (mode === 'deploy-only') {
       const initialSupply = (1_000_000_000n * 1_000_000n).toString();
-      let deployedAddress = '';
-      try {
-        const contract = await tron.contract(TOKEN_ABI).new(
-          {
-            abi: TOKEN_ABI,
-            bytecode: TOKEN_BYTECODE,
-            feeLimit: 100_000_000,
-            callValue: 0,
-            userFeePercentage: 0,
-            originEnergyLimit: 0,
-            parameters: [treasuryAddress, initialSupply],
-          },
-          deployPk,
-        );
+      console.log('deploy-only-prep=', JSON.stringify({
+        action: 'freezeAccountBandwidth',
+        amount_sun: 100_000_000,
+      }, null, 2));
+      await freezeAccountBandwidth(deployTron, deployPk, 100_000_000, 'deploy-only-freeze-bandwidth');
+      await sleep(5000);
 
-        deployedAddress = normalizeTronAddress(
-          contract?.address || contract?.options?.address,
-          TronWebCtor,
-        );
-      } catch (error) {
-        if (!isBandwidthResourceError(error)) {
-          throw error;
-        }
+      console.log('deploy-only-prep=', JSON.stringify({
+        action: 'freezeAccountEnergy',
+        amount_sun: 100_000_000,
+      }, null, 2));
+      await freezeAccountEnergy(deployTron, deployPk, 100_000_000, 'deploy-only-freeze-energy');
+      await sleep(5000);
 
-        console.log('deploy-only-bandwidth-fix=', JSON.stringify({
-          action: 'freezeAccountBandwidth',
-          amount_sun: 100_000_000,
-        }, null, 2));
-        await freezeAccountBandwidth(tron, deployPk, 100_000_000, 'deploy-only-freeze-bandwidth');
-        await sleep(5000);
+      const contract = await deployTron.contract(TOKEN_ABI).new(
+        {
+          abi: TOKEN_ABI,
+          bytecode: TOKEN_BYTECODE,
+          feeLimit: 100_000_000,
+          callValue: 0,
+          userFeePercentage: 0,
+          originEnergyLimit: 0,
+          parameters: [treasuryAddress, initialSupply],
+        },
+        deployPk,
+      );
 
-        console.log('deploy-only-energy-fix=', JSON.stringify({
-          action: 'freezeAccountEnergy',
-          amount_sun: 100_000_000,
-        }, null, 2));
-        await freezeAccountEnergy(tron, deployPk, 100_000_000, 'deploy-only-freeze-energy');
-        await sleep(5000);
-
-        const contract = await tron.contract(TOKEN_ABI).new(
-          {
-            abi: TOKEN_ABI,
-            bytecode: TOKEN_BYTECODE,
-            feeLimit: 100_000_000,
-            callValue: 0,
-            userFeePercentage: 0,
-            originEnergyLimit: 0,
-            parameters: [treasuryAddress, initialSupply],
-          },
-          deployPk,
-        );
-
-        deployedAddress = normalizeTronAddress(
-          contract?.address || contract?.options?.address,
-          TronWebCtor,
-        );
-      }
+      const deployedAddress = normalizeTronAddress(
+        contract?.address || contract?.options?.address,
+        TronWebCtor,
+      );
 
       if (!deployedAddress) {
         throw new Error('Token deployment returned no address');
@@ -363,7 +339,7 @@ async function main() {
 
     const tokenAddress = tokenConfig;
     const runId = String(Date.now());
-    await waitForContract(tron, tokenAddress, 'token');
+    await waitForContract(treasuryTron, tokenAddress, 'token');
 
     const balancesBefore = await Promise.all(
       TEST_CUSTOMERS.map(async (customer) => {
@@ -390,19 +366,19 @@ async function main() {
     const depositAmount = 1000;
 
     const tokenAbi = TOKEN_ABI;
-    const tokenContract = tron.contract(tokenAbi, tokenAddress);
+    const tokenContract = treasuryTron.contract(tokenAbi, tokenAddress);
     const treasuryTokenBefore = await tokenContract.balanceOf(treasuryAddress).call();
     console.log('treasuryTokenBefore=', treasuryTokenBefore.toString());
 
     const txHashes = [];
 
     for (const customer of TEST_CUSTOMERS) {
-      await sendTrx(tron, treasuryPk, customer.address, initialTrxAirdrop, `trx-airdrop-${customer.id}`);
+      await sendTrx(treasuryTron, treasuryPk, customer.address, initialTrxAirdrop, `trx-airdrop-${customer.id}`);
     }
 
     for (const customer of TEST_CUSTOMERS) {
       const txHash = await sendUsdt(
-        tron,
+        treasuryTron,
         tokenAbi,
         tokenAddress,
         treasuryPk,
