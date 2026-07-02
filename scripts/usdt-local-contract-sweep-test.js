@@ -128,6 +128,44 @@ async function getTrxBalanceSun(rpcUrl, address, TronWebCtor) {
   return Number(result.data?.balance || 0);
 }
 
+async function getAccountResource(rpcUrl, address, TronWebCtor) {
+  const normalizedAddress = normalizeTronAddress(address, TronWebCtor);
+  const hexAddress = TronWebCtor.address.toHex(normalizedAddress);
+  const result = await requestJson(`${rpcUrl.replace(/\/+$/, '')}/wallet/getaccountresource`, 'POST', {
+    address: hexAddress,
+  });
+
+  if (!result.ok && result.status !== 200) {
+    throw new Error(`getaccountresource failed for ${normalizedAddress}: ${JSON.stringify(result.data || result.raw)}`);
+  }
+
+  return result.data || {};
+}
+
+async function waitForResourceUpdate(rpcUrl, address, TronWebCtor, label) {
+  for (let i = 0; i < 60; i += 1) {
+    const resource = await getAccountResource(rpcUrl, address, TronWebCtor);
+    const account = await getTrxBalanceSun(rpcUrl, address, TronWebCtor).catch(() => 0);
+    const snapshot = {
+      balance_sun: account,
+      resource,
+    };
+    if (i % 5 === 0) {
+      console.log(`${label}-resource=`, JSON.stringify(snapshot, null, 2));
+    }
+    if (
+      Number(resource?.freeNetLimit || 0) > 5000 ||
+      Number(resource?.EnergyLimit || resource?.energyLimit || 0) > 0 ||
+      Number(resource?.NetLimit || resource?.netLimit || 0) > 0 ||
+      Number(resource?.TotalEnergyLimit || 0) > 0
+    ) {
+      return snapshot;
+    }
+    await sleep(2000);
+  }
+  throw new Error(`${label} resource update timeout`);
+}
+
 async function waitForContract(tron, contractAddress, label) {
   for (let i = 0; i < 180; i += 1) {
     try {
@@ -308,14 +346,14 @@ async function main() {
         amount_sun: DEPLOY_FREEZE_SUN,
       }, null, 2));
       await freezeAccountBandwidth(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-bandwidth');
-      await sleep(15000);
+      await waitForResourceUpdate(rpcUrl, TronWebCtor.address.fromPrivateKey(deployPk), TronWebCtor, 'deploy-only-bandwidth');
 
       console.log('deploy-only-prep=', JSON.stringify({
         action: 'freezeAccountEnergy',
         amount_sun: DEPLOY_FREEZE_SUN,
       }, null, 2));
       await freezeAccountEnergy(deployTron, deployPk, DEPLOY_FREEZE_SUN, 'deploy-only-freeze-energy');
-      await sleep(15000);
+      await waitForResourceUpdate(rpcUrl, TronWebCtor.address.fromPrivateKey(deployPk), TronWebCtor, 'deploy-only-energy');
 
       const contract = await deployTron.contract(TOKEN_ABI).new(
         {
