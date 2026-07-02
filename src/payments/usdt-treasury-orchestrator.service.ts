@@ -195,6 +195,23 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     return this.tronWeb;
   }
 
+  private async safeSnapshotValue<T>(
+    label: string,
+    task: Promise<T>,
+    fallback: T,
+  ): Promise<T> {
+    try {
+      return await task;
+    } catch (error) {
+      this.logger.warn(
+        `USDT reserve snapshot ${label} unavailable: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return fallback;
+    }
+  }
+
   private normalizeKey(value?: string | null): string | undefined {
     const trimmed = value?.trim();
     return trimmed ? trimmed : undefined;
@@ -589,8 +606,20 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     const runtime = this.getRuntime();
     const [usdtBalance, accountSnapshot, todayTransactions, allTransactions] =
       await Promise.all([
-        this.getUsdtBalance(runtime.treasuryAddress),
-        this.getTreasuryAccountSnapshot(),
+        this.safeSnapshotValue(
+          'USDT balance',
+          this.getUsdtBalance(runtime.treasuryAddress),
+          0,
+        ),
+        this.safeSnapshotValue(
+          'treasury account resources',
+          this.getTreasuryAccountSnapshot(),
+          {
+            trxBalance: 0,
+            energyAvailable: 0,
+            bandwidthAvailable: 0,
+          },
+        ),
         this.prisma.blockchainTransaction.findMany({
           where: {
             network: Network.TRON,
