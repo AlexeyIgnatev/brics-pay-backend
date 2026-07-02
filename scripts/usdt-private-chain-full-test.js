@@ -276,23 +276,8 @@ async function waitTx(rpcUrl, txHash, label) {
       return true;
     }
 
-    const blockTimeStamp = Number(info?.blockTimeStamp ?? 0);
-    const minedTxId =
-      typeof info?.id === 'string'
-        ? info.id
-        : typeof info?.txID === 'string'
-          ? info.txID
-          : undefined;
-
-    if (
-      minedTxId === txHash &&
-      Number.isFinite(blockTimeStamp) &&
-      blockTimeStamp > 0
-    ) {
-      return true;
-    }
-
-    if (info && Object.keys(info).length > 0 && !('result' in info)) {
+    const receiptResult = info?.receipt?.result;
+    if (receiptResult === 'SUCCESS') {
       return true;
     }
 
@@ -325,13 +310,24 @@ async function waitTx(rpcUrl, txHash, label) {
       return txInfo;
     }
 
-    if (isConfirmedPayload(txRaw)) {
-      console.log(`${label}-confirmed-raw=`, JSON.stringify(txRaw, null, 2));
-      return txRaw;
-    }
-
     if (i % 10 === 0) {
-      console.log(`${label}-poll=`, JSON.stringify({ txInfo, txRaw }, null, 2));
+      console.log(
+        `${label}-poll=`,
+        JSON.stringify(
+          {
+            txInfo,
+            txRaw,
+            txInfoBlockNumber: txInfo?.blockNumber ?? null,
+            txInfoReceiptResult: txInfo?.receipt?.result ?? null,
+            txRawRet: Array.isArray(txRaw?.ret)
+              ? txRaw.ret.map((item) => item?.contractRet ?? null)
+              : null,
+            txRawBlockNumber: txRaw?.blockNumber ?? null,
+          },
+          null,
+          2,
+        ),
+      );
     }
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -544,28 +540,50 @@ async function main() {
     console.log('tokenContractPreview=', JSON.stringify(tokenContractPreview, null, 2));
 
     if (!tokenContractPreview?.contract_address) {
+      const tokenAddressHex = TronWebCtor.address.toHex(tokenAddress);
+      const tokenAccountPreview = await requestJson(
+        `${rpcUrl.replace(/\/+$/, '')}/wallet/getaccount`,
+        'POST',
+        { address: tokenAddressHex },
+      );
+      const tokenAccountResourcePreview = await requestJson(
+        `${rpcUrl.replace(/\/+$/, '')}/wallet/getaccountresource`,
+        'POST',
+        { address: tokenAddressHex },
+      );
       console.log(
         'token-contract-redeploy=',
         JSON.stringify(
           {
             tokenAddress,
             reason: 'env token address is not a live smart contract on the current node',
+            tokenAddressHex,
+            tokenAccountPreview: tokenAccountPreview.data || tokenAccountPreview.raw,
+            tokenAccountResourcePreview:
+              tokenAccountResourcePreview.data || tokenAccountResourcePreview.raw,
           },
           null,
           2,
         ),
       );
-      resolvedTokenAddress = await deployFallbackTokenContract({
-        TronWebCtor,
-        tron,
-        witnessPk,
-        treasuryAddress,
-        rpcUrl,
-      });
-      tokenContractPreview = await tron.trx.getContract(resolvedTokenAddress).catch((error) => ({
-        error: error instanceof Error ? error.message : String(error),
-      }));
-      console.log('tokenContractPreview-after-redeploy=', JSON.stringify(tokenContractPreview, null, 2));
+      console.log(
+        'token-contract-diagnostics=',
+        JSON.stringify(
+          {
+            tokenAddress,
+            tokenAddressHex,
+            tokenContractPreview,
+            tokenAccountPreview: tokenAccountPreview.data || tokenAccountPreview.raw,
+            tokenAccountResourcePreview:
+              tokenAccountResourcePreview.data || tokenAccountResourcePreview.raw,
+          },
+          null,
+          2,
+        ),
+      );
+      throw new Error(
+        'USDT token contract is not live on this node. Auto-redeploy is disabled in the full test. Run deploy-only once, update USDT_TOKEN_ADDRESS/TRON_USDT_CONTRACT, and rerun.',
+      );
     }
     console.log('resolvedTokenAddress=', resolvedTokenAddress);
 

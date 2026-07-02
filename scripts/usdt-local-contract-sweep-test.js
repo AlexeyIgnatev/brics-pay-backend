@@ -561,15 +561,40 @@ async function main() {
         rawBroadcastMessage: broadcast?.message ?? null,
       }, null, 2));
 
-      const deployedAddressFromTx = await waitForDeployedContractAddress(
-        rpcUrl,
-        txHash,
-        'deploy-only-contract',
-      );
+      let deployedAddressFromTx = null;
+      try {
+        deployedAddressFromTx = await waitForDeployedContractAddress(
+          rpcUrl,
+          txHash,
+          'deploy-only-contract',
+        );
+      } catch (error) {
+        console.log(
+          'deploy-only-contract-confirmation-warning=',
+          JSON.stringify(
+            {
+              txHash,
+              deployedAddress,
+              error: error instanceof Error ? error.message : String(error),
+              fallbackReason:
+                'RPC did not expose the contract address in time; using the broadcast-derived address as a diagnostic fallback',
+            },
+            null,
+            2,
+          ),
+        );
+      }
+
       const normalizedDeployedAddress = normalizeTronAddress(
         deployedAddressFromTx || deployedAddress,
         TronWebCtor,
       );
+      console.log('deploy-only-contract-final=', JSON.stringify({
+        txHash,
+        deployedAddressFromTx,
+        deployedAddress,
+        normalizedDeployedAddress,
+      }, null, 2));
 
       console.log(`USDT_TOKEN_ADDRESS=${normalizedDeployedAddress}`);
       console.log(`TRON_USDT_CONTRACT=${normalizedDeployedAddress}`);
