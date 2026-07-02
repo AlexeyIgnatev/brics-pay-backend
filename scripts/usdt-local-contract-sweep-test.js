@@ -111,6 +111,35 @@ function normalizeTronAddress(value, TronWebCtor) {
   return TronWebCtor.address.fromHex(normalizedHex);
 }
 
+async function waitForContract(tron, contractAddress, label) {
+  for (let i = 0; i < 60; i += 1) {
+    try {
+      const contract = await tron.trx.getContract(contractAddress);
+      if (contract?.contract_address) {
+        return contract;
+      }
+    } catch (error) {
+      if (i % 10 === 0) {
+        console.log(
+          `${label}-poll=`,
+          JSON.stringify(
+            {
+              contractAddress,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            null,
+            2,
+          ),
+        );
+      }
+    }
+
+    await sleep(2000);
+  }
+
+  throw new Error(`${label} contract is not deployed yet: ${contractAddress}`);
+}
+
 async function waitTx(rpcUrl, txHash, label) {
   for (let i = 0; i < 90; i += 1) {
     const [txInfoRes, txRawRes] = await Promise.all([
@@ -237,6 +266,8 @@ async function main() {
         throw new Error('Token deployment returned no address');
       }
 
+      await waitForContract(tron, deployedAddress, 'deploy-only');
+
       console.log(`USDT_TOKEN_ADDRESS=${deployedAddress}`);
       console.log(`TRON_USDT_CONTRACT=${deployedAddress}`);
       return;
@@ -248,6 +279,7 @@ async function main() {
 
     const tokenAddress = tokenConfig;
     const runId = String(Date.now());
+    await waitForContract(tron, tokenAddress, 'token');
 
     const balancesBefore = await Promise.all(
       TEST_CUSTOMERS.map(async (customer) => {
@@ -274,7 +306,7 @@ async function main() {
     const depositAmount = 1000;
 
     const tokenAbi = TOKEN_ABI;
-    const tokenContract = await tron.contract(tokenAbi, tokenAddress);
+    const tokenContract = await tron.contract(tokenAbi).at(tokenAddress);
     const treasuryTokenBefore = await tokenContract.balanceOf(treasuryAddress).call();
     console.log('treasuryTokenBefore=', treasuryTokenBefore.toString());
 
