@@ -33,6 +33,7 @@ import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
 
 const USDT_DECIMALS = 6;
+const TRON_SUN = 1_000_000;
 const SWEEP_THRESHOLD = 10;
 const RECONCILE_INTERVAL_MS = 60_000;
 
@@ -145,8 +146,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     if (this.runtime) return this.runtime;
 
     const rpcUrl = this.getUsdtRpcUrl();
-    const tokenAddress =
-      this.configService.get<string>('USDT_TOKEN_ADDRESS');
+    const tokenAddress = this.configService.get<string>('USDT_TOKEN_ADDRESS');
     const treasuryPrivateKey = this.getTreasuryPrivateKey();
     if (!rpcUrl || !tokenAddress || !treasuryPrivateKey) {
       throw new BadRequestException('USDT treasury runtime config is missing');
@@ -529,6 +529,127 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     );
     const balance = await contract.balanceOf(address).call();
     return Number(balance) / 10 ** USDT_DECIMALS;
+  }
+
+  private async getTreasuryAccountSnapshot(): Promise<{
+    trxBalance: number;
+    energyAvailable: number;
+    bandwidthAvailable: number;
+  }> {
+    const runtime = this.getRuntime();
+    const rpcUrl = runtime.rpcUrl.replace(/\/+$/, '');
+    const address = this.toTronHex(runtime.treasuryAddress);
+
+    const [accountText, resourceText] = await Promise.all([
+      this.postJsonRaw(`${rpcUrl}/wallet/getaccount`, { address }),
+      this.postJsonRaw(`${rpcUrl}/wallet/getaccountresource`, { address }),
+    ]);
+
+    const account = accountText.trim()
+      ? (JSON.parse(accountText) as Record<string, unknown>)
+      : {};
+    const resources = resourceText.trim()
+      ? (JSON.parse(resourceText) as Record<string, unknown>)
+      : {};
+
+    const trxBalance = Number(account.balance ?? 0) / 10 ** USDT_DECIMALS;
+    const energyLimit = Number(resources.EnergyLimit ?? 0);
+    const energyUsed = Number(resources.EnergyUsed ?? 0);
+    const freeNetLimit = Number(resources.freeNetLimit ?? 0);
+    const freeNetUsed = Number(resources.freeNetUsed ?? 0);
+    const netLimit = Number(resources.NetLimit ?? 0);
+    const netUsed = Number(resources.NetUsed ?? 0);
+
+    return {
+      trxBalance: Number.isFinite(trxBalance) ? trxBalance : 0,
+      energyAvailable: Math.max(energyLimit - energyUsed, 0),
+      bandwidthAvailable: Math.max(
+        freeNetLimit - freeNetUsed + (netLimit - netUsed),
+        0,
+      ),
+    };
+  }
+
+  async getTreasuryReserveSnapshot(): Promise<{
+    treasury_address: string;
+    usdt_balance: number;
+    trx_balance: number;
+    energy_available: number;
+    bandwidth_available: number;
+    energy_spent_today: number;
+    energy_spent_total: number;
+    bandwidth_spent_today: number;
+    bandwidth_spent_total: number;
+    network_fee_trx_today: number;
+    network_fee_trx_total: number;
+  }> {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const runtime = this.getRuntime();
+    const [usdtBalance, accountSnapshot, todayTransactions, allTransactions] =
+      await Promise.all([
+        this.getUsdtBalance(runtime.treasuryAddress),
+        this.getTreasuryAccountSnapshot(),
+        this.prisma.blockchainTransaction.findMany({
+          where: {
+            network: Network.TRON,
+            createdAt: { gte: startOfToday },
+          },
+          select: {
+            fee_amount_raw: true,
+            energy_used: true,
+            bandwidth_used: true,
+          },
+        }),
+        this.prisma.blockchainTransaction.findMany({
+          where: { network: Network.TRON },
+          select: {
+            fee_amount_raw: true,
+            energy_used: true,
+            bandwidth_used: true,
+          },
+        }),
+      ]);
+
+    const sumFeeTrx = (
+      transactions: {
+        fee_amount_raw: string | null;
+        energy_used: number | null;
+        bandwidth_used: number | null;
+      }[],
+    ) =>
+      transactions.reduce((sum, transaction) => {
+        const rawFee = Number(transaction.fee_amount_raw ?? 0);
+        return sum + (Number.isFinite(rawFee) ? rawFee / TRON_SUN : 0);
+      }, 0);
+
+    const sumUsage = (
+      transactions: {
+        fee_amount_raw: string | null;
+        energy_used: number | null;
+        bandwidth_used: number | null;
+      }[],
+      key: 'energy_used' | 'bandwidth_used',
+    ) =>
+      transactions.reduce((sum, transaction) => {
+        const value = Number(transaction[key] ?? 0);
+        return sum + (Number.isFinite(value) ? value : 0);
+      }, 0);
+
+    return {
+      treasury_address: runtime.treasuryAddress,
+      usdt_balance: usdtBalance,
+      trx_balance: accountSnapshot.trxBalance,
+      energy_available: accountSnapshot.energyAvailable,
+      bandwidth_available: accountSnapshot.bandwidthAvailable,
+      energy_spent_today: sumUsage(todayTransactions, 'energy_used'),
+      energy_spent_total: sumUsage(allTransactions, 'energy_used'),
+      bandwidth_spent_today: sumUsage(todayTransactions, 'bandwidth_used'),
+      bandwidth_spent_total: sumUsage(allTransactions, 'bandwidth_used'),
+      network_fee_trx_today: sumFeeTrx(todayTransactions),
+      network_fee_trx_total: sumFeeTrx(allTransactions),
+    };
   }
 
   private async sendUsdt(

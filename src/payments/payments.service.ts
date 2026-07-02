@@ -79,8 +79,7 @@ const SOM_PURCHASE_ACCOUNTS = {
   },
   offBalanceAsset: {
     account_no: '90001',
-    account_name:
-      'Забалансовый учет клиентских криптоактивов, по номиналу',
+    account_name: 'Забалансовый учет клиентских криптоактивов, по номиналу',
   },
   offBalanceCounter: {
     account_no: '92602',
@@ -122,8 +121,7 @@ const SOM_REDEMPTION_ACCOUNTS = {
   },
   offBalanceAsset: {
     account_no: '90001',
-    account_name:
-      'Забалансовый учет клиентских криптоактивов, по номиналу',
+    account_name: 'Забалансовый учет клиентских криптоактивов, по номиналу',
   },
   offBalanceCounter: {
     account_no: '92602',
@@ -270,12 +268,9 @@ export class PaymentsService {
     partnerShare: number;
     reserveShare: number;
   } {
-    const bankShare =
-      (amount * SOM_PURCHASE_FEE_SPLIT.bankPercent) / 100;
-    const partnerShare =
-      (amount * SOM_PURCHASE_FEE_SPLIT.partnerPercent) / 100;
-    const reserveShare =
-      (amount * SOM_PURCHASE_FEE_SPLIT.reservePercent) / 100;
+    const bankShare = (amount * SOM_PURCHASE_FEE_SPLIT.bankPercent) / 100;
+    const partnerShare = (amount * SOM_PURCHASE_FEE_SPLIT.partnerPercent) / 100;
+    const reserveShare = (amount * SOM_PURCHASE_FEE_SPLIT.reservePercent) / 100;
     return { bankShare, partnerShare, reserveShare };
   }
 
@@ -338,8 +333,7 @@ export class PaymentsService {
         debit_account_name:
           SOM_PURCHASE_ACCOUNTS.commissionTransit.account_name,
         credit_account_no: SOM_PURCHASE_ACCOUNTS.bankFeeIncome.account_no,
-        credit_account_name:
-          SOM_PURCHASE_ACCOUNTS.bankFeeIncome.account_name,
+        credit_account_name: SOM_PURCHASE_ACCOUNTS.bankFeeIncome.account_name,
         amount: split.bankShare,
         comment: 'Доля банка',
       },
@@ -460,8 +454,7 @@ export class PaymentsService {
         debit_account_name:
           SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_name,
         credit_account_no: SOM_REDEMPTION_ACCOUNTS.bankFeeIncome.account_no,
-        credit_account_name:
-          SOM_REDEMPTION_ACCOUNTS.bankFeeIncome.account_name,
+        credit_account_name: SOM_REDEMPTION_ACCOUNTS.bankFeeIncome.account_name,
         amount: split.bankShare,
         comment: 'Доля банка',
       },
@@ -493,7 +486,8 @@ export class PaymentsService {
         debit_account_name:
           SOM_REDEMPTION_ACCOUNTS.offBalanceCounter.account_name,
         credit_account_no: SOM_REDEMPTION_ACCOUNTS.offBalanceAsset.account_no,
-        credit_account_name: SOM_REDEMPTION_ACCOUNTS.offBalanceAsset.account_name,
+        credit_account_name:
+          SOM_REDEMPTION_ACCOUNTS.offBalanceAsset.account_name,
         amount: input.netAmount,
         comment: 'Учет актива забаланс',
       },
@@ -554,18 +548,8 @@ export class PaymentsService {
   ): TariffOperation | null {
     const key = `${from}_TO_${to}`;
     switch (key) {
-      case 'ESOM_TO_BTC':
-        return TariffOperation.ESOM_TO_BTC;
       case 'ESOM_TO_USDT_TRC20':
         return TariffOperation.ESOM_TO_USDT_TRC20;
-      case 'ESOM_TO_ETH':
-        return TariffOperation.ESOM_TO_ETH;
-      case 'BTC_TO_ETH':
-        return TariffOperation.BTC_TO_ETH;
-      case 'BTC_TO_USDT_TRC20':
-        return TariffOperation.BTC_TO_USDT_TRC20;
-      case 'USDT_TRC20_TO_ETH':
-        return TariffOperation.USDT_TRC20_TO_ETH;
       default:
         return null;
     }
@@ -577,10 +561,6 @@ export class PaymentsService {
     switch (asset) {
       case 'ESOM':
         return TariffOperation.WALLET_TRANSFER_ESOM;
-      case 'BTC':
-        return TariffOperation.WALLET_TRANSFER_BTC;
-      case 'ETH':
-        return TariffOperation.WALLET_TRANSFER_ETH;
       case 'USDT_TRC20':
         return TariffOperation.WALLET_TRANSFER_USDT_TRC20;
       default:
@@ -1014,10 +994,6 @@ export class PaymentsService {
 
       const feePctForAsset = (asset: Asset): number => {
         switch (asset) {
-          case 'BTC':
-            return Number(s.btc_trade_fee_pct || 0);
-          case 'ETH':
-            return Number(s.eth_trade_fee_pct || 0);
           case 'USDT_TRC20':
             return Number(s.usdt_trade_fee_pct || 0);
           default:
@@ -1053,10 +1029,7 @@ export class PaymentsService {
         return { net, fee };
       };
 
-      if (
-        from === 'ESOM' &&
-        (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')
-      ) {
+      if (from === 'ESOM' && to === 'USDT_TRC20') {
         const antiFraudDecision = await this.antiFraud.checkTransactionDetailed(
           {
             kind: TransactionKind.CONVERSION,
@@ -1080,23 +1053,9 @@ export class PaymentsService {
         }
 
         const usdtAmount = amountFrom / esomPerUsd;
-        let grossOut = 0;
-        let priceUsd = '1';
-        let notionalUsdt = usdtAmount.toString();
-        if (to === 'USDT_TRC20') {
-          grossOut = usdtAmount;
-        } else {
-          const buy = await this.exchangeService.marketBuy(
-            to,
-            usdtAmount.toString(),
-          );
-          grossOut = Number(buy.amount_asset);
-          priceUsd = buy.price_usd;
-          notionalUsdt = buy.notional_usdt;
-          this.logger.verbose(
-            `[convert ESOM->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`,
-          );
-        }
+        const grossOut = usdtAmount;
+        const priceUsd = '1';
+        const notionalUsdt = usdtAmount.toString();
         const tradeFee = await tradeFeeFor(from, to, grossOut);
         const { net, fee } = applyFee(grossOut, tradeFee.fee);
 
@@ -1128,10 +1087,7 @@ export class PaymentsService {
         return new StatusOKDto(createdTransaction.id);
       }
 
-      if (
-        (from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') &&
-        to === 'ESOM'
-      ) {
+      if (from === 'USDT_TRC20' && to === 'ESOM') {
         await ensureCryptoBalance(from, amountFrom);
         const antiFraudDecision = await this.antiFraud.checkTransactionDetailed(
           {
@@ -1155,19 +1111,7 @@ export class PaymentsService {
           );
         }
 
-        let notionalUsdt = 0;
-        if (from === 'USDT_TRC20') {
-          notionalUsdt = amountFrom;
-        } else {
-          const sell = await this.exchangeService.marketSell(
-            from,
-            amountFrom.toString(),
-          );
-          notionalUsdt = Number(sell.notional_usdt);
-          this.logger.verbose(
-            `[convert ${from}->ESOM] marketSell notional_usdt=${notionalUsdt}`,
-          );
-        }
+        const notionalUsdt = amountFrom;
         const grossEsom = notionalUsdt * esomPerUsd;
         const tradeFee = await tradeFeeFor(from, to, grossEsom);
         const { net: netEsom, fee: feeEsom } = applyFee(
@@ -1200,77 +1144,6 @@ export class PaymentsService {
         return new StatusOKDto(createdTransaction.id);
       }
 
-      if (
-        (from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') &&
-        (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')
-      ) {
-        await ensureCryptoBalance(from, amountFrom);
-        const antiFraudDecision = await this.antiFraud.checkTransactionDetailed(
-          {
-            kind: TransactionKind.CONVERSION,
-            amount_in: amountFrom,
-            asset_in: from,
-            asset_out: to,
-            sender_customer_id: customer_id,
-            comment: `Convert ${from}->${to}`,
-          },
-        );
-        this.logger.verbose(
-          `[convert ${from}->${to}] antifraud allowed=${antiFraudDecision.allowed}` +
-            (antiFraudDecision.reason
-              ? ` reason=${antiFraudDecision.reason}`
-              : ''),
-        );
-        if (!antiFraudDecision.allowed) {
-          throw new BadRequestException(
-            this.antiFraudRejectMessage(`${from}->${to}`, antiFraudDecision),
-          );
-        }
-
-        let usdtIntermediate = 0;
-        if (from === 'USDT_TRC20') {
-          usdtIntermediate = amountFrom;
-        } else {
-          const sell = await this.exchangeService.marketSell(
-            from,
-            amountFrom.toString(),
-          );
-          usdtIntermediate = Number(sell.notional_usdt);
-        }
-
-        let buy = await this.exchangeService.marketBuy(
-          to,
-          usdtIntermediate.toString(),
-        );
-        this.logger.verbose(
-          `[convert ${from}->${to}] marketBuy price_usd=${buy.price_usd} amount_asset=${buy.amount_asset} notional_usdt=${buy.notional_usdt}`,
-        );
-
-        const grossTo = Number(buy.amount_asset);
-        const tradeFee = await tradeFeeFor(from, to, grossTo);
-        const { net: netTo, fee: feeTo } = applyFee(grossTo, tradeFee.fee);
-
-        await addBalance(from, -amountFrom);
-        await addBalance(to, netTo);
-
-        const createdTransaction = await this.prisma.transaction.create({
-          data: {
-            kind: TransactionKind.CONVERSION,
-            status: TransactionStatus.SUCCESS,
-            amount_in: amountFrom.toString(),
-            asset_in: from,
-            amount_out: netTo.toString(),
-            asset_out: to,
-            price_usd: buy.price_usd,
-            notional_usd: buy.notional_usdt,
-            fee_amount: feeTo.toString(),
-            sender_customer_id: customer_id,
-            comment: `Convert ${from}->${to}`,
-          },
-        });
-        return new StatusOKDto(createdTransaction.id);
-      }
-
       if (from === 'SOM' && to === 'ESOM') {
         return await this.fiatToCrypto({ amount: amountFrom }, customer_id);
       }
@@ -1282,10 +1155,7 @@ export class PaymentsService {
         );
       }
 
-      if (
-        from === 'SOM' &&
-        (to === 'BTC' || to === 'ETH' || to === 'USDT_TRC20')
-      ) {
+      if (from === 'SOM' && to === 'USDT_TRC20') {
         await this.fiatToCrypto({ amount: amountFrom }, customer_id, {
           internalBridge: true,
           bridgeTarget: to,
@@ -1317,10 +1187,7 @@ export class PaymentsService {
         );
       }
 
-      if (
-        (from === 'BTC' || from === 'ETH' || from === 'USDT_TRC20') &&
-        to === 'SOM'
-      ) {
+      if (from === 'USDT_TRC20' && to === 'SOM') {
         await this.convert(
           {
             asset_from: from as unknown as Currency,
@@ -1425,12 +1292,7 @@ export class PaymentsService {
     }
 
     const s = await this.settingsService.get();
-    const min =
-      asset === 'BTC'
-        ? Number(s.min_withdraw_btc)
-        : asset === 'ETH'
-          ? Number(s.min_withdraw_eth)
-          : Number(s.min_withdraw_usdt_trc20);
+    const min = Number(s.min_withdraw_usdt_trc20);
 
     const me = await this.prisma.customer.findUnique({
       where: { customer_id },
@@ -1445,12 +1307,7 @@ export class PaymentsService {
 
     this.logger.verbose(`[withdrawCrypto] min=${min}`);
 
-    const feeFixed =
-      asset === 'BTC'
-        ? Number(s.btc_withdraw_fee_fixed)
-        : asset === 'ETH'
-          ? Number(s.eth_withdraw_fee_fixed)
-          : Number(s.usdt_withdraw_fee_fixed);
+    const feeFixed = Number(s.usdt_withdraw_fee_fixed);
 
     const total = amount + feeFixed;
     this.logger.verbose(
@@ -2017,11 +1874,13 @@ export class PaymentsService {
     }
   }
 
-  private async ensureEsomWallet<T extends {
-    customer_id: number;
-    address: string | null;
-    private_key: string | null;
-  }>(customer: T): Promise<T & { address: string; private_key: string }> {
+  private async ensureEsomWallet<
+    T extends {
+      customer_id: number;
+      address: string | null;
+      private_key: string | null;
+    },
+  >(customer: T): Promise<T & { address: string; private_key: string }> {
     if (this.isValidEsomWallet(customer)) {
       return {
         ...customer,
@@ -2070,14 +1929,6 @@ export class PaymentsService {
         let candidate = '';
         if (asset === 'ESOM') {
           candidate = customer.address;
-        } else if (asset === 'ETH') {
-          candidate = this.cryptoService.ethAddressFromPrivateKey(
-            customer.private_key,
-          );
-        } else if (asset === 'BTC') {
-          candidate = this.cryptoService.bech32AddressFromPrivateKey(
-            customer.private_key,
-          );
         } else if (asset === 'USDT_TRC20') {
           candidate = this.cryptoService.trxAddressFromPrivateKey(
             customer.private_key,

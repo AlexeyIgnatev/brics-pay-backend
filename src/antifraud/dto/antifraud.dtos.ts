@@ -10,10 +10,11 @@ import {
 import {
   AntiFraudCaseStatus,
   AntiFraudRuleKey,
-  Asset,
   TransactionKind,
   TransactionStatus,
 } from '@prisma/client';
+
+const SUPPORTED_ASSET_ENUM = ['SOM', 'ESOM', 'USDT_TRC20'] as const;
 
 export class UpdateRuleDto {
   @ApiPropertyOptional({ description: 'Включено ли правило', example: true })
@@ -79,13 +80,15 @@ export class TransactionDto {
     example: '1000',
   })
   amount_in!: string;
-  @ApiProperty({ enum: Asset }) asset_in!: Asset;
+  @ApiProperty({ enum: SUPPORTED_ASSET_ENUM })
+  asset_in!: (typeof SUPPORTED_ASSET_ENUM)[number];
   @ApiProperty({
     description: 'Исходящая сумма (decimal string)',
     example: '1000',
   })
   amount_out!: string;
-  @ApiProperty({ enum: Asset }) asset_out!: Asset;
+  @ApiProperty({ enum: SUPPORTED_ASSET_ENUM })
+  asset_out!: (typeof SUPPORTED_ASSET_ENUM)[number];
   @ApiPropertyOptional({
     description: 'Комиссия (decimal string)',
     example: '10',

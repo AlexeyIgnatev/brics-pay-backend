@@ -27,5 +27,6 @@ import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.se
   ],
   controllers: [PaymentsController],
   providers: [PaymentsService, UsdtTreasuryOrchestratorService, PrismaClient],
+  exports: [UsdtTreasuryOrchestratorService],
 })
 export class PaymentsModule {}

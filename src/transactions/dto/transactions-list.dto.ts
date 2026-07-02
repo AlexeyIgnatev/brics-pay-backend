@@ -166,6 +166,11 @@ export class TransactionItemDto {
   @ApiProperty({ required: false }) sender_wallet_address?: string;
   @ApiProperty({ required: false }) receiver_wallet_address?: string;
   @ApiProperty({ required: false }) comment?: string;
+  @ApiProperty({ required: false }) network_fee_amount?: number;
+  @ApiProperty({ required: false }) network_fee_asset?: string;
+  @ApiProperty({ required: false }) energy_used?: number;
+  @ApiProperty({ required: false }) bandwidth_used?: number;
+  @ApiProperty({ required: false }) brics_burned_amount?: number;
   @ApiProperty() createdAt: Date;
   @ApiProperty({ required: false, type: () => CustomerBriefDto })
   sender_customer?: CustomerBriefDto;

@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import {
+  AccountingPosting,
   Asset,
+  BlockchainTransaction,
   Prisma,
   PrismaClient,
   TransactionKind,
@@ -19,6 +21,11 @@ import {
 } from './dto/transactions-stats.dto';
 import { SettingsService } from '../config/settings/settings.service';
 
+const ALLOWED_ASSETS = ['SOM', 'ESOM', 'USDT_TRC20'] as const;
+const BRICS_BURN_DEBIT_ACCOUNT = '92602';
+const BRICS_BURN_CREDIT_ACCOUNT = '90001';
+const TRON_SUN = 1_000_000;
+
 @Injectable()
 export class TransactionsService {
   constructor(
@@ -26,37 +33,85 @@ export class TransactionsService {
     private readonly settings: SettingsService,
   ) {}
 
+  private parseNetworkFee(
+    tx: Pick<BlockchainTransaction, 'fee_amount_raw' | 'fee_asset'> | undefined,
+  ): { amount?: number; asset?: string } {
+    if (!tx?.fee_amount_raw) {
+      return {};
+    }
+
+    const raw = Number(tx.fee_amount_raw);
+    if (!Number.isFinite(raw) || raw <= 0) {
+      return {};
+    }
+
+    if (tx.fee_asset === 'TRX') {
+      return { amount: raw / TRON_SUN, asset: tx.fee_asset };
+    }
+
+    return {
+      amount: raw,
+      asset: tx.fee_asset ?? undefined,
+    };
+  }
+
+  private getBricsBurnedAmount(
+    postings: Pick<
+      AccountingPosting,
+      'amount' | 'debit_account_no' | 'credit_account_no'
+    >[],
+  ): number | undefined {
+    const burnedAmount = postings
+      .filter(
+        (posting) =>
+          posting.debit_account_no === BRICS_BURN_DEBIT_ACCOUNT &&
+          posting.credit_account_no === BRICS_BURN_CREDIT_ACCOUNT,
+      )
+      .reduce((sum, posting) => sum + Number(posting.amount), 0);
+
+    return burnedAmount > 0 ? burnedAmount : undefined;
+  }
+
   async list(query: TransactionsListDto): Promise<TransactionsListResponseDto> {
     const where: Prisma.TransactionWhereInput = {};
 
-    if (query.kind?.length)
+    if (query.kind?.length) {
       where.kind = { in: query.kind as TransactionKind[] };
-    if (query.status?.length)
+    }
+    if (query.status?.length) {
       where.status = { in: query.status as TransactionStatus[] };
+    }
     if (query.asset?.length) {
-      const allowedAssets = ['SOM', 'ESOM', 'USDT_TRC20'];
       const requestedAssets = (query.asset as Asset[]).filter((asset) =>
-        allowedAssets.includes(asset),
+        ALLOWED_ASSETS.includes(asset as (typeof ALLOWED_ASSETS)[number]),
       );
       where.OR = requestedAssets.length
         ? [{ asset_in: { in: requestedAssets } }]
         : [{ id: -1 }];
     }
-    if (query.tx_hash) where.tx_hash = { contains: query.tx_hash };
-    if (query.id) where.bank_op_id = query.id;
+    if (query.tx_hash) {
+      where.tx_hash = { contains: query.tx_hash };
+    }
+    if (query.id) {
+      where.bank_op_id = query.id;
+    }
     if (query.amount_min != null || query.amount_max != null) {
       where.amount_in = {} as { gte?: string; lte?: string };
-      if (query.amount_min != null)
+      if (query.amount_min != null) {
         (where.amount_in as { gte?: string }).gte = query.amount_min.toString();
-      if (query.amount_max != null)
+      }
+      if (query.amount_max != null) {
         (where.amount_in as { lte?: string }).lte = query.amount_max.toString();
+      }
     }
     if (query.date_from || query.date_to) {
       where.createdAt = {} as { gte?: Date; lte?: Date };
-      if (query.date_from)
+      if (query.date_from) {
         (where.createdAt as { gte?: Date }).gte = new Date(query.date_from);
-      if (query.date_to)
+      }
+      if (query.date_to) {
         (where.createdAt as { lte?: Date }).lte = new Date(query.date_to);
+      }
     }
 
     if (query.sender) {
@@ -126,49 +181,123 @@ export class TransactionsService {
       }),
     ]);
 
-    const allowedAssets = new Set(['SOM', 'ESOM', 'USDT_TRC20']);
-    const items = itemsRaw
-      .filter((t) => allowedAssets.has(t.asset_in))
-      .map((t) => ({
-      id: t.id,
-      kind: t.kind as unknown as string,
-      status: t.status as unknown as string,
-      amount: Number(t.amount_in),
-      fee_amount: Number(t.fee_amount ?? 0),
-      asset: t.asset_in as unknown as string,
-      tx_hash: t.tx_hash ?? undefined,
-      bank_op_id: t.bank_op_id ?? undefined,
-      sender_customer_id: t.sender_customer_id ?? undefined,
-      receiver_customer_id: t.receiver_customer_id ?? undefined,
-      sender_abs_id: t.sender_customer_id ?? undefined,
-      receiver_abs_id: t.receiver_customer_id ?? undefined,
-      client_abs_id:
-        t.sender_customer_id ?? t.receiver_customer_id ?? undefined,
-      sender_wallet_address: t.sender_wallet_address ?? undefined,
-      receiver_wallet_address: t.receiver_wallet_address ?? undefined,
-      comment: t.comment ?? undefined,
-      createdAt: t.createdAt,
-      sender_customer: t.sender_customer
-        ? {
-            customer_id: t.sender_customer.customer_id,
-            first_name: t.sender_customer.first_name ?? undefined,
-            middle_name: t.sender_customer.middle_name ?? undefined,
-            last_name: t.sender_customer.last_name ?? undefined,
-            phone: t.sender_customer.phone ?? undefined,
-            email: t.sender_customer.email ?? undefined,
-          }
-        : undefined,
-      receiver_customer: t.receiver_customer
-        ? {
-            customer_id: t.receiver_customer.customer_id,
-            first_name: t.receiver_customer.first_name ?? undefined,
-            middle_name: t.receiver_customer.middle_name ?? undefined,
-            last_name: t.receiver_customer.last_name ?? undefined,
-            phone: t.receiver_customer.phone ?? undefined,
-            email: t.receiver_customer.email ?? undefined,
-          }
-        : undefined,
-      }));
+    const filteredItems = itemsRaw.filter((item) =>
+      ALLOWED_ASSETS.includes(item.asset_in as (typeof ALLOWED_ASSETS)[number]),
+    );
+    const txHashes = Array.from(
+      new Set(filteredItems.map((item) => item.tx_hash).filter(Boolean)),
+    ) as string[];
+    const transactionIds = filteredItems.map((item) => item.id);
+
+    const [blockchainTransactions, accountingPostings] = await Promise.all([
+      txHashes.length
+        ? this.prisma.blockchainTransaction.findMany({
+            where: { tx_hash: { in: txHashes } },
+            orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          })
+        : Promise.resolve([]),
+      transactionIds.length
+        ? this.prisma.accountingPosting.findMany({
+            where: { transaction_id: { in: transactionIds } },
+            select: {
+              transaction_id: true,
+              amount: true,
+              debit_account_no: true,
+              credit_account_no: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const blockchainByHash = new Map<
+      string,
+      Pick<
+        BlockchainTransaction,
+        'fee_amount_raw' | 'fee_asset' | 'energy_used' | 'bandwidth_used'
+      >
+    >();
+    for (const blockchainTransaction of blockchainTransactions) {
+      if (
+        blockchainTransaction.tx_hash &&
+        !blockchainByHash.has(blockchainTransaction.tx_hash)
+      ) {
+        blockchainByHash.set(
+          blockchainTransaction.tx_hash,
+          blockchainTransaction,
+        );
+      }
+    }
+
+    const postingsByTransactionId = new Map<
+      number,
+      Pick<
+        AccountingPosting,
+        'amount' | 'debit_account_no' | 'credit_account_no'
+      >[]
+    >();
+    for (const posting of accountingPostings) {
+      if (!posting.transaction_id) {
+        continue;
+      }
+      const bucket = postingsByTransactionId.get(posting.transaction_id) ?? [];
+      bucket.push(posting);
+      postingsByTransactionId.set(posting.transaction_id, bucket);
+    }
+
+    const items = filteredItems.map((item) => {
+      const blockchainTransaction = item.tx_hash
+        ? blockchainByHash.get(item.tx_hash)
+        : undefined;
+      const networkFee = this.parseNetworkFee(blockchainTransaction);
+
+      return {
+        id: item.id,
+        kind: item.kind as unknown as string,
+        status: item.status as unknown as string,
+        amount: Number(item.amount_in),
+        fee_amount: Number(item.fee_amount ?? 0),
+        asset: item.asset_in as unknown as string,
+        tx_hash: item.tx_hash ?? undefined,
+        bank_op_id: item.bank_op_id ?? undefined,
+        sender_customer_id: item.sender_customer_id ?? undefined,
+        receiver_customer_id: item.receiver_customer_id ?? undefined,
+        sender_abs_id: item.sender_customer_id ?? undefined,
+        receiver_abs_id: item.receiver_customer_id ?? undefined,
+        client_abs_id:
+          item.sender_customer_id ?? item.receiver_customer_id ?? undefined,
+        sender_wallet_address: item.sender_wallet_address ?? undefined,
+        receiver_wallet_address: item.receiver_wallet_address ?? undefined,
+        comment: item.comment ?? undefined,
+        network_fee_amount: networkFee.amount,
+        network_fee_asset: networkFee.asset,
+        energy_used: blockchainTransaction?.energy_used ?? undefined,
+        bandwidth_used: blockchainTransaction?.bandwidth_used ?? undefined,
+        brics_burned_amount: this.getBricsBurnedAmount(
+          postingsByTransactionId.get(item.id) ?? [],
+        ),
+        createdAt: item.createdAt,
+        sender_customer: item.sender_customer
+          ? {
+              customer_id: item.sender_customer.customer_id,
+              first_name: item.sender_customer.first_name ?? undefined,
+              middle_name: item.sender_customer.middle_name ?? undefined,
+              last_name: item.sender_customer.last_name ?? undefined,
+              phone: item.sender_customer.phone ?? undefined,
+              email: item.sender_customer.email ?? undefined,
+            }
+          : undefined,
+        receiver_customer: item.receiver_customer
+          ? {
+              customer_id: item.receiver_customer.customer_id,
+              first_name: item.receiver_customer.first_name ?? undefined,
+              middle_name: item.receiver_customer.middle_name ?? undefined,
+              last_name: item.receiver_customer.last_name ?? undefined,
+              phone: item.receiver_customer.phone ?? undefined,
+              email: item.receiver_customer.email ?? undefined,
+            }
+          : undefined,
+      };
+    });
 
     return {
       total,
@@ -187,9 +316,8 @@ export class TransactionsService {
     if (query.status?.length)
       where.status = { in: query.status as TransactionStatus[] };
     if (query.asset?.length) {
-      const allowedAssets = ['SOM', 'ESOM', 'USDT_TRC20'];
       const requestedAssets = (query.asset as Asset[]).filter((asset) =>
-        allowedAssets.includes(asset),
+        ALLOWED_ASSETS.includes(asset as (typeof ALLOWED_ASSETS)[number]),
       );
       where.OR = requestedAssets.length
         ? [{ asset_in: { in: requestedAssets } }]
@@ -240,7 +368,9 @@ export class TransactionsService {
 
     let totalSumSom = 0;
     for (const t of txs) {
-      if (t.asset_in !== 'SOM' && t.asset_in !== 'ESOM' && t.asset_in !== 'USDT_TRC20') {
+      if (
+        !ALLOWED_ASSETS.includes(t.asset_in as (typeof ALLOWED_ASSETS)[number])
+      ) {
         continue;
       }
       const som = toSom(t.asset_in as Asset, t.amount_in as unknown as string);

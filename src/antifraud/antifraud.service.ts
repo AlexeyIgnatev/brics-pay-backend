@@ -9,6 +9,8 @@ import {
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 
+const ALLOWED_ASSETS = ['SOM', 'ESOM', 'USDT_TRC20'] as const;
+
 export interface AntiFraudContext {
   kind: TransactionKind;
   amount: number;
@@ -45,11 +47,17 @@ export class AntiFraudService {
     const whereTx: any = {};
     if (query.kind?.length) whereTx.kind = { in: query.kind };
     if (query.status?.length) whereTx.status = { in: query.status };
-    if (query.asset?.length)
-      whereTx.OR = [
-        { asset_out: { in: query.asset } },
-        { asset_in: { in: query.asset } },
-      ];
+    if (query.asset?.length) {
+      const requestedAssets = query.asset.filter((asset: string) =>
+        ALLOWED_ASSETS.includes(asset as (typeof ALLOWED_ASSETS)[number]),
+      );
+      whereTx.OR = requestedAssets.length
+        ? [
+            { asset_out: { in: requestedAssets } },
+            { asset_in: { in: requestedAssets } },
+          ]
+        : [{ id: -1 }];
+    }
     if (query.tx_hash) whereTx.tx_hash = { contains: query.tx_hash };
     if (query.id) whereTx.bank_op_id = query.id;
     if (query.amount_min != null || query.amount_max != null) {
@@ -134,62 +142,74 @@ export class AntiFraudService {
       }),
     ]);
 
-    const caseItems = items.map((c: any) => {
-      const amountOut = Number(c.transaction.amount_out ?? 0);
-      const amountIn = Number(c.transaction.amount_in ?? 0);
-      const useOutSide = amountOut > 0;
+    const caseItems = items
+      .filter((c: any) =>
+        ALLOWED_ASSETS.includes(
+          (Number(c.transaction.amount_out ?? 0) > 0
+            ? c.transaction.asset_out
+            : c.transaction.asset_in) as (typeof ALLOWED_ASSETS)[number],
+        ),
+      )
+      .map((c: any) => {
+        const amountOut = Number(c.transaction.amount_out ?? 0);
+        const amountIn = Number(c.transaction.amount_in ?? 0);
+        const useOutSide = amountOut > 0;
 
-      return {
-        id: c.id,
-        status: c.status,
-        rule_key: c.rule_key,
-        reason: c.reason,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        transaction: {
-          id: c.transaction.id,
-          kind: c.transaction.kind,
-          status: c.transaction.status,
-          amount: useOutSide ? amountOut : amountIn,
-          asset: useOutSide ? c.transaction.asset_out : c.transaction.asset_in,
-          tx_hash: c.transaction.tx_hash ?? undefined,
-          bank_op_id: c.transaction.bank_op_id ?? undefined,
-          sender_customer_id: c.transaction.sender_customer_id ?? undefined,
-          receiver_customer_id: c.transaction.receiver_customer_id ?? undefined,
-          sender_wallet_address:
-            c.transaction.sender_wallet_address ?? undefined,
-          receiver_wallet_address:
-            c.transaction.receiver_wallet_address ?? undefined,
-          comment: c.transaction.comment ?? undefined,
-          createdAt: c.transaction.createdAt,
-          sender_customer: c.transaction.sender_customer
-            ? {
-                customer_id: c.transaction.sender_customer.customer_id,
-                first_name:
-                  c.transaction.sender_customer.first_name ?? undefined,
-                middle_name:
-                  c.transaction.sender_customer.middle_name ?? undefined,
-                last_name: c.transaction.sender_customer.last_name ?? undefined,
-                phone: c.transaction.sender_customer.phone ?? undefined,
-                email: c.transaction.sender_customer.email ?? undefined,
-              }
-            : undefined,
-          receiver_customer: c.transaction.receiver_customer
-            ? {
-                customer_id: c.transaction.receiver_customer.customer_id,
-                first_name:
-                  c.transaction.receiver_customer.first_name ?? undefined,
-                middle_name:
-                  c.transaction.receiver_customer.middle_name ?? undefined,
-                last_name:
-                  c.transaction.receiver_customer.last_name ?? undefined,
-                phone: c.transaction.receiver_customer.phone ?? undefined,
-                email: c.transaction.receiver_customer.email ?? undefined,
-              }
-            : undefined,
-        },
-      };
-    });
+        return {
+          id: c.id,
+          status: c.status,
+          rule_key: c.rule_key,
+          reason: c.reason,
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+          transaction: {
+            id: c.transaction.id,
+            kind: c.transaction.kind,
+            status: c.transaction.status,
+            amount: useOutSide ? amountOut : amountIn,
+            asset: useOutSide
+              ? c.transaction.asset_out
+              : c.transaction.asset_in,
+            tx_hash: c.transaction.tx_hash ?? undefined,
+            bank_op_id: c.transaction.bank_op_id ?? undefined,
+            sender_customer_id: c.transaction.sender_customer_id ?? undefined,
+            receiver_customer_id:
+              c.transaction.receiver_customer_id ?? undefined,
+            sender_wallet_address:
+              c.transaction.sender_wallet_address ?? undefined,
+            receiver_wallet_address:
+              c.transaction.receiver_wallet_address ?? undefined,
+            comment: c.transaction.comment ?? undefined,
+            createdAt: c.transaction.createdAt,
+            sender_customer: c.transaction.sender_customer
+              ? {
+                  customer_id: c.transaction.sender_customer.customer_id,
+                  first_name:
+                    c.transaction.sender_customer.first_name ?? undefined,
+                  middle_name:
+                    c.transaction.sender_customer.middle_name ?? undefined,
+                  last_name:
+                    c.transaction.sender_customer.last_name ?? undefined,
+                  phone: c.transaction.sender_customer.phone ?? undefined,
+                  email: c.transaction.sender_customer.email ?? undefined,
+                }
+              : undefined,
+            receiver_customer: c.transaction.receiver_customer
+              ? {
+                  customer_id: c.transaction.receiver_customer.customer_id,
+                  first_name:
+                    c.transaction.receiver_customer.first_name ?? undefined,
+                  middle_name:
+                    c.transaction.receiver_customer.middle_name ?? undefined,
+                  last_name:
+                    c.transaction.receiver_customer.last_name ?? undefined,
+                  phone: c.transaction.receiver_customer.phone ?? undefined,
+                  email: c.transaction.receiver_customer.email ?? undefined,
+                }
+              : undefined,
+          },
+        };
+      });
 
     return {
       total,
@@ -256,11 +276,7 @@ export class AntiFraudService {
 
   private async toSom(asset: Asset, amount: number): Promise<number> {
     if (asset === 'SOM' || asset === 'ESOM') return amount;
-    const prices = await this.exchange.getUsdPrices([
-      'BTC',
-      'ETH',
-      'USDT_TRC20',
-    ] as unknown as Asset[]);
+    const prices = await this.exchange.getUsdPrices(['USDT_TRC20'] as Asset[]);
     const esomPerUsd = Number((await this.settings.get()).esom_per_usd);
     const usd = amount * Number(prices[asset] || 0);
     return usd * esomPerUsd;

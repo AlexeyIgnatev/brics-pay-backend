@@ -2,12 +2,6 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 
 import * as Ethers from 'ethers';
 import * as TronWeb from 'tronweb';
-import * as bitcoin from 'bitcoinjs-lib';
-import * as ecc from 'tiny-secp256k1';
-import { ECPairFactory, ECPairInterface } from 'ecpair';
-
-bitcoin.initEccLib(ecc);
-const ECPair = ECPairFactory(ecc);
 
 @Injectable()
 export class CryptoService {
@@ -31,23 +25,5 @@ export class CryptoService {
   trxAddressFromPrivateKey(priv: string): string {
     const pk = this.normalizeHexPriv(priv);
     return TronWeb.TronWeb.address.fromPrivateKey(pk) as string;
-  }
-
-  bech32AddressFromPrivateKey(priv: string): string {
-    const pk = Buffer.from(this.normalizeHexPriv(priv), 'hex');
-    const keyPair: ECPairInterface = ECPair.fromPrivateKey(pk, {
-      compressed: true,
-    });
-
-    const pubkey: Buffer = Buffer.isBuffer(keyPair.publicKey)
-      ? (keyPair.publicKey as Buffer)
-      : Buffer.from(keyPair.publicKey);
-
-    const { address } = bitcoin.payments.p2wpkh({
-      pubkey: pubkey,
-      network: bitcoin.networks.bitcoin,
-    });
-    if (!address) throw new BadRequestException('Failed to derive address');
-    return address;
   }
 }

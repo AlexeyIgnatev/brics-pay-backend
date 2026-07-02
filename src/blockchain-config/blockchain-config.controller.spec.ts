@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { BlockchainConfigController } from './blockchain-config.controller';
 import { SettingsService } from '../config/settings/settings.service';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
+import { UsdtTreasuryOrchestratorService } from '../payments/usdt-treasury-orchestrator.service';
 
 describe('BlockchainConfigController', () => {
   let controller: BlockchainConfigController;
@@ -13,6 +14,10 @@ describe('BlockchainConfigController', () => {
       controllers: [BlockchainConfigController],
       providers: [
         { provide: SettingsService, useValue: {} },
+        {
+          provide: UsdtTreasuryOrchestratorService,
+          useValue: { getTreasuryReserveSnapshot: jest.fn() },
+        },
         {
           provide: AdminAuthGuard,
           useValue: { canActivate: jest.fn(() => true) },

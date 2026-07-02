@@ -548,9 +548,13 @@ describe('PaymentsService', () => {
         }),
       } as any,
       {} as any,
-      { refreshAllBalancesForUser: jest.fn().mockResolvedValue(undefined) } as any,
       {
-        checkTransactionDetailed: jest.fn().mockResolvedValue({ allowed: true }),
+        refreshAllBalancesForUser: jest.fn().mockResolvedValue(undefined),
+      } as any,
+      {
+        checkTransactionDetailed: jest
+          .fn()
+          .mockResolvedValue({ allowed: true }),
       } as any,
       {} as any,
       {} as any,

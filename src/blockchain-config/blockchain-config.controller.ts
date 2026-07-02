@@ -13,11 +13,16 @@ import {
   TariffSettingDto,
   TariffSettingsUpdateDto,
 } from './dto/tariff-settings.dto';
+import { TreasuryReservesDto } from './dto/reserves.dto';
+import { UsdtTreasuryOrchestratorService } from '../payments/usdt-treasury-orchestrator.service';
 
 @ApiTags('Конфигурация блокчейна')
 @Controller('blockchain-config')
 export class BlockchainConfigController {
-  constructor(private readonly settingsService: SettingsService) {}
+  constructor(
+    private readonly settingsService: SettingsService,
+    private readonly usdtTreasuryOrchestrator: UsdtTreasuryOrchestratorService,
+  ) {}
 
   @Get('settings')
   @ApiOperation({ summary: 'Получить текущие настройки системы' })
@@ -53,5 +58,14 @@ export class BlockchainConfigController {
     @Body() dto: TariffSettingsUpdateDto,
   ): Promise<TariffSettingDto[]> {
     return await this.settingsService.updateTariffs(dto);
+  }
+
+  @Get('reserves')
+  @UseGuards(AdminAuthGuard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Получить резервы treasury и расход TRON-ресурсов' })
+  @ApiResponse({ status: 200, type: TreasuryReservesDto })
+  async getReserves(): Promise<TreasuryReservesDto> {
+    return this.usdtTreasuryOrchestrator.getTreasuryReserveSnapshot();
   }
 }

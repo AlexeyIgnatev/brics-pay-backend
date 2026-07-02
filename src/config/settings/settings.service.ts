@@ -12,6 +12,12 @@ import {
   TariffSettingsUpdateDto,
 } from '../../blockchain-config/dto/tariff-settings.dto';
 
+const SUPPORTED_TARIFF_OPERATIONS = new Set<TariffOperation>([
+  TariffOperation.ESOM_TO_USDT_TRC20,
+  TariffOperation.WALLET_TRANSFER_ESOM,
+  TariffOperation.WALLET_TRANSFER_USDT_TRC20,
+]);
+
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
@@ -71,14 +77,8 @@ export class SettingsService {
       esom_per_usd: s.esom_per_usd.toString(),
       esom_som_conversion_fee_pct: s.esom_som_conversion_fee_pct.toString(),
       esom_som_conversion_fee_min: s.esom_som_conversion_fee_min.toString(),
-      btc_trade_fee_pct: s.btc_trade_fee_pct.toString(),
-      eth_trade_fee_pct: s.eth_trade_fee_pct.toString(),
       usdt_trade_fee_pct: s.usdt_trade_fee_pct.toString(),
-      btc_withdraw_fee_fixed: s.btc_withdraw_fee_fixed.toString(),
-      eth_withdraw_fee_fixed: s.eth_withdraw_fee_fixed.toString(),
       usdt_withdraw_fee_fixed: s.usdt_withdraw_fee_fixed.toString(),
-      min_withdraw_btc: s.min_withdraw_btc.toString(),
-      min_withdraw_eth: s.min_withdraw_eth.toString(),
       min_withdraw_usdt_trc20: s.min_withdraw_usdt_trc20.toString(),
     };
   }
@@ -92,13 +92,15 @@ export class SettingsService {
         { operation: 'asc' },
       ],
     });
-    return rows.map((row) => ({
-      category: row.category,
-      residency: row.residency,
-      operation: row.operation,
-      percent_fee: row.percent_fee.toString(),
-      fixed_fee: row.fixed_fee.toString(),
-    }));
+    return rows
+      .filter((row) => SUPPORTED_TARIFF_OPERATIONS.has(row.operation))
+      .map((row) => ({
+        category: row.category,
+        residency: row.residency,
+        operation: row.operation,
+        percent_fee: row.percent_fee.toString(),
+        fixed_fee: row.fixed_fee.toString(),
+      }));
   }
 
   async updateTariffs(
@@ -106,28 +108,30 @@ export class SettingsService {
   ): Promise<TariffSettingDto[]> {
     await this.ensureTariffRows();
     await this.prisma.$transaction(
-      (dto.items || []).map((item) =>
-        this.prisma.tariffSetting.upsert({
-          where: {
-            category_residency_operation: {
+      (dto.items || [])
+        .filter((item) => SUPPORTED_TARIFF_OPERATIONS.has(item.operation))
+        .map((item) =>
+          this.prisma.tariffSetting.upsert({
+            where: {
+              category_residency_operation: {
+                category: item.category,
+                residency: item.residency,
+                operation: item.operation,
+              },
+            },
+            create: {
               category: item.category,
               residency: item.residency,
               operation: item.operation,
+              percent_fee: item.percent_fee,
+              fixed_fee: item.fixed_fee,
             },
-          },
-          create: {
-            category: item.category,
-            residency: item.residency,
-            operation: item.operation,
-            percent_fee: item.percent_fee,
-            fixed_fee: item.fixed_fee,
-          },
-          update: {
-            percent_fee: item.percent_fee,
-            fixed_fee: item.fixed_fee,
-          },
-        }),
-      ),
+            update: {
+              percent_fee: item.percent_fee,
+              fixed_fee: item.fixed_fee,
+            },
+          }),
+        ),
     );
     return this.getTariffs();
   }
