@@ -232,6 +232,57 @@ async function waitForContract(tron, contractAddress, label, probeAddress) {
   throw new Error(`${label} contract is not deployed yet: ${contractAddress}`);
 }
 
+async function waitForDeployedContractAddress(rpcUrl, txHash, label) {
+  for (let i = 0; i < 180; i += 1) {
+    const [txInfoRes, txRawRes] = await Promise.all([
+      requestJson(
+        `${rpcUrl.replace(/\/+$/, '')}/wallet/gettransactioninfobyid`,
+        'POST',
+        { value: txHash },
+      ),
+      requestJson(
+        `${rpcUrl.replace(/\/+$/, '')}/wallet/gettransactionbyid`,
+        'POST',
+        { value: txHash },
+      ),
+    ]);
+
+    const txInfo = typeof txInfoRes.data === 'object' && txInfoRes.data ? txInfoRes.data : {};
+    const txRaw = typeof txRawRes.data === 'object' && txRawRes.data ? txRawRes.data : {};
+    const txInfoContractAddress =
+      txInfo.contract_address ||
+      txInfo?.transaction?.contract_address ||
+      txInfo?.raw_data?.contract?.[0]?.parameter?.value?.new_contract?.contract_address;
+    const txRawContractAddress =
+      txRaw.contract_address ||
+      txRaw?.transaction?.contract_address ||
+      txRaw?.raw_data?.contract?.[0]?.parameter?.value?.new_contract?.contract_address;
+    const contractAddress = txInfoContractAddress || txRawContractAddress;
+
+    if (contractAddress) {
+      return contractAddress;
+    }
+
+    if (i % 10 === 0) {
+      console.log(
+        `${label}-poll=`,
+        JSON.stringify(
+          {
+            txInfo,
+            txRaw,
+          },
+          null,
+          2,
+        ),
+      );
+    }
+
+    await sleep(2000);
+  }
+
+  throw new Error(`${label} contract address not found for tx: ${txHash}`);
+}
+
 function isBandwidthResourceError(error) {
   const code = String(error?.code || error?.error || '').toUpperCase();
   const message = String(error?.message || error?.response?.data?.message || error?.response?.data?.Error || '');
@@ -474,15 +525,18 @@ async function main() {
         broadcastContractAddress: broadcast?.contract_address || broadcast?.transaction?.contract_address || null,
       }, null, 2));
 
-      await waitForContract(
-        treasuryTron,
-        deployedAddress,
+      const deployedAddressFromTx = await waitForDeployedContractAddress(
+        rpcUrl,
+        txHash,
         'deploy-only-contract',
-        treasuryAddress,
+      );
+      const normalizedDeployedAddress = normalizeTronAddress(
+        deployedAddressFromTx || deployedAddress,
+        TronWebCtor,
       );
 
-      console.log(`USDT_TOKEN_ADDRESS=${deployedAddress}`);
-      console.log(`TRON_USDT_CONTRACT=${deployedAddress}`);
+      console.log(`USDT_TOKEN_ADDRESS=${normalizedDeployedAddress}`);
+      console.log(`TRON_USDT_CONTRACT=${normalizedDeployedAddress}`);
       return;
     }
 
