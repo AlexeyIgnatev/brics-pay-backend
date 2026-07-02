@@ -166,8 +166,8 @@ function isBandwidthResourceError(error) {
   );
 }
 
-async function freezeTreasuryBandwidth(tron, treasuryPk, amountSun, label) {
-  const freeze = await tron.trx.freezeBalance(amountSun, 3, 'BANDWIDTH', { privateKey: treasuryPk });
+async function freezeAccountBandwidth(tron, privateKey, amountSun, label) {
+  const freeze = await tron.trx.freezeBalance(amountSun, 3, 'BANDWIDTH', { privateKey });
   const txHash = freeze?.txid || freeze?.transaction?.txID || freeze?.transaction?.txid;
   if (!txHash) {
     throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(freeze, null, 2)}`);
@@ -306,10 +306,10 @@ async function main() {
         }
 
         console.log('deploy-only-bandwidth-fix=', JSON.stringify({
-          action: 'freezeTreasuryBandwidth',
-          amount_sun: 50_000_000,
+          action: 'freezeAccountBandwidth',
+          amount_sun: 100_000_000,
         }, null, 2));
-        await freezeTreasuryBandwidth(tron, treasuryPk, 50_000_000, 'deploy-only-freeze-bandwidth');
+        await freezeAccountBandwidth(tron, deployPk, 100_000_000, 'deploy-only-freeze-bandwidth');
 
         const contract = await tron.contract(TOKEN_ABI).new(
           {
