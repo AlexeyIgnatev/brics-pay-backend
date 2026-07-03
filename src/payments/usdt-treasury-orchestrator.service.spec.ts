@@ -7,7 +7,7 @@ import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.se
 
 describe('UsdtTreasuryOrchestratorService', () => {
   let service: UsdtTreasuryOrchestratorService;
-  const prismaMock = {
+  const prismaMock: any = {
     blockchainTransaction: {
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -56,7 +56,9 @@ describe('UsdtTreasuryOrchestratorService', () => {
   });
 
   it('returns reserve snapshot even when chain balance and resources are unavailable', async () => {
-    (service as any).getUsdtBalance = jest.fn().mockRejectedValue(new Error('no contract'));
+    (service as any).getUsdtBalance = jest
+      .fn()
+      .mockRejectedValue(new Error('no contract'));
     (service as any).getTreasuryAccountSnapshot = jest
       .fn()
       .mockRejectedValue(new Error('rpc down'));
@@ -98,5 +100,81 @@ describe('UsdtTreasuryOrchestratorService', () => {
       network_fee_trx_today: 0,
       network_fee_trx_total: 0,
     });
+  });
+
+  it('applies tariff fee to internal USDT transfers', async () => {
+    const transactionCreate = jest.fn().mockResolvedValue({ id: 501 });
+    const paymentOperationUpdate = jest.fn().mockResolvedValue({ id: 77 });
+    const prismaTxMock = {
+      transaction: {
+        create: transactionCreate,
+      },
+      paymentOperation: {
+        update: paymentOperationUpdate,
+      },
+    };
+
+    prismaMock.customer = {
+      findUnique: jest.fn().mockResolvedValue({
+        tariff_category: 'K1',
+        residency: 'RESIDENT',
+      }),
+    };
+    prismaMock.tariffSetting = {
+      findUnique: jest.fn().mockResolvedValue({
+        percent_fee: '10',
+        fixed_fee: '0',
+      }),
+    };
+    prismaMock.$transaction = jest
+      .fn()
+      .mockImplementation(async (callback: any) => callback(prismaTxMock));
+
+    (service as any).findOperationByIdempotencyKey = jest
+      .fn()
+      .mockResolvedValue(null);
+    (service as any).createOperation = jest.fn().mockResolvedValue({
+      id: 77,
+      attempt_count: 0,
+      payload: null,
+      status: 'NEW',
+    });
+    (service as any).applyLedgerDelta = jest.fn().mockResolvedValue(undefined);
+    (service as any).markFailed = jest.fn();
+
+    const result = await service.processInternalTransfer({
+      senderCustomerId: 1,
+      receiverCustomerId: 2,
+      amount: 100,
+      senderAddress: 'Tsender',
+      receiverAddress: 'Treceiver',
+      idempotencyKey: 'transfer-1',
+      payload: { source: 'spec' },
+    });
+
+    expect(result.transaction_id).toBe(501);
+    expect(transactionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          amount_in: '100',
+          amount_out: '90',
+          fee_amount: '10',
+        }),
+      }),
+    );
+    expect((service as any).applyLedgerDelta).toHaveBeenCalledWith(
+      prismaTxMock,
+      expect.objectContaining({
+        customerId: 1,
+        delta: -100,
+      }),
+    );
+    expect((service as any).applyLedgerDelta).toHaveBeenCalledWith(
+      prismaTxMock,
+      expect.objectContaining({
+        customerId: 2,
+        delta: 90,
+      }),
+    );
   });
 });

@@ -921,6 +921,15 @@ export class PaymentsService {
       throw new ForbiddenException('Transaction does not belong to user');
 
     const side = this.getDisplaySide(tx, dto);
+    let fee = Number(tx.fee_amount ?? 0);
+    if (fee <= 0 && tx.kind === TransactionKind.WALLET_TO_WALLET) {
+      const tariffFee = await this.getCustomerTariffFee(
+        tx.sender_customer_id ?? customer_id,
+        this.tariffOperationForWalletTransfer(tx.asset_in as unknown as Asset),
+        Number(tx.amount_in),
+      );
+      fee = tariffFee.fee;
+    }
 
     return {
       successful: tx.status === TransactionStatus.SUCCESS,
@@ -928,7 +937,7 @@ export class PaymentsService {
       type: this.mapType(tx, customer_id),
       currency: side.currency,
       created_at: tx.createdAt.getTime(),
-      fee: Number(tx.fee_amount ?? 0),
+      fee,
       account_details: this.buildAccountDetails(tx),
       recipient_full_name: this.buildRecipientFullName(tx),
       paid_from_account: this.buildPaidFromAccount(tx),

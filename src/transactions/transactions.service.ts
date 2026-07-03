@@ -276,15 +276,16 @@ export class TransactionsService {
         network_fee_asset: networkFee.asset,
         energy_used:
           blockchainTransaction != null
-            ? blockchainTransaction.energy_used ?? 0
+            ? (blockchainTransaction.energy_used ?? 0)
             : undefined,
         bandwidth_used:
           blockchainTransaction != null
-            ? blockchainTransaction.bandwidth_used ?? 0
+            ? (blockchainTransaction.bandwidth_used ?? 0)
             : undefined,
         brics_burned_amount:
-          this.getBricsBurnedAmount(postingsByTransactionId.get(item.id) ?? []) ??
-          0,
+          this.getBricsBurnedAmount(
+            postingsByTransactionId.get(item.id) ?? [],
+          ) ?? 0,
         createdAt: item.createdAt,
         sender_customer: item.sender_customer
           ? {

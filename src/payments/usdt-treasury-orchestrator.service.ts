@@ -20,6 +20,7 @@ import {
   PaymentOperationStatus,
   PaymentOperationType,
   PrismaClient,
+  TariffOperation,
   TransactionKind,
   TransactionStatus,
 } from '@prisma/client';
@@ -395,11 +396,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             0,
         ) || 0,
       bandwidth_used:
-        Number(
-          receiptBlock.net_usage ??
-            nestedReceipt?.net_usage ??
-            0,
-        ) || 0,
+        Number(receiptBlock.net_usage ?? nestedReceipt?.net_usage ?? 0) || 0,
       receipt_status:
         (receiptBlock.result as string | undefined) ??
         (nestedReceipt?.result as string | undefined) ??
@@ -1125,6 +1122,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     customerId: number,
     counterpartyCustomerId: number,
     amount: number,
+    netAmount: number,
+    feeAmount: number,
     txHash: string | null,
     comment: string,
     receiverWalletAddress?: string,
@@ -1135,8 +1134,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         status: TransactionStatus.SUCCESS,
         amount_in: amount.toString(),
         asset_in: 'USDT_TRC20',
-        amount_out: amount.toString(),
+        amount_out: netAmount.toString(),
         asset_out: 'USDT_TRC20',
+        fee_amount: feeAmount > 0 ? feeAmount.toString() : null,
         tx_hash: txHash,
         sender_customer_id: customerId,
         receiver_customer_id: counterpartyCustomerId,
@@ -1144,6 +1144,51 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         comment,
       },
     });
+  }
+
+  private tariffOperationForWalletTransfer(
+    asset: Asset,
+  ): TariffOperation | null {
+    switch (asset) {
+      case 'USDT_TRC20':
+        return TariffOperation.WALLET_TRANSFER_USDT_TRC20;
+      default:
+        return null;
+    }
+  }
+
+  private async getCustomerTariffFee(
+    customerId: number,
+    operation: TariffOperation | null,
+    baseAmount: number,
+  ): Promise<{ fee: number }> {
+    if (!operation) return { fee: 0 };
+
+    const customer = await this.prisma.customer.findUnique({
+      where: { customer_id: customerId },
+      select: { tariff_category: true, residency: true },
+    });
+    if (!customer) return { fee: 0 };
+
+    const tariff = await this.prisma.tariffSetting.findUnique({
+      where: {
+        category_residency_operation: {
+          category: customer.tariff_category,
+          residency: customer.residency,
+          operation,
+        },
+      },
+    });
+    if (!tariff) return { fee: 0 };
+
+    const percent = Number(tariff.percent_fee || 0);
+    const fixed = Number(tariff.fixed_fee || 0);
+    const safePercent = Number.isFinite(percent) && percent > 0 ? percent : 0;
+    const safeFixed = Number.isFinite(fixed) && fixed > 0 ? fixed : 0;
+
+    return {
+      fee: baseAmount * (safePercent / 100) + safeFixed,
+    };
   }
 
   private async createWithdrawTransaction(
@@ -1322,12 +1367,22 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       }));
 
     try {
+      const tariffFee = await this.getCustomerTariffFee(
+        input.senderCustomerId,
+        this.tariffOperationForWalletTransfer('USDT_TRC20'),
+        input.amount,
+      );
+      const feeAmount = tariffFee.fee > 0 ? tariffFee.fee : 0;
+      const receiverNetAmount = Math.max(input.amount - feeAmount, 0);
+
       const result = await this.prisma.$transaction(async (tx) => {
         const transaction = await this.createTransactionForInternalTransfer(
           tx,
           input.senderCustomerId,
           input.receiverCustomerId,
           input.amount,
+          receiverNetAmount,
+          feeAmount,
           null,
           'USDT internal transfer',
           input.receiverAddress,
@@ -1343,6 +1398,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           metadata: {
             side: 'sender',
             counterparty_customer_id: input.receiverCustomerId,
+            fee_amount: feeAmount,
             ...(input.payload ?? {}),
           },
         });
@@ -1351,11 +1407,12 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           transactionId: transaction.id,
           customerId: input.receiverCustomerId,
           asset: 'USDT_TRC20',
-          delta: input.amount,
+          delta: receiverNetAmount,
           entryType: LedgerEntryType.CREDIT,
           metadata: {
             side: 'receiver',
             counterparty_customer_id: input.senderCustomerId,
+            fee_amount: feeAmount,
             ...(input.payload ?? {}),
           },
         });

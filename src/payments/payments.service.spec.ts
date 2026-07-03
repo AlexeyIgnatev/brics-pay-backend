@@ -114,6 +114,61 @@ describe('PaymentsService', () => {
     expect(receipt.paid_from_account).toBe('****0xsender');
   });
 
+  it('falls back to tariff fee in receipt for wallet-to-wallet USDT transfer', async () => {
+    const createdAt = new Date('2026-02-01T00:00:00.000Z');
+    const prismaMock = {
+      customer: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ address: '0xmywallet' })
+          .mockResolvedValueOnce({
+            tariff_category: 'K1',
+            residency: 'RESIDENT',
+          }),
+      },
+      tariffSetting: {
+        findUnique: jest.fn().mockResolvedValue({
+          percent_fee: '10',
+          fixed_fee: '0',
+        }),
+      },
+      transaction: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 13,
+          kind: 'WALLET_TO_WALLET',
+          status: TransactionStatus.SUCCESS,
+          amount_in: '100',
+          asset_in: 'USDT_TRC20',
+          amount_out: '90',
+          asset_out: 'USDT_TRC20',
+          fee_amount: null,
+          tx_hash: null,
+          bank_op_id: null,
+          sender_customer_id: 7,
+          receiver_customer_id: 55,
+          sender_wallet_address: 'Tsender',
+          receiver_wallet_address: 'Treceiver',
+          external_address: null,
+          comment: null,
+          createdAt,
+          sender_customer: { address: 'Tsender' },
+          receiver_customer: {
+            address: 'Treceiver',
+            first_name: null,
+            middle_name: null,
+            last_name: null,
+          },
+        }),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const receipt = await service.getReceipt({ transaction_id: 13 }, 7);
+
+    expect(receipt.fee).toBe(10);
+    expect(receipt.amount).toBe(100);
+  });
+
   it('returns masked fallback accounts instead of bank operation labels', async () => {
     const createdAt = new Date('2026-02-02T00:00:00.000Z');
     const prismaMock = {
