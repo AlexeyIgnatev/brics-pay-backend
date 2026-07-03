@@ -637,4 +637,94 @@ describe('PaymentsService', () => {
       5,
     );
   });
+
+  it('stores a success transaction even when ESOM to USDT blockchain transfer fails', async () => {
+    const prismaMock = {
+      customer: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ status: 'ACTIVE' })
+          .mockResolvedValueOnce({
+            tariff_category: 'K1',
+            residency: 'RESIDENT',
+          }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          customer_id: 7,
+          address: '0x1111111111111111111111111111111111111111',
+          private_key:
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+          first_name: 'Test',
+          middle_name: null,
+          last_name: 'User',
+        }),
+      },
+      tariffSetting: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      userAssetBalance: {
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      transaction: {
+        create: jest.fn().mockResolvedValue({ id: 777 }),
+      },
+      accountingPosting: {
+        createMany: jest.fn().mockResolvedValue({ count: 6 }),
+      },
+    };
+
+    const ethereumService = {
+      getAddressFromPrivateKey: jest
+        .fn()
+        .mockReturnValue('0x1111111111111111111111111111111111111111'),
+      validateAddress: jest.fn().mockReturnValue(true),
+      generateAddress: jest.fn(),
+      transferToFiat: jest
+        .fn()
+        .mockRejectedValue(new Error('smart contract exploded')),
+    };
+
+    const service = new PaymentsService(
+      prismaMock as any,
+      ethereumService as any,
+      {} as any,
+      { create: jest.fn() } as any,
+      { get: jest.fn() } as any,
+      {
+        get: jest.fn().mockResolvedValue({
+          esom_per_usd: '1',
+          esom_som_conversion_fee_pct: '0',
+          esom_som_conversion_fee_min: '0',
+          usdt_trade_fee_pct: '10',
+        }),
+      } as any,
+      {} as any,
+      {
+        refreshAllBalancesForUser: jest.fn().mockResolvedValue(undefined),
+      } as any,
+      {
+        checkTransactionDetailed: jest
+          .fn()
+          .mockResolvedValue({ allowed: true }),
+      } as any,
+      {} as any,
+      {} as any,
+    );
+
+    const result = await service.convert(
+      {
+        asset_from: 'ESOM' as any,
+        asset_to: 'USDT_TRC20' as any,
+        amount_from: 100,
+      },
+      7,
+    );
+
+    expect(result.transaction_id).toBe(777);
+    expect(prismaMock.transaction.create).toHaveBeenCalled();
+    expect(prismaMock.userAssetBalance.upsert).toHaveBeenCalled();
+    expect(ethereumService.transferToFiat).toHaveBeenCalledWith(
+      100,
+      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    );
+  });
 });

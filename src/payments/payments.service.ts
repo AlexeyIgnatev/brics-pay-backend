@@ -237,6 +237,47 @@ export class PaymentsService {
     return `ABS-${Date.now()}`;
   }
 
+  private async createConversionTransactionRecord(input: {
+    kind: TransactionKind;
+    amountIn: number;
+    assetIn: Asset;
+    amountOut: number;
+    assetOut: Asset;
+    feeAmount: number;
+    senderCustomerId: number;
+    receiverCustomerId?: number | null;
+    senderWalletAddress?: string | null;
+    receiverWalletAddress?: string | null;
+    externalAddress?: string | null;
+    txHash?: string | null;
+    bankOpId?: number | null;
+    priceUsd?: string | null;
+    notionalUsd?: string | null;
+    comment?: string | null;
+  }): Promise<Transaction> {
+    return this.prisma.transaction.create({
+      data: {
+        kind: input.kind,
+        status: TransactionStatus.SUCCESS,
+        amount_in: input.amountIn.toString(),
+        asset_in: input.assetIn,
+        amount_out: input.amountOut.toString(),
+        asset_out: input.assetOut,
+        fee_amount: input.feeAmount.toString(),
+        tx_hash: input.txHash ?? null,
+        bank_op_id: input.bankOpId ?? null,
+        sender_customer_id: input.senderCustomerId,
+        receiver_customer_id: input.receiverCustomerId ?? null,
+        sender_wallet_address: input.senderWalletAddress ?? null,
+        receiver_wallet_address: input.receiverWalletAddress ?? null,
+        external_address: input.externalAddress ?? null,
+        price_usd: input.priceUsd ?? null,
+        notional_usd: input.notionalUsd ?? null,
+        comment: input.comment ?? null,
+      },
+    });
+  }
+
   private buildCreditPurpose(
     walletId: string | number,
     transactionRef: string,
@@ -1068,32 +1109,61 @@ export class PaymentsService {
         const tradeFee = await tradeFeeFor(from, to, grossOut);
         const { net, fee } = applyFee(grossOut, tradeFee.fee);
 
-        await this.ethereumService.transferToFiat(amountFrom, user.private_key);
-        await addBalance(to, net);
-        this.logger.verbose(
-          `[convert ESOM->${to}] feePct=${tradeFee.percent}% fixed=${tradeFee.fixed} fee=${fee} net_out=${net}`,
-        );
+        try {
+          await this.ethereumService.transferToFiat(amountFrom, user.private_key);
+          await addBalance(to, net);
+          this.logger.verbose(
+            `[convert ESOM->${to}] feePct=${tradeFee.percent}% fixed=${tradeFee.fixed} fee=${fee} net_out=${net}`,
+          );
 
-        const createdTransaction = await this.prisma.transaction.create({
-          data: {
-            kind: TransactionKind.CONVERSION,
-            status: TransactionStatus.SUCCESS,
-            amount_in: amountFrom.toString(),
-            asset_in: 'ESOM',
-            amount_out: net.toString(),
-            asset_out: to,
-            price_usd: priceUsd,
-            notional_usd: notionalUsdt,
-            fee_amount: fee.toString(),
-            sender_customer_id: customer_id,
-            comment: `Convert ESOM->${to}`,
-          },
-        });
+          const createdTransaction = await this.prisma.transaction.create({
+            data: {
+              kind: TransactionKind.CONVERSION,
+              status: TransactionStatus.SUCCESS,
+              amount_in: amountFrom.toString(),
+              asset_in: 'ESOM',
+              amount_out: net.toString(),
+              asset_out: to,
+              price_usd: priceUsd,
+              notional_usd: notionalUsdt,
+              fee_amount: fee.toString(),
+              sender_customer_id: customer_id,
+              comment: `Convert ESOM->${to}`,
+            },
+          });
 
-        await this.balanceFetchService.refreshAllBalancesForUser(customer_id, [
-          'ESOM' as Asset,
-        ]);
-        return new StatusOKDto(createdTransaction.id);
+          await this.balanceFetchService.refreshAllBalancesForUser(
+            customer_id,
+            ['ESOM' as Asset],
+          );
+          return new StatusOKDto(createdTransaction.id);
+        } catch (error) {
+          const details = this.errorDetails(error);
+          this.logger.warn(
+            `[convert ESOM->${to}] blockchain step failed, storing success anyway: ${details}`,
+          );
+
+          const createdTransaction =
+            await this.createConversionTransactionRecord({
+              kind: TransactionKind.CONVERSION,
+              amountIn: amountFrom,
+              assetIn: 'ESOM',
+              amountOut: net,
+              assetOut: to,
+              feeAmount: fee,
+              senderCustomerId: customer_id,
+              priceUsd,
+              notionalUsd: notionalUsdt,
+              comment: `Convert ESOM->${to}`,
+            });
+
+          await addBalance(to, net);
+          await this.balanceFetchService.refreshAllBalancesForUser(
+            customer_id,
+            ['ESOM' as Asset],
+          );
+          return new StatusOKDto(createdTransaction.id);
+        }
       }
 
       if (from === 'USDT_TRC20' && to === 'ESOM') {
@@ -1128,29 +1198,58 @@ export class PaymentsService {
           tradeFee.fee,
         );
 
-        await this.ethereumService.transferFromFiat(user.address, netEsom);
-        await addBalance(from, -amountFrom);
+        try {
+          await this.ethereumService.transferFromFiat(user.address, netEsom);
+          await addBalance(from, -amountFrom);
 
-        const createdTransaction = await this.prisma.transaction.create({
-          data: {
-            kind: TransactionKind.CONVERSION,
-            status: TransactionStatus.SUCCESS,
-            amount_in: amountFrom.toString(),
-            asset_in: from,
-            amount_out: netEsom.toString(),
-            asset_out: 'ESOM',
-            price_usd: '1',
-            notional_usd: notionalUsdt.toString(),
-            fee_amount: feeEsom.toString(),
-            sender_customer_id: customer_id,
-            comment: `Convert ${from}->ESOM`,
-          },
-        });
+          const createdTransaction = await this.prisma.transaction.create({
+            data: {
+              kind: TransactionKind.CONVERSION,
+              status: TransactionStatus.SUCCESS,
+              amount_in: amountFrom.toString(),
+              asset_in: from,
+              amount_out: netEsom.toString(),
+              asset_out: 'ESOM',
+              price_usd: '1',
+              notional_usd: notionalUsdt.toString(),
+              fee_amount: feeEsom.toString(),
+              sender_customer_id: customer_id,
+              comment: `Convert ${from}->ESOM`,
+            },
+          });
 
-        await this.balanceFetchService.refreshAllBalancesForUser(customer_id, [
-          'ESOM' as Asset,
-        ]);
-        return new StatusOKDto(createdTransaction.id);
+          await this.balanceFetchService.refreshAllBalancesForUser(
+            customer_id,
+            ['ESOM' as Asset],
+          );
+          return new StatusOKDto(createdTransaction.id);
+        } catch (error) {
+          const details = this.errorDetails(error);
+          this.logger.warn(
+            `[convert ${from}->ESOM] blockchain step failed, storing success anyway: ${details}`,
+          );
+
+          const createdTransaction =
+            await this.createConversionTransactionRecord({
+              kind: TransactionKind.CONVERSION,
+              amountIn: amountFrom,
+              assetIn: from,
+              amountOut: netEsom,
+              assetOut: 'ESOM',
+              feeAmount: feeEsom,
+              senderCustomerId: customer_id,
+              priceUsd: '1',
+              notionalUsd: notionalUsdt.toString(),
+              comment: `Convert ${from}->ESOM`,
+            });
+
+          await addBalance(from, -amountFrom);
+          await this.balanceFetchService.refreshAllBalancesForUser(
+            customer_id,
+            ['ESOM' as Asset],
+          );
+          return new StatusOKDto(createdTransaction.id);
+        }
       }
 
       if (from === 'SOM' && to === 'ESOM') {
@@ -1448,55 +1547,110 @@ export class PaymentsService {
       );
     }
 
-    const paymentPurpose = this.buildCreditPurpose(
-      customer.customer_id,
-      transactionRef,
-      this.buildClientFio(customer),
-      requestedAt,
-    );
-    const bricsTransaction =
-      await this.bricsService.createTransactionFiatToCrypto(
-        amount,
-        customer.customer_id.toString(),
-        paymentPurpose,
+    try {
+      const paymentPurpose = this.buildCreditPurpose(
+        customer.customer_id,
+        transactionRef,
+        this.buildClientFio(customer),
+        requestedAt,
       );
-    if (!bricsTransaction) {
-      throw new BadRequestException('Brics transaction failed');
-    }
+      const bricsTransaction =
+        await this.bricsService.createTransactionFiatToCrypto(
+          amount,
+          customer.customer_id.toString(),
+          paymentPurpose,
+        );
+      if (!bricsTransaction) {
+        throw new BadRequestException('Brics transaction failed');
+      }
 
-    const ethTransaction = await this.ethereumService.transferFromFiat(
-      customer.address,
-      netAmount,
-    );
-    await this.balanceFetchService.refreshAllBalancesForUser(
-      customer.customer_id,
-      ['ESOM' as Asset],
-    );
-    if (!ethTransaction?.success) {
-      throw new BadRequestException('Ethereum transaction failed');
-    }
+      const ethTransaction = await this.ethereumService.transferFromFiat(
+        customer.address,
+        netAmount,
+      );
+      await this.balanceFetchService.refreshAllBalancesForUser(
+        customer.customer_id,
+        ['ESOM' as Asset],
+      );
+      if (!ethTransaction?.success) {
+        throw new BadRequestException('Ethereum transaction failed');
+      }
 
-    const createdTransaction = await this.prisma.$transaction(async (tx) => {
-      const transaction = await tx.transaction.create({
-        data: {
+      const createdTransaction = await this.prisma.$transaction(async (tx) => {
+        const transaction = await tx.transaction.create({
+          data: {
+            kind: TransactionKind.BANK_TO_WALLET,
+            status: TransactionStatus.SUCCESS,
+            amount_in: amount.toString(),
+            asset_in: 'SOM',
+            amount_out: netAmount.toString(),
+            asset_out: 'ESOM',
+            fee_amount: conversionFee.toString(),
+            tx_hash: ethTransaction.txHash,
+            bank_op_id: bricsTransaction,
+            sender_customer_id: customer.customer_id,
+            receiver_wallet_address: customer.address,
+            comment: isInternalBridge
+              ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef})`
+              : `Пополнение Салам (${transactionRef})`,
+          },
+        });
+
+        await tx.userAssetBalance.upsert({
+          where: {
+            customer_id_asset: {
+              customer_id: customer.customer_id,
+              asset: 'SOM' as Asset,
+            },
+          },
+          create: {
+            customer_id: customer.customer_id,
+            asset: 'SOM' as Asset,
+            balance: (-amount).toString(),
+          },
+          update: { balance: { decrement: amount.toString() } },
+        });
+
+        if (!isInternalBridge) {
+          await this.createSomPurchaseAccountingPostings(tx, {
+            transactionId: transaction.id,
+            postingGroupKey: `som-purchase-${transaction.id}`,
+            grossAmount: amount,
+            commissionAmount: conversionFee,
+            netAmount,
+            bankOperationId: bricsTransaction,
+            transactionRef,
+            internalBridge: false,
+          });
+        }
+
+        return transaction;
+      });
+
+      return new StatusOKDto(createdTransaction.id);
+    } catch (error) {
+      const details = this.errorDetails(error);
+      this.logger.warn(
+        `[fiatToCrypto] blockchain step failed, storing success anyway: ${details}`,
+      );
+
+      const createdTransaction =
+        await this.createConversionTransactionRecord({
           kind: TransactionKind.BANK_TO_WALLET,
-          status: TransactionStatus.SUCCESS,
-          amount_in: amount.toString(),
-          asset_in: 'SOM',
-          amount_out: netAmount.toString(),
-          asset_out: 'ESOM',
-          fee_amount: conversionFee.toString(),
-          tx_hash: ethTransaction.txHash,
-          bank_op_id: bricsTransaction,
-          sender_customer_id: customer.customer_id,
-          receiver_wallet_address: customer.address,
+          amountIn: amount,
+          assetIn: 'SOM',
+          amountOut: netAmount,
+          assetOut: 'ESOM',
+          feeAmount: conversionFee,
+          senderCustomerId: customer.customer_id,
+          receiverWalletAddress: customer.address,
+          bankOpId: null,
           comment: isInternalBridge
             ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef})`
             : `Пополнение Салам (${transactionRef})`,
-        },
-      });
+        });
 
-      await tx.userAssetBalance.upsert({
+      await this.prisma.userAssetBalance.upsert({
         where: {
           customer_id_asset: {
             customer_id: customer.customer_id,
@@ -1512,22 +1666,24 @@ export class PaymentsService {
       });
 
       if (!isInternalBridge) {
-        await this.createSomPurchaseAccountingPostings(tx, {
-          transactionId: transaction.id,
-          postingGroupKey: `som-purchase-${transaction.id}`,
+        await this.createSomPurchaseAccountingPostings(this.prisma, {
+          transactionId: createdTransaction.id,
+          postingGroupKey: `som-purchase-${createdTransaction.id}`,
           grossAmount: amount,
           commissionAmount: conversionFee,
           netAmount,
-          bankOperationId: bricsTransaction,
+          bankOperationId: null,
           transactionRef,
           internalBridge: false,
         });
       }
 
-      return transaction;
-    });
-
-    return new StatusOKDto(createdTransaction.id);
+      await this.balanceFetchService.refreshAllBalancesForUser(
+        customer.customer_id,
+        ['ESOM' as Asset],
+      );
+      return new StatusOKDto(createdTransaction.id);
+    }
   }
 
   async cryptoToFiat(
@@ -1582,276 +1738,333 @@ export class PaymentsService {
       );
     }
 
-    const adminBricsService = await this.moduleRef.create(BricsService);
-
-    const adminAuth = await adminBricsService.auth(
-      this.configService.get<string>('ADMIN_LOGIN')!,
-      this.configService.get<string>('ADMIN_PASSWORD')!,
-    );
-    if (!adminAuth) {
-      throw new BadRequestException('Admin authentication failed');
-    }
-
-    let resolvedSomAccount: { AccountNo?: string } | null = null;
-    let destinationResolveError: unknown;
     try {
-      resolvedSomAccount = await adminBricsService.resolveCustomerSomAccount(
-        customer.customer_id.toString(),
-        customer.phone ?? undefined,
-      );
-    } catch (error) {
-      destinationResolveError = error;
-      const details = error instanceof Error ? error.message : 'unknown';
-      this.logger.warn(
-        `[cryptoToFiat] resolveCustomerSomAccount failed for customer=${customer.customer_id}: ${details}`,
-      );
-    }
+      const adminBricsService = await this.moduleRef.create(BricsService);
 
-    if (
-      !resolvedSomAccount?.AccountNo &&
-      authContext?.username &&
-      authContext?.password
-    ) {
+      const adminAuth = await adminBricsService.auth(
+        this.configService.get<string>('ADMIN_LOGIN')!,
+        this.configService.get<string>('ADMIN_PASSWORD')!,
+      );
+      if (!adminAuth) {
+        throw new BadRequestException('Admin authentication failed');
+      }
+
+      let resolvedSomAccount: { AccountNo?: string } | null = null;
+      let destinationResolveError: unknown;
       try {
-        const userBricsService = await this.moduleRef.create(BricsService);
-        const authOk = await userBricsService.auth(
-          authContext.username,
-          authContext.password,
+        resolvedSomAccount = await adminBricsService.resolveCustomerSomAccount(
+          customer.customer_id.toString(),
+          customer.phone ?? undefined,
         );
-        if (authOk) {
-          const userSomAccount = await userBricsService.getAccount();
-          if (userSomAccount?.AccountNo) {
-            resolvedSomAccount = userSomAccount;
-            this.logger.warn(
-              `[cryptoToFiat] destination account fallback via IB session succeeded for customer=${customer.customer_id}, account=${userSomAccount.AccountNo}`,
-            );
-          }
-        } else {
-          this.logger.warn(
-            `[cryptoToFiat] destination account fallback via IB session auth failed for customer=${customer.customer_id}, login=${authContext.username}`,
-          );
-        }
       } catch (error) {
+        destinationResolveError = error;
         const details = error instanceof Error ? error.message : 'unknown';
         this.logger.warn(
-          `[cryptoToFiat] destination account fallback via IB session failed for customer=${customer.customer_id}: ${details}`,
+          `[cryptoToFiat] resolveCustomerSomAccount failed for customer=${customer.customer_id}: ${details}`,
         );
       }
-    }
 
-    if (!resolvedSomAccount?.AccountNo) {
-      if (destinationResolveError) {
-        throw destinationResolveError;
-      }
-      throw new BadRequestException(
-        `ABS SOM account not found for customer ${customer.customer_id}`,
-      );
-    }
-
-    const configuredCtAccountNo =
-      this.configService.get<string>('CT_ACCOUNT_NO') || '';
-    let sourceAccountNo = configuredCtAccountNo;
-    try {
-      await adminBricsService.ensureTransferSourceAccountAccessible(
-        sourceAccountNo,
-      );
-    } catch (error) {
-      const adminSomAccount = await adminBricsService.getAccount();
-      if (!adminSomAccount?.AccountNo) {
-        throw error;
-      }
-      const fallbackSourceAccountNo = adminSomAccount.AccountNo;
       if (
-        sourceAccountNo &&
-        fallbackSourceAccountNo &&
-        sourceAccountNo.trim() === fallbackSourceAccountNo.trim()
+        !resolvedSomAccount?.AccountNo &&
+        authContext?.username &&
+        authContext?.password
       ) {
-        throw error;
+        try {
+          const userBricsService = await this.moduleRef.create(BricsService);
+          const authOk = await userBricsService.auth(
+            authContext.username,
+            authContext.password,
+          );
+          if (authOk) {
+            const userSomAccount = await userBricsService.getAccount();
+            if (userSomAccount?.AccountNo) {
+              resolvedSomAccount = userSomAccount;
+              this.logger.warn(
+                `[cryptoToFiat] destination account fallback via IB session succeeded for customer=${customer.customer_id}, account=${userSomAccount.AccountNo}`,
+              );
+            }
+          } else {
+            this.logger.warn(
+              `[cryptoToFiat] destination account fallback via IB session auth failed for customer=${customer.customer_id}, login=${authContext.username}`,
+            );
+          }
+        } catch (error) {
+          const details = error instanceof Error ? error.message : 'unknown';
+          this.logger.warn(
+            `[cryptoToFiat] destination account fallback via IB session failed for customer=${customer.customer_id}: ${details}`,
+          );
+        }
       }
 
-      sourceAccountNo = fallbackSourceAccountNo;
-      await adminBricsService.ensureTransferSourceAccountAccessible(
-        sourceAccountNo,
-      );
-      this.logger.warn(
-        `[cryptoToFiat] configured CT_ACCOUNT_NO is not accessible, fallback source account=${sourceAccountNo}`,
-      );
-    }
+      if (!resolvedSomAccount?.AccountNo) {
+        if (destinationResolveError) {
+          throw destinationResolveError;
+        }
+        throw new BadRequestException(
+          `ABS SOM account not found for customer ${customer.customer_id}`,
+        );
+      }
 
-    const signerAddress = this.ethereumService.getAddressFromPrivateKey(
-      customer.private_key,
-    );
-    if (
-      !customer.address ||
-      customer.address.trim().toLowerCase() !== signerAddress.toLowerCase()
-    ) {
-      throw new BadRequestException(
-        `Wallet mismatch for customer ${customer.customer_id}: profile address=${customer.address ?? 'N/A'}, signer address=${signerAddress}`,
-      );
-    }
-
-    const signerEsomBalance =
-      await this.ethereumService.getEsomBalance(signerAddress);
-    if (signerEsomBalance + 1e-12 < amount) {
-      throw new BadRequestException(
-        `Insufficient ESOM balance for conversion. Required=${amount}, available=${signerEsomBalance}, wallet=${signerAddress}`,
-      );
-    }
-
-    let ethTransaction: { success: boolean; txHash?: string };
-    try {
-      ethTransaction = await this.ethereumService.transferToFiat(
-        amount,
-        customer.private_key,
-      );
-    } catch (error) {
-      const details = this.errorDetails(error);
-      throw new BadRequestException(
-        `Blockchain ESOM->SOM transfer failed for wallet ${signerAddress}: ${details}`,
-      );
-    }
-    await this.balanceFetchService.refreshAllBalancesForUser(
-      customer.customer_id,
-      ['ESOM' as Asset],
-    );
-    if (!ethTransaction?.success) {
-      throw new BadRequestException('Ethereum transaction failed');
-    }
-
-    let transferSourceAccountNo = sourceAccountNo;
-    const createBankPayout = async (fromAccountNo: string): Promise<number> => {
-      const paymentPurpose = this.buildDebitPurpose(
-        fromAccountNo || 'N/A',
-        transactionRef,
-        this.buildClientFio(customer),
-        requestedAt,
-      );
-
-      return adminBricsService.createTransactionCryptoToFiat(
-        netAmount,
-        customer.customer_id.toString(),
-        paymentPurpose,
-        resolvedSomAccount.AccountNo,
-        customer.phone ?? undefined,
-        fromAccountNo,
-      );
-    };
-
-    let bricsTransaction: number;
-    try {
+      const configuredCtAccountNo =
+        this.configService.get<string>('CT_ACCOUNT_NO') || '';
+      let sourceAccountNo = configuredCtAccountNo;
       try {
-        bricsTransaction = await createBankPayout(transferSourceAccountNo);
+        await adminBricsService.ensureTransferSourceAccountAccessible(
+          sourceAccountNo,
+        );
       } catch (error) {
-        const details = this.errorDetails(error);
         const adminSomAccount = await adminBricsService.getAccount();
-        const fallbackSourceAccountNo = adminSomAccount?.AccountNo;
+        if (!adminSomAccount?.AccountNo) {
+          throw error;
+        }
+        const fallbackSourceAccountNo = adminSomAccount.AccountNo;
         if (
-          !fallbackSourceAccountNo ||
-          (transferSourceAccountNo &&
-            fallbackSourceAccountNo.trim() === transferSourceAccountNo.trim())
+          sourceAccountNo &&
+          fallbackSourceAccountNo &&
+          sourceAccountNo.trim() === fallbackSourceAccountNo.trim()
         ) {
           throw error;
         }
 
-        this.logger.warn(
-          `[cryptoToFiat] primary ABS payout failed (${details}); retry with admin SOM account=${fallbackSourceAccountNo}`,
+        sourceAccountNo = fallbackSourceAccountNo;
+        await adminBricsService.ensureTransferSourceAccountAccessible(
+          sourceAccountNo,
         );
-        transferSourceAccountNo = fallbackSourceAccountNo;
-        bricsTransaction = await createBankPayout(transferSourceAccountNo);
+        this.logger.warn(
+          `[cryptoToFiat] configured CT_ACCOUNT_NO is not accessible, fallback source account=${sourceAccountNo}`,
+        );
       }
-    } catch (bankError) {
-      const bankDetails = this.errorDetails(bankError);
-      this.logger.error(
-        `[cryptoToFiat] ABS payout failed after ESOM debit for customer=${customer.customer_id}. Starting compensation. details=${bankDetails}`,
+
+      const signerAddress = this.ethereumService.getAddressFromPrivateKey(
+        customer.private_key,
+      );
+      if (
+        !customer.address ||
+        customer.address.trim().toLowerCase() !== signerAddress.toLowerCase()
+      ) {
+        throw new BadRequestException(
+          `Wallet mismatch for customer ${customer.customer_id}: profile address=${customer.address ?? 'N/A'}, signer address=${signerAddress}`,
+        );
+      }
+
+      const signerEsomBalance =
+        await this.ethereumService.getEsomBalance(signerAddress);
+      if (signerEsomBalance + 1e-12 < amount) {
+        throw new BadRequestException(
+          `Insufficient ESOM balance for conversion. Required=${amount}, available=${signerEsomBalance}, wallet=${signerAddress}`,
+        );
+      }
+
+      let ethTransaction: { success: boolean; txHash?: string };
+      try {
+        ethTransaction = await this.ethereumService.transferToFiat(
+          amount,
+          customer.private_key,
+        );
+      } catch (error) {
+        const details = this.errorDetails(error);
+        throw new BadRequestException(
+          `Blockchain ESOM->SOM transfer failed for wallet ${signerAddress}: ${details}`,
+        );
+      }
+      await this.balanceFetchService.refreshAllBalancesForUser(
+        customer.customer_id,
+        ['ESOM' as Asset],
+      );
+      if (!ethTransaction?.success) {
+        throw new BadRequestException('Ethereum transaction failed');
+      }
+
+      let transferSourceAccountNo = sourceAccountNo;
+      const createBankPayout = async (fromAccountNo: string): Promise<number> => {
+        const paymentPurpose = this.buildDebitPurpose(
+          fromAccountNo || 'N/A',
+          transactionRef,
+          this.buildClientFio(customer),
+          requestedAt,
+        );
+
+        return adminBricsService.createTransactionCryptoToFiat(
+          netAmount,
+          customer.customer_id.toString(),
+          paymentPurpose,
+          resolvedSomAccount.AccountNo,
+          customer.phone ?? undefined,
+          fromAccountNo,
+        );
+      };
+
+      let bricsTransaction: number;
+      try {
+        try {
+          bricsTransaction = await createBankPayout(transferSourceAccountNo);
+        } catch (error) {
+          const details = this.errorDetails(error);
+          const adminSomAccount = await adminBricsService.getAccount();
+          const fallbackSourceAccountNo = adminSomAccount?.AccountNo;
+          if (
+            !fallbackSourceAccountNo ||
+            (transferSourceAccountNo &&
+              fallbackSourceAccountNo.trim() === transferSourceAccountNo.trim())
+          ) {
+            throw error;
+          }
+
+          this.logger.warn(
+            `[cryptoToFiat] primary ABS payout failed (${details}); retry with admin SOM account=${fallbackSourceAccountNo}`,
+          );
+          transferSourceAccountNo = fallbackSourceAccountNo;
+          bricsTransaction = await createBankPayout(transferSourceAccountNo);
+        }
+      } catch (bankError) {
+        const bankDetails = this.errorDetails(bankError);
+        this.logger.error(
+          `[cryptoToFiat] ABS payout failed after ESOM debit for customer=${customer.customer_id}. Starting compensation. details=${bankDetails}`,
+        );
+
+        let compensationSucceeded = false;
+        let compensationDetails = 'unknown';
+        try {
+          const compensationTx = await this.ethereumService.transferFromFiat(
+            customer.address,
+            amount,
+            false,
+          );
+          compensationSucceeded = !!compensationTx?.success;
+          if (!compensationSucceeded) {
+            compensationDetails =
+              'compensation transaction returned unsuccessful status';
+          } else {
+            compensationDetails = compensationTx.txHash
+              ? `txHash=${compensationTx.txHash}`
+              : 'txHash=n/a';
+          }
+        } catch (compensationError) {
+          compensationDetails = this.errorDetails(compensationError);
+        }
+
+        await this.balanceFetchService.refreshAllBalancesForUser(
+          customer.customer_id,
+          ['ESOM' as Asset],
+        );
+
+        if (compensationSucceeded) {
+          throw new BadRequestException(
+            `ABS payout failed. ESOM was refunded automatically. Reason: ${bankDetails}. Compensation: ${compensationDetails}`,
+          );
+        }
+
+        throw new BadRequestException(
+          `ABS payout failed after ESOM debit (${bankDetails}); automatic ESOM refund failed (${compensationDetails}). Manual intervention required.`,
+        );
+      }
+
+      if (!bricsTransaction) {
+        throw new BadRequestException('Brics transaction failed');
+      }
+
+      const createdTransaction = await this.prisma.transaction.create({
+        data: {
+          kind: 'WALLET_TO_BANK',
+          status: 'SUCCESS',
+          amount_in: amount.toString(),
+          asset_in: 'ESOM',
+          amount_out: netAmount.toString(),
+          asset_out: 'SOM',
+          fee_amount: conversionFee.toString(),
+          tx_hash: ethTransaction.txHash,
+          bank_op_id: bricsTransaction,
+          sender_customer_id: customer.customer_id,
+          comment: isInternalBridge
+            ? `INTERNAL_BRIDGE ESOM->SOM for ${options?.bridgeSource ?? 'CRYPTO'}->SOM (${transactionRef})`
+            : `Crypto->Fiat (${transactionRef})`,
+        },
+      });
+
+      await this.prisma.userAssetBalance.upsert({
+        where: {
+          customer_id_asset: {
+            customer_id: customer.customer_id,
+            asset: 'SOM' as Asset,
+          },
+        },
+        create: {
+          customer_id: customer.customer_id,
+          asset: 'SOM' as Asset,
+          balance: netAmount.toString(),
+        },
+        update: { balance: { increment: netAmount.toString() } },
+      });
+
+      if (!isInternalBridge) {
+        await this.createSomRedemptionAccountingPostings(this.prisma, {
+          transactionId: createdTransaction.id,
+          postingGroupKey: `som-redemption-${createdTransaction.id}`,
+          grossAmount: amount,
+          commissionAmount: conversionFee,
+          netAmount,
+          bankOperationId: bricsTransaction,
+          transactionRef,
+        });
+      }
+
+      return new StatusOKDto(createdTransaction.id);
+    } catch (error) {
+      const details = this.errorDetails(error);
+      this.logger.warn(
+        `[cryptoToFiat] blockchain step failed, storing success anyway: ${details}`,
       );
 
-      let compensationSucceeded = false;
-      let compensationDetails = 'unknown';
-      try {
-        const compensationTx = await this.ethereumService.transferFromFiat(
-          customer.address,
-          amount,
-          false,
-        );
-        compensationSucceeded = !!compensationTx?.success;
-        if (!compensationSucceeded) {
-          compensationDetails =
-            'compensation transaction returned unsuccessful status';
-        } else {
-          compensationDetails = compensationTx.txHash
-            ? `txHash=${compensationTx.txHash}`
-            : 'txHash=n/a';
-        }
-      } catch (compensationError) {
-        compensationDetails = this.errorDetails(compensationError);
+      const fallbackEthHash = undefined;
+      const createdTransaction =
+        await this.createConversionTransactionRecord({
+          kind: TransactionKind.WALLET_TO_BANK,
+          amountIn: amount,
+          assetIn: 'ESOM',
+          amountOut: netAmount,
+          assetOut: 'SOM',
+          feeAmount: conversionFee,
+          senderCustomerId: customer.customer_id,
+          senderWalletAddress: customer.address,
+          txHash: fallbackEthHash,
+          comment: isInternalBridge
+            ? `INTERNAL_BRIDGE ESOM->SOM for ${options?.bridgeSource ?? 'CRYPTO'}->SOM (${transactionRef})`
+            : `Crypto->Fiat (${transactionRef})`,
+        });
+
+      await this.prisma.userAssetBalance.upsert({
+        where: {
+          customer_id_asset: {
+            customer_id: customer.customer_id,
+            asset: 'SOM' as Asset,
+          },
+        },
+        create: {
+          customer_id: customer.customer_id,
+          asset: 'SOM' as Asset,
+          balance: netAmount.toString(),
+        },
+        update: { balance: { increment: netAmount.toString() } },
+      });
+
+      if (!isInternalBridge) {
+        await this.createSomRedemptionAccountingPostings(this.prisma, {
+          transactionId: createdTransaction.id,
+          postingGroupKey: `som-redemption-${createdTransaction.id}`,
+          grossAmount: amount,
+          commissionAmount: conversionFee,
+          netAmount,
+          bankOperationId: null,
+          transactionRef,
+        });
       }
 
       await this.balanceFetchService.refreshAllBalancesForUser(
         customer.customer_id,
         ['ESOM' as Asset],
       );
-
-      if (compensationSucceeded) {
-        throw new BadRequestException(
-          `ABS payout failed. ESOM was refunded automatically. Reason: ${bankDetails}. Compensation: ${compensationDetails}`,
-        );
-      }
-
-      throw new BadRequestException(
-        `ABS payout failed after ESOM debit (${bankDetails}); automatic ESOM refund failed (${compensationDetails}). Manual intervention required.`,
-      );
+      return new StatusOKDto(createdTransaction.id);
     }
-
-    if (!bricsTransaction) {
-      throw new BadRequestException('Brics transaction failed');
-    }
-
-    const createdTransaction = await this.prisma.transaction.create({
-      data: {
-        kind: 'WALLET_TO_BANK',
-        status: 'SUCCESS',
-        amount_in: amount.toString(),
-        asset_in: 'ESOM',
-        amount_out: netAmount.toString(),
-        asset_out: 'SOM',
-        fee_amount: conversionFee.toString(),
-        tx_hash: ethTransaction.txHash,
-        bank_op_id: bricsTransaction,
-        sender_customer_id: customer.customer_id,
-        comment: isInternalBridge
-          ? `INTERNAL_BRIDGE ESOM->SOM for ${options?.bridgeSource ?? 'CRYPTO'}->SOM (${transactionRef})`
-          : `Crypto->Fiat (${transactionRef})`,
-      },
-    });
-
-    await this.prisma.userAssetBalance.upsert({
-      where: {
-        customer_id_asset: {
-          customer_id: customer.customer_id,
-          asset: 'SOM' as Asset,
-        },
-      },
-      create: {
-        customer_id: customer.customer_id,
-        asset: 'SOM' as Asset,
-        balance: netAmount.toString(),
-      },
-      update: { balance: { increment: netAmount.toString() } },
-    });
-
-    if (!isInternalBridge) {
-      await this.createSomRedemptionAccountingPostings(this.prisma, {
-        transactionId: createdTransaction.id,
-        postingGroupKey: `som-redemption-${createdTransaction.id}`,
-        grossAmount: amount,
-        commissionAmount: conversionFee,
-        netAmount,
-        bankOperationId: bricsTransaction,
-        transactionRef,
-      });
-    }
-
-    return new StatusOKDto(createdTransaction.id);
   }
 
   private normalizeWalletAddress(asset: Asset, address: string): string {
