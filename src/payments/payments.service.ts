@@ -560,23 +560,6 @@ export class PaymentsService {
     });
   }
 
-  private calcSomEsomConversionFee(
-    amount: number,
-    settings: {
-      esom_som_conversion_fee_pct?: string;
-      esom_som_conversion_fee_min?: string;
-    },
-  ): { fee: number; net: number; pct: number; minFee: number } {
-    const pct = Number(settings.esom_som_conversion_fee_pct ?? 0);
-    const minFee = Number(settings.esom_som_conversion_fee_min ?? 0);
-    const safePct = Number.isFinite(pct) && pct > 0 ? pct : 0;
-    const safeMinFee = Number.isFinite(minFee) && minFee > 0 ? minFee : 0;
-    const feeByPct = amount * (safePct / 100);
-    const fee = Math.max(feeByPct, safeMinFee);
-    const net = Math.max(amount - fee, 0);
-    return { fee, net, pct: safePct, minFee: safeMinFee };
-  }
-
   private isInternalBridgeTransaction(t: { comment?: string | null }): boolean {
     return (
       typeof t.comment === 'string' && t.comment.startsWith('INTERNAL_BRIDGE')
@@ -589,11 +572,52 @@ export class PaymentsService {
   ): TariffOperation | null {
     const key = `${from}_TO_${to}`;
     switch (key) {
+      case 'SOM_TO_ESOM':
+        return TariffOperation.SOM_TO_ESOM;
+      case 'ESOM_TO_SOM':
+        return TariffOperation.ESOM_TO_SOM;
       case 'ESOM_TO_USDT_TRC20':
         return TariffOperation.ESOM_TO_USDT_TRC20;
+      case 'USDT_TRC20_TO_ESOM':
+        return TariffOperation.USDT_TRC20_TO_ESOM;
       default:
         return null;
     }
+  }
+
+  private async resolveTransactionFeeFromTariffs(
+    tx: Transaction,
+    fallbackCustomerId: number,
+  ): Promise<number> {
+    const existingFee = Number(tx.fee_amount ?? 0);
+    if (existingFee > 0) return existingFee;
+
+    let operation: TariffOperation | null = null;
+    if (tx.kind === TransactionKind.WALLET_TO_WALLET) {
+      operation = this.tariffOperationForWalletTransfer(
+        tx.asset_in as unknown as Asset,
+      );
+    } else if (
+      tx.kind === TransactionKind.BANK_TO_WALLET ||
+      tx.kind === TransactionKind.WALLET_TO_BANK ||
+      tx.kind === TransactionKind.CONVERSION
+    ) {
+      if (tx.asset_in && tx.asset_out && tx.asset_in !== tx.asset_out) {
+        operation = this.tariffOperationForConversion(
+          tx.asset_in as unknown as Asset,
+          tx.asset_out as unknown as Asset,
+        );
+      }
+    }
+
+    if (!operation) return 0;
+
+    const tariffFee = await this.getCustomerTariffFee(
+      tx.sender_customer_id ?? fallbackCustomerId,
+      operation,
+      Number(tx.amount_in ?? 0),
+    );
+    return tariffFee.fee;
   }
 
   private tariffOperationForWalletTransfer(
@@ -962,15 +986,7 @@ export class PaymentsService {
       throw new ForbiddenException('Transaction does not belong to user');
 
     const side = this.getDisplaySide(tx, dto);
-    let fee = Number(tx.fee_amount ?? 0);
-    if (fee <= 0 && tx.kind === TransactionKind.WALLET_TO_WALLET) {
-      const tariffFee = await this.getCustomerTariffFee(
-        tx.sender_customer_id ?? customer_id,
-        this.tariffOperationForWalletTransfer(tx.asset_in as unknown as Asset),
-        Number(tx.amount_in),
-      );
-      fee = tariffFee.fee;
-    }
+    const fee = await this.resolveTransactionFeeFromTariffs(tx, customer_id);
 
     return {
       successful: tx.status === TransactionStatus.SUCCESS,
@@ -1009,7 +1025,6 @@ export class PaymentsService {
       let user = await this.prisma.customer.findUniqueOrThrow({
         where: { customer_id },
       });
-      const s = await this.settingsService.get();
       const from = dto.asset_from as unknown as Asset;
       const to = dto.asset_to as unknown as Asset;
       if (from === 'ESOM' || to === 'ESOM') {
@@ -1019,6 +1034,7 @@ export class PaymentsService {
       if (!Number.isFinite(amountFrom) || amountFrom <= 0) {
         throw new BadRequestException('Amount must be positive');
       }
+      const s = await this.settingsService.get();
       const esomPerUsd = Number(s.esom_per_usd);
       this.logger.verbose(`[convert] settings esom_per_usd=${esomPerUsd}`);
 
@@ -1042,35 +1058,12 @@ export class PaymentsService {
         }
       };
 
-      const feePctForAsset = (asset: Asset): number => {
-        switch (asset) {
-          case 'USDT_TRC20':
-            return Number(s.usdt_trade_fee_pct || 0);
-          default:
-            return 0;
-        }
-      };
-
-      const feePctForTrade = (fromA: Asset, toA: Asset): number => {
-        if (fromA === 'ESOM') return feePctForAsset(toA);
-        if (toA === 'ESOM') return feePctForAsset(fromA);
-        return Math.max(feePctForAsset(fromA), feePctForAsset(toA));
-      };
-
       const tradeFeeFor = async (fromA: Asset, toA: Asset, gross: number) => {
-        const tariff = await this.getCustomerTariffFee(
+        return this.getCustomerTariffFee(
           customer_id,
           this.tariffOperationForConversion(fromA, toA),
           gross,
         );
-        if (tariff.configured) return tariff;
-        const pct = feePctForTrade(fromA, toA);
-        return {
-          percent: pct,
-          fixed: 0,
-          fee: gross * (pct / 100),
-          configured: false,
-        };
       };
 
       const applyFee = (gross: number, feeAmount: number) => {
@@ -1110,7 +1103,10 @@ export class PaymentsService {
         const { net, fee } = applyFee(grossOut, tradeFee.fee);
 
         try {
-          await this.ethereumService.transferToFiat(amountFrom, user.private_key);
+          await this.ethereumService.transferToFiat(
+            amountFrom,
+            user.private_key,
+          );
           await addBalance(to, net);
           this.logger.verbose(
             `[convert ESOM->${to}] feePct=${tradeFee.percent}% fixed=${tradeFee.fixed} fee=${fee} net_out=${net}`,
@@ -1512,22 +1508,22 @@ export class PaymentsService {
     }
     customer = await this.ensureEsomWallet(customer);
 
-    const s = await this.settingsService.get();
-    const {
-      fee: rawConversionFee,
-      net: rawNetAmount,
-      pct: feePct,
-      minFee,
-    } = this.calcSomEsomConversionFee(amount, s);
-    const conversionFee = isInternalBridge ? 0 : rawConversionFee;
-    const netAmount = isInternalBridge ? amount : rawNetAmount;
+    const tariff = await this.getCustomerTariffFee(
+      customer.customer_id,
+      this.tariffOperationForConversion('SOM' as Asset, 'ESOM' as Asset),
+      amount,
+    );
+    const conversionFee = isInternalBridge ? 0 : tariff.fee;
+    const netAmount = isInternalBridge
+      ? amount
+      : Math.max(amount - conversionFee, 0);
     if (netAmount <= 0) {
       throw new BadRequestException(
         'Amount is too low after conversion commission',
       );
     }
     this.logger.verbose(
-      `[fiatToCrypto] conversion_fee pct=${isInternalBridge ? 0 : feePct}% min=${isInternalBridge ? 0 : minFee}` +
+      `[fiatToCrypto] conversion_fee pct=${isInternalBridge ? 0 : tariff.percent}% fixed=${isInternalBridge ? 0 : tariff.fixed}` +
         ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
     );
 
@@ -1634,21 +1630,20 @@ export class PaymentsService {
         `[fiatToCrypto] blockchain step failed, storing success anyway: ${details}`,
       );
 
-      const createdTransaction =
-        await this.createConversionTransactionRecord({
-          kind: TransactionKind.BANK_TO_WALLET,
-          amountIn: amount,
-          assetIn: 'SOM',
-          amountOut: netAmount,
-          assetOut: 'ESOM',
-          feeAmount: conversionFee,
-          senderCustomerId: customer.customer_id,
-          receiverWalletAddress: customer.address,
-          bankOpId: null,
-          comment: isInternalBridge
-            ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef})`
-            : `Пополнение Салам (${transactionRef})`,
-        });
+      const createdTransaction = await this.createConversionTransactionRecord({
+        kind: TransactionKind.BANK_TO_WALLET,
+        amountIn: amount,
+        assetIn: 'SOM',
+        amountOut: netAmount,
+        assetOut: 'ESOM',
+        feeAmount: conversionFee,
+        senderCustomerId: customer.customer_id,
+        receiverWalletAddress: customer.address,
+        bankOpId: null,
+        comment: isInternalBridge
+          ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef})`
+          : `Пополнение Салам (${transactionRef})`,
+      });
 
       await this.prisma.userAssetBalance.upsert({
         where: {
@@ -1705,22 +1700,22 @@ export class PaymentsService {
     }
     customer = await this.ensureEsomWallet(customer);
 
-    const s = await this.settingsService.get();
-    const {
-      fee: rawConversionFee,
-      net: rawNetAmount,
-      pct: feePct,
-      minFee,
-    } = this.calcSomEsomConversionFee(amount, s);
-    const conversionFee = isInternalBridge ? 0 : rawConversionFee;
-    const netAmount = isInternalBridge ? amount : rawNetAmount;
+    const tariff = await this.getCustomerTariffFee(
+      customer.customer_id,
+      this.tariffOperationForConversion('ESOM' as Asset, 'SOM' as Asset),
+      amount,
+    );
+    const conversionFee = isInternalBridge ? 0 : tariff.fee;
+    const netAmount = isInternalBridge
+      ? amount
+      : Math.max(amount - conversionFee, 0);
     if (netAmount <= 0) {
       throw new BadRequestException(
         'Amount is too low after conversion commission',
       );
     }
     this.logger.verbose(
-      `[cryptoToFiat] conversion_fee pct=${isInternalBridge ? 0 : feePct}% min=${isInternalBridge ? 0 : minFee}` +
+      `[cryptoToFiat] conversion_fee pct=${isInternalBridge ? 0 : tariff.percent}% fixed=${isInternalBridge ? 0 : tariff.fixed}` +
         ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
     );
 
@@ -1876,7 +1871,9 @@ export class PaymentsService {
       }
 
       let transferSourceAccountNo = sourceAccountNo;
-      const createBankPayout = async (fromAccountNo: string): Promise<number> => {
+      const createBankPayout = async (
+        fromAccountNo: string,
+      ): Promise<number> => {
         const paymentPurpose = this.buildDebitPurpose(
           fromAccountNo || 'N/A',
           transactionRef,
@@ -2016,21 +2013,20 @@ export class PaymentsService {
       );
 
       const fallbackEthHash = undefined;
-      const createdTransaction =
-        await this.createConversionTransactionRecord({
-          kind: TransactionKind.WALLET_TO_BANK,
-          amountIn: amount,
-          assetIn: 'ESOM',
-          amountOut: netAmount,
-          assetOut: 'SOM',
-          feeAmount: conversionFee,
-          senderCustomerId: customer.customer_id,
-          senderWalletAddress: customer.address,
-          txHash: fallbackEthHash,
-          comment: isInternalBridge
-            ? `INTERNAL_BRIDGE ESOM->SOM for ${options?.bridgeSource ?? 'CRYPTO'}->SOM (${transactionRef})`
-            : `Crypto->Fiat (${transactionRef})`,
-        });
+      const createdTransaction = await this.createConversionTransactionRecord({
+        kind: TransactionKind.WALLET_TO_BANK,
+        amountIn: amount,
+        assetIn: 'ESOM',
+        amountOut: netAmount,
+        assetOut: 'SOM',
+        feeAmount: conversionFee,
+        senderCustomerId: customer.customer_id,
+        senderWalletAddress: customer.address,
+        txHash: fallbackEthHash,
+        comment: isInternalBridge
+          ? `INTERNAL_BRIDGE ESOM->SOM for ${options?.bridgeSource ?? 'CRYPTO'}->SOM (${transactionRef})`
+          : `Crypto->Fiat (${transactionRef})`,
+      });
 
       await this.prisma.userAssetBalance.upsert({
         where: {

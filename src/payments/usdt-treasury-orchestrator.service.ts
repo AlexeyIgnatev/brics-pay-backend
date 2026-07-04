@@ -756,7 +756,11 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           this.getUsdtBalance(runtime.treasuryAddress),
           0,
         ),
-        this.safeSnapshotValue('SALAM balance', this.getSalamTreasurySnapshot(), 0),
+        this.safeSnapshotValue(
+          'SALAM balance',
+          this.getSalamTreasurySnapshot(),
+          0,
+        ),
         this.safeSnapshotValue(
           'SALAM spent',
           this.sumTransactionAssetInput(startOfToday),

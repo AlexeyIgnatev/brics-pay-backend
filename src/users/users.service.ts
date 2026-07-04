@@ -240,11 +240,6 @@ export class UsersService {
 
     const fallbackSettings = {
       esom_per_usd: '1',
-      esom_som_conversion_fee_pct: '0',
-      esom_som_conversion_fee_min: '0',
-      usdt_trade_fee_pct: '0',
-      usdt_withdraw_fee_fixed: '0',
-      min_withdraw_usdt_trc20: '0',
     };
 
     const [somLiveResult, esomBalanceResult, settingsResult] =
@@ -277,6 +272,16 @@ export class UsersService {
       settingsResult.status === 'fulfilled'
         ? settingsResult.value
         : fallbackSettings;
+    const tariffs = await this.settingsService.getTariffs();
+    const tariffRows = tariffs.filter(
+      (row) =>
+        row.category === user.tariff_category &&
+        row.residency === user.residency,
+    );
+    const tariffPercentFor = (operation: string): number => {
+      const row = tariffRows.find((item) => item.operation === operation);
+      return Number(row?.percent_fee ?? 0) / 100;
+    };
 
     await this.prisma.userAssetBalance.upsert({
       where: {
@@ -294,11 +299,12 @@ export class UsersService {
     });
 
     const esomPerUsd = Number(settings.esom_per_usd);
-    const usdtFee = Number(settings.usdt_trade_fee_pct) / 100;
+    const esomBuyFee = tariffPercentFor('SOM_TO_ESOM');
+    const esomSellFee = tariffPercentFor('ESOM_TO_SOM');
+    const usdtBuyFee = tariffPercentFor('ESOM_TO_USDT_TRC20');
+    const usdtSellFee = tariffPercentFor('USDT_TRC20_TO_ESOM');
 
     const usdtBaseEsom = 1 * esomPerUsd;
-    const usdtBuy = usdtBaseEsom * (1 + usdtFee);
-    const usdtSell = usdtBaseEsom * (1 - usdtFee);
 
     const usdtBalanceRec = await this.prisma.userAssetBalance.findUnique({
       where: {
@@ -321,15 +327,15 @@ export class UsersService {
         currency: Currency.ESOM,
         address: user.address,
         balance: esomBalance,
-        buy_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,
-        sell_rate: 1.0 - Number(settings.esom_som_conversion_fee_pct) / 100,
+        buy_rate: 1.0 - esomBuyFee,
+        sell_rate: 1.0 - esomSellFee,
       },
       {
         currency: Currency.USDT_TRC20,
         address: this.cryptoService.trxAddressFromPrivateKey(user.private_key),
         balance: Number(usdtBalanceRec?.balance ?? 0),
-        buy_rate: usdtBuy,
-        sell_rate: usdtSell,
+        buy_rate: usdtBaseEsom * (1 + usdtBuyFee),
+        sell_rate: usdtBaseEsom * (1 - usdtSellFee),
       },
     ];
   }

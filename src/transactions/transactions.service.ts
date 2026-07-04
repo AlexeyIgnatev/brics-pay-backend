@@ -2,9 +2,12 @@ import { Injectable } from '@nestjs/common';
 import {
   AccountingPosting,
   Asset,
+  CustomerResidency,
   BlockchainTransaction,
   Prisma,
   PrismaClient,
+  TariffCategory,
+  TariffOperation,
   TransactionKind,
   TransactionStatus,
 } from '@prisma/client';
@@ -74,6 +77,84 @@ export class TransactionsService {
       .reduce((sum, posting) => sum + Number(posting.amount), 0);
 
     return burnedAmount > 0 ? burnedAmount : undefined;
+  }
+
+  private tariffOperationForTransaction(item: {
+    kind: TransactionKind;
+    asset_in: Asset | null;
+    asset_out: Asset | null;
+  }): TariffOperation | null {
+    const from = item.asset_in;
+    const to = item.asset_out;
+    const key = `${from}_TO_${to}`;
+    switch (key) {
+      case 'SOM_TO_ESOM':
+        return TariffOperation.SOM_TO_ESOM;
+      case 'ESOM_TO_SOM':
+        return TariffOperation.ESOM_TO_SOM;
+      case 'ESOM_TO_USDT_TRC20':
+        return TariffOperation.ESOM_TO_USDT_TRC20;
+      case 'USDT_TRC20_TO_ESOM':
+        return TariffOperation.USDT_TRC20_TO_ESOM;
+      case 'ESOM_TO_ESOM':
+      case 'USDT_TRC20_TO_USDT_TRC20':
+      case 'SOM_TO_SOM':
+        return item.kind === TransactionKind.WALLET_TO_WALLET
+          ? from === 'ESOM'
+            ? TariffOperation.WALLET_TRANSFER_ESOM
+            : from === 'USDT_TRC20'
+              ? TariffOperation.WALLET_TRANSFER_USDT_TRC20
+              : null
+          : null;
+      default:
+        return item.kind === TransactionKind.WALLET_TO_WALLET
+          ? from === 'ESOM'
+            ? TariffOperation.WALLET_TRANSFER_ESOM
+            : from === 'USDT_TRC20'
+              ? TariffOperation.WALLET_TRANSFER_USDT_TRC20
+              : null
+          : null;
+    }
+  }
+
+  private async resolveFeeAmountFromTariffs(item: {
+    kind: TransactionKind;
+    fee_amount: Prisma.Decimal | string | number | null;
+    amount_in: Prisma.Decimal | string | number;
+    asset_in: Asset;
+    asset_out: Asset;
+    sender_customer?: {
+      tariff_category: TariffCategory;
+      residency: CustomerResidency;
+    } | null;
+  }): Promise<number> {
+    const existingFee = Number(item.fee_amount ?? 0);
+    if (existingFee > 0) return existingFee;
+
+    const operation = this.tariffOperationForTransaction(item);
+    if (!operation) return 0;
+
+    const customer = item.sender_customer;
+    if (!customer) return 0;
+
+    const tariff = await this.prisma.tariffSetting.findUnique({
+      where: {
+        category_residency_operation: {
+          category: customer.tariff_category,
+          residency: customer.residency,
+          operation,
+        },
+      },
+      select: { percent_fee: true, fixed_fee: true },
+    });
+
+    if (!tariff) return 0;
+
+    const percent = Number(tariff.percent_fee ?? 0);
+    const fixed = Number(tariff.fixed_fee ?? 0);
+    const safePercent = Number.isFinite(percent) && percent > 0 ? percent : 0;
+    const safeFixed = Number.isFinite(fixed) && fixed > 0 ? fixed : 0;
+    return Number(item.amount_in ?? 0) * (safePercent / 100) + safeFixed;
   }
 
   async list(query: TransactionsListDto): Promise<TransactionsListResponseDto> {
@@ -248,67 +329,82 @@ export class TransactionsService {
       postingsByTransactionId.set(posting.transaction_id, bucket);
     }
 
-    const items = filteredItems.map((item) => {
-      const blockchainTransaction = item.tx_hash
-        ? blockchainByHash.get(item.tx_hash)
-        : undefined;
-      const networkFee = this.parseNetworkFee(blockchainTransaction);
-
-      return {
-        id: item.id,
-        kind: item.kind as unknown as string,
-        status: item.status as unknown as string,
-        amount: Number(item.amount_in),
-        fee_amount: Number(item.fee_amount ?? 0),
-        asset: item.asset_in as unknown as string,
-        tx_hash: item.tx_hash ?? undefined,
-        bank_op_id: item.bank_op_id ?? undefined,
-        sender_customer_id: item.sender_customer_id ?? undefined,
-        receiver_customer_id: item.receiver_customer_id ?? undefined,
-        sender_abs_id: item.sender_customer_id ?? undefined,
-        receiver_abs_id: item.receiver_customer_id ?? undefined,
-        client_abs_id:
-          item.sender_customer_id ?? item.receiver_customer_id ?? undefined,
-        sender_wallet_address: item.sender_wallet_address ?? undefined,
-        receiver_wallet_address: item.receiver_wallet_address ?? undefined,
-        comment: item.comment ?? undefined,
-        network_fee_amount: networkFee.amount,
-        network_fee_asset: networkFee.asset,
-        energy_used:
-          blockchainTransaction != null
-            ? (blockchainTransaction.energy_used ?? 0)
-            : undefined,
-        bandwidth_used:
-          blockchainTransaction != null
-            ? (blockchainTransaction.bandwidth_used ?? 0)
-            : undefined,
-        brics_burned_amount:
-          this.getBricsBurnedAmount(
-            postingsByTransactionId.get(item.id) ?? [],
-          ) ?? 0,
-        createdAt: item.createdAt,
+    const items = await Promise.all(
+      filteredItems.map(async (item) => {
+        const blockchainTransaction = item.tx_hash
+          ? blockchainByHash.get(item.tx_hash)
+          : undefined;
+        const networkFee = this.parseNetworkFee(blockchainTransaction);
+      const feeAmount = await this.resolveFeeAmountFromTariffs({
+        kind: item.kind,
+        fee_amount: item.fee_amount,
+        amount_in: item.amount_in,
+        asset_in: item.asset_in as Asset,
+        asset_out: item.asset_out as Asset,
         sender_customer: item.sender_customer
           ? {
-              customer_id: item.sender_customer.customer_id,
-              first_name: item.sender_customer.first_name ?? undefined,
-              middle_name: item.sender_customer.middle_name ?? undefined,
-              last_name: item.sender_customer.last_name ?? undefined,
-              phone: item.sender_customer.phone ?? undefined,
-              email: item.sender_customer.email ?? undefined,
+              tariff_category: item.sender_customer.tariff_category,
+              residency: item.sender_customer.residency,
             }
-          : undefined,
-        receiver_customer: item.receiver_customer
-          ? {
-              customer_id: item.receiver_customer.customer_id,
-              first_name: item.receiver_customer.first_name ?? undefined,
-              middle_name: item.receiver_customer.middle_name ?? undefined,
-              last_name: item.receiver_customer.last_name ?? undefined,
-              phone: item.receiver_customer.phone ?? undefined,
-              email: item.receiver_customer.email ?? undefined,
-            }
-          : undefined,
-      };
-    });
+          : null,
+      });
+
+        return {
+          id: item.id,
+          kind: item.kind as unknown as string,
+          status: item.status as unknown as string,
+          amount: Number(item.amount_in),
+          fee_amount: feeAmount,
+          asset: item.asset_in as unknown as string,
+          tx_hash: item.tx_hash ?? undefined,
+          bank_op_id: item.bank_op_id ?? undefined,
+          sender_customer_id: item.sender_customer_id ?? undefined,
+          receiver_customer_id: item.receiver_customer_id ?? undefined,
+          sender_abs_id: item.sender_customer_id ?? undefined,
+          receiver_abs_id: item.receiver_customer_id ?? undefined,
+          client_abs_id:
+            item.sender_customer_id ?? item.receiver_customer_id ?? undefined,
+          sender_wallet_address: item.sender_wallet_address ?? undefined,
+          receiver_wallet_address: item.receiver_wallet_address ?? undefined,
+          comment: item.comment ?? undefined,
+          network_fee_amount: networkFee.amount,
+          network_fee_asset: networkFee.asset,
+          energy_used:
+            blockchainTransaction != null
+              ? (blockchainTransaction.energy_used ?? 0)
+              : undefined,
+          bandwidth_used:
+            blockchainTransaction != null
+              ? (blockchainTransaction.bandwidth_used ?? 0)
+              : undefined,
+          brics_burned_amount:
+            this.getBricsBurnedAmount(
+              postingsByTransactionId.get(item.id) ?? [],
+            ) ?? 0,
+          createdAt: item.createdAt,
+          sender_customer: item.sender_customer
+            ? {
+                customer_id: item.sender_customer.customer_id,
+                first_name: item.sender_customer.first_name ?? undefined,
+                middle_name: item.sender_customer.middle_name ?? undefined,
+                last_name: item.sender_customer.last_name ?? undefined,
+                phone: item.sender_customer.phone ?? undefined,
+                email: item.sender_customer.email ?? undefined,
+              }
+            : undefined,
+          receiver_customer: item.receiver_customer
+            ? {
+                customer_id: item.receiver_customer.customer_id,
+                first_name: item.receiver_customer.first_name ?? undefined,
+                middle_name: item.receiver_customer.middle_name ?? undefined,
+                last_name: item.receiver_customer.last_name ?? undefined,
+                phone: item.receiver_customer.phone ?? undefined,
+                email: item.receiver_customer.email ?? undefined,
+              }
+            : undefined,
+        };
+      }),
+    );
 
     return {
       total,

@@ -32,7 +32,8 @@ describe('UsdtTreasuryOrchestratorService', () => {
               if (key === 'USDT_TREASURY_PRIVATE_KEY') {
                 return '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
               }
-              if (key === 'ADMIN_ADDRESS') return '0x1230000000000000000000000000000000000000';
+              if (key === 'ADMIN_ADDRESS')
+                return '0x1230000000000000000000000000000000000000';
               return undefined;
             }),
           },
@@ -46,7 +47,9 @@ describe('UsdtTreasuryOrchestratorService', () => {
         {
           provide: EthereumService,
           useValue: {
-            getEsomBalance: jest.fn().mockRejectedValue(new Error('no contract')),
+            getEsomBalance: jest
+              .fn()
+              .mockRejectedValue(new Error('no contract')),
           },
         },
         { provide: BricsService, useValue: {} },
@@ -77,6 +80,11 @@ describe('UsdtTreasuryOrchestratorService', () => {
       treasury_address: 'TXYZ',
       usdt_balance: 0,
       salam_balance: 0,
+      salam_spent_today: 0,
+      salam_spent_total: 0,
+      brics_balance: 0,
+      brics_burned_today: 0,
+      brics_burned_total: 0,
       trx_balance: 0,
       energy_available: 0,
       bandwidth_available: 0,
@@ -100,6 +108,11 @@ describe('UsdtTreasuryOrchestratorService', () => {
       treasury_address: '',
       usdt_balance: 0,
       salam_balance: 0,
+      salam_spent_today: 0,
+      salam_spent_total: 0,
+      brics_balance: 0,
+      brics_burned_today: 0,
+      brics_burned_total: 0,
       trx_balance: 0,
       energy_available: 0,
       bandwidth_available: 0,
