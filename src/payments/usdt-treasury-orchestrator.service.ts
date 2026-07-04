@@ -671,12 +671,40 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     };
   }
 
+  private async sumBricsBalance(): Promise<number> {
+    const [issuedRows, redeemedRows] = await Promise.all([
+      this.prisma.accountingPosting.findMany({
+        where: {
+          debit_account_no: '90001',
+          credit_account_no: '92602',
+        },
+        select: { amount: true },
+      }),
+      this.prisma.accountingPosting.findMany({
+        where: {
+          debit_account_no: '92602',
+          credit_account_no: '90001',
+        },
+        select: { amount: true },
+      }),
+    ]);
+
+    const sum = (rows: { amount: unknown }[]) =>
+      rows.reduce((total, row) => {
+        const value = Number(row.amount ?? 0);
+        return total + (Number.isFinite(value) ? value : 0);
+      }, 0);
+
+    return Math.max(sum(issuedRows) - sum(redeemedRows), 0);
+  }
+
   async getTreasuryReserveSnapshot(): Promise<{
     treasury_address: string;
     usdt_balance: number;
     salam_balance: number;
     salam_spent_today: number;
     salam_spent_total: number;
+    brics_balance: number;
     trx_balance: number;
     energy_available: number;
     bandwidth_available: number;
@@ -698,6 +726,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         usdtBalance,
         salamBalance,
         salamSpent,
+        bricsBalance,
         bricsBurned,
         accountSnapshot,
         todayTransactions,
@@ -714,6 +743,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           this.sumTransactionAssetInput(startOfToday),
           { today: 0, total: 0 },
         ),
+        this.safeSnapshotValue('BRICS balance', this.sumBricsBalance(), 0),
         this.safeSnapshotValue(
           'BRICS burned',
           this.sumBricsBurned(startOfToday),
@@ -780,6 +810,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         salam_balance: salamBalance,
         salam_spent_today: salamSpent.today,
         salam_spent_total: salamSpent.total,
+        brics_balance: bricsBalance,
         trx_balance: accountSnapshot.trxBalance,
         energy_available: accountSnapshot.energyAvailable,
         bandwidth_available: accountSnapshot.bandwidthAvailable,
@@ -804,6 +835,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         salam_balance: 0,
         salam_spent_today: 0,
         salam_spent_total: 0,
+        brics_balance: 0,
         trx_balance: 0,
         energy_available: 0,
         bandwidth_available: 0,

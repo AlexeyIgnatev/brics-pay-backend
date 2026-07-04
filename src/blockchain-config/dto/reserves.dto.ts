@@ -6,6 +6,7 @@ export class TreasuryReservesDto {
   @ApiProperty() salam_balance: number;
   @ApiProperty() salam_spent_today: number;
   @ApiProperty() salam_spent_total: number;
+  @ApiProperty() brics_balance: number;
   @ApiProperty() trx_balance: number;
   @ApiProperty() energy_available: number;
   @ApiProperty() bandwidth_available: number;
