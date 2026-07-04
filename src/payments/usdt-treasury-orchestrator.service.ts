@@ -597,17 +597,86 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   }
 
   private async getSalamTreasurySnapshot(): Promise<number> {
-    const address = this.configService.get<string>('ADMIN_ADDRESS')?.trim();
-    if (!address) {
-      return 0;
-    }
-    return await this.ethereumService.getEsomBalance(address);
+    const aggregate = await this.prisma.userAssetBalance.aggregate({
+      where: { asset: 'ESOM' },
+      _sum: { balance: true },
+    });
+    const total = Number(aggregate._sum.balance ?? 0);
+    return Number.isFinite(total) ? total : 0;
+  }
+
+  private async sumTransactionAssetInput(
+    startAt?: Date,
+  ): Promise<{ today: number; total: number }> {
+    const [todayRows, allRows] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where: {
+          status: TransactionStatus.SUCCESS,
+          asset_in: 'ESOM',
+          ...(startAt ? { createdAt: { gte: startAt } } : {}),
+        },
+        select: { amount_in: true },
+      }),
+      this.prisma.transaction.findMany({
+        where: {
+          status: TransactionStatus.SUCCESS,
+          asset_in: 'ESOM',
+        },
+        select: { amount_in: true },
+      }),
+    ]);
+
+    const sum = (rows: { amount_in: unknown }[]) =>
+      rows.reduce((total, row) => {
+        const value = Number(row.amount_in ?? 0);
+        return total + (Number.isFinite(value) ? value : 0);
+      }, 0);
+
+    return {
+      today: sum(todayRows),
+      total: sum(allRows),
+    };
+  }
+
+  private async sumBricsBurned(
+    startAt?: Date,
+  ): Promise<{ today: number; total: number }> {
+    const [todayRows, allRows] = await Promise.all([
+      this.prisma.accountingPosting.findMany({
+        where: {
+          debit_account_no: '92602',
+          credit_account_no: '90001',
+          ...(startAt ? { createdAt: { gte: startAt } } : {}),
+        },
+        select: { amount: true },
+      }),
+      this.prisma.accountingPosting.findMany({
+        where: {
+          debit_account_no: '92602',
+          credit_account_no: '90001',
+        },
+        select: { amount: true },
+      }),
+    ]);
+
+    const sum = (rows: { amount: unknown }[]) =>
+      rows.reduce((total, row) => {
+        const value = Number(row.amount ?? 0);
+        return total + (Number.isFinite(value) ? value : 0);
+      }, 0);
+
+    return {
+      today: sum(todayRows),
+      total: sum(allRows),
+    };
   }
 
   async getTreasuryReserveSnapshot(): Promise<{
     treasury_address: string;
     usdt_balance: number;
     salam_balance: number;
+    salam_spent_today: number;
+    salam_spent_total: number;
     trx_balance: number;
     energy_available: number;
     bandwidth_available: number;
@@ -617,53 +686,68 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     bandwidth_spent_total: number;
     network_fee_trx_today: number;
     network_fee_trx_total: number;
+    brics_burned_today: number;
+    brics_burned_total: number;
   }> {
     try {
       const startOfToday = new Date();
       startOfToday.setHours(0, 0, 0, 0);
 
       const runtime = this.getRuntime();
-      const [usdtBalance, salamBalance, accountSnapshot, todayTransactions, allTransactions] =
-        await Promise.all([
-          this.safeSnapshotValue(
-            'USDT balance',
-            this.getUsdtBalance(runtime.treasuryAddress),
-            0,
-          ),
-          this.safeSnapshotValue(
-            'SALAM balance',
-            this.getSalamTreasurySnapshot(),
-            0,
-          ),
-          this.safeSnapshotValue(
-            'treasury account resources',
-            this.getTreasuryAccountSnapshot(),
-            {
-              trxBalance: 0,
-              energyAvailable: 0,
-              bandwidthAvailable: 0,
-            },
-          ),
-          this.prisma.blockchainTransaction.findMany({
-            where: {
-              network: Network.TRON,
-              createdAt: { gte: startOfToday },
-            },
-            select: {
-              fee_amount_raw: true,
-              energy_used: true,
-              bandwidth_used: true,
-            },
-          }),
-          this.prisma.blockchainTransaction.findMany({
-            where: { network: Network.TRON },
-            select: {
-              fee_amount_raw: true,
-              energy_used: true,
-              bandwidth_used: true,
-            },
-          }),
-        ]);
+      const [
+        usdtBalance,
+        salamBalance,
+        salamSpent,
+        bricsBurned,
+        accountSnapshot,
+        todayTransactions,
+        allTransactions,
+      ] = await Promise.all([
+        this.safeSnapshotValue(
+          'USDT balance',
+          this.getUsdtBalance(runtime.treasuryAddress),
+          0,
+        ),
+        this.safeSnapshotValue('SALAM balance', this.getSalamTreasurySnapshot(), 0),
+        this.safeSnapshotValue(
+          'SALAM spent',
+          this.sumTransactionAssetInput(startOfToday),
+          { today: 0, total: 0 },
+        ),
+        this.safeSnapshotValue(
+          'BRICS burned',
+          this.sumBricsBurned(startOfToday),
+          { today: 0, total: 0 },
+        ),
+        this.safeSnapshotValue(
+          'treasury account resources',
+          this.getTreasuryAccountSnapshot(),
+          {
+            trxBalance: 0,
+            energyAvailable: 0,
+            bandwidthAvailable: 0,
+          },
+        ),
+        this.prisma.blockchainTransaction.findMany({
+          where: {
+            network: Network.TRON,
+            createdAt: { gte: startOfToday },
+          },
+          select: {
+            fee_amount_raw: true,
+            energy_used: true,
+            bandwidth_used: true,
+          },
+        }),
+        this.prisma.blockchainTransaction.findMany({
+          where: { network: Network.TRON },
+          select: {
+            fee_amount_raw: true,
+            energy_used: true,
+            bandwidth_used: true,
+          },
+        }),
+      ]);
 
       const sumFeeTrx = (
         transactions: {
@@ -694,6 +778,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         treasury_address: runtime.treasuryAddress,
         usdt_balance: usdtBalance,
         salam_balance: salamBalance,
+        salam_spent_today: salamSpent.today,
+        salam_spent_total: salamSpent.total,
         trx_balance: accountSnapshot.trxBalance,
         energy_available: accountSnapshot.energyAvailable,
         bandwidth_available: accountSnapshot.bandwidthAvailable,
@@ -703,6 +789,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         bandwidth_spent_total: sumUsage(allTransactions, 'bandwidth_used'),
         network_fee_trx_today: sumFeeTrx(todayTransactions),
         network_fee_trx_total: sumFeeTrx(allTransactions),
+        brics_burned_today: bricsBurned.today,
+        brics_burned_total: bricsBurned.total,
       };
     } catch (error) {
       this.logger.error(
@@ -714,6 +802,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         treasury_address: '',
         usdt_balance: 0,
         salam_balance: 0,
+        salam_spent_today: 0,
+        salam_spent_total: 0,
         trx_balance: 0,
         energy_available: 0,
         bandwidth_available: 0,
@@ -723,6 +813,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         bandwidth_spent_total: 0,
         network_fee_trx_today: 0,
         network_fee_trx_total: 0,
+        brics_burned_today: 0,
+        brics_burned_total: 0,
       };
     }
   }

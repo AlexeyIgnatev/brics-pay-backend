@@ -4,6 +4,8 @@ export class TreasuryReservesDto {
   @ApiProperty() treasury_address: string;
   @ApiProperty() usdt_balance: number;
   @ApiProperty() salam_balance: number;
+  @ApiProperty() salam_spent_today: number;
+  @ApiProperty() salam_spent_total: number;
   @ApiProperty() trx_balance: number;
   @ApiProperty() energy_available: number;
   @ApiProperty() bandwidth_available: number;
@@ -13,4 +15,6 @@ export class TreasuryReservesDto {
   @ApiProperty() bandwidth_spent_total: number;
   @ApiProperty() network_fee_trx_today: number;
   @ApiProperty() network_fee_trx_total: number;
+  @ApiProperty() brics_burned_today: number;
+  @ApiProperty() brics_burned_total: number;
 }
