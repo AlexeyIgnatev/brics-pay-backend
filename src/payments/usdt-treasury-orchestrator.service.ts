@@ -597,12 +597,31 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   }
 
   private async getSalamTreasurySnapshot(): Promise<number> {
-    const aggregate = await this.prisma.userAssetBalance.aggregate({
-      where: { asset: 'ESOM' },
-      _sum: { balance: true },
-    });
-    const total = Number(aggregate._sum.balance ?? 0);
-    return Number.isFinite(total) ? total : 0;
+    const [creditRows, debitRows] = await Promise.all([
+      this.prisma.accountingPosting.findMany({
+        where: {
+          credit_account_no: '21199',
+          asset: 'SOM',
+        },
+        select: { amount: true },
+      }),
+      this.prisma.accountingPosting.findMany({
+        where: {
+          debit_account_no: '21199',
+          asset: 'SOM',
+        },
+        select: { amount: true },
+      }),
+    ]);
+
+    const sum = (rows: { amount: unknown }[]) =>
+      rows.reduce((total, row) => {
+        const value = Number(row.amount ?? 0);
+        return total + (Number.isFinite(value) ? value : 0);
+      }, 0);
+
+    const balance = sum(creditRows) - sum(debitRows);
+    return Number.isFinite(balance) ? balance : 0;
   }
 
   private async sumTransactionAssetInput(
