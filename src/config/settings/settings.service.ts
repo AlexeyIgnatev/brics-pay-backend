@@ -12,11 +12,17 @@ import {
   TariffSettingsUpdateDto,
 } from '../../blockchain-config/dto/tariff-settings.dto';
 
-const SUPPORTED_TARIFF_OPERATIONS = new Set<TariffOperation>([
-  TariffOperation.ESOM_TO_USDT_TRC20,
+const SUPPORTED_TARIFF_OPERATIONS: TariffOperation[] = [
+  TariffOperation.SOM_TO_ESOM,
+  TariffOperation.ESOM_TO_SOM,
   TariffOperation.WALLET_TRANSFER_ESOM,
+  TariffOperation.ESOM_TO_USDT_TRC20,
+  TariffOperation.USDT_TRC20_TO_ESOM,
   TariffOperation.WALLET_TRANSFER_USDT_TRC20,
-]);
+];
+const SUPPORTED_TARIFF_OPERATION_SET = new Set<TariffOperation>(
+  SUPPORTED_TARIFF_OPERATIONS,
+);
 
 @Injectable()
 export class SettingsService {
@@ -26,7 +32,7 @@ export class SettingsService {
 
   private readonly tariffCategories = Object.values(TariffCategory);
   private readonly tariffResidencies = Object.values(CustomerResidency);
-  private readonly tariffOperations = Object.values(TariffOperation);
+  private readonly tariffOperations = SUPPORTED_TARIFF_OPERATIONS;
 
   private async getOrCreateSettingsRow() {
     let s = await this.prisma.settings.findUnique({ where: { id: 1 } });
@@ -93,7 +99,7 @@ export class SettingsService {
       ],
     });
     return rows
-      .filter((row) => SUPPORTED_TARIFF_OPERATIONS.has(row.operation))
+      .filter((row) => SUPPORTED_TARIFF_OPERATION_SET.has(row.operation))
       .map((row) => ({
         category: row.category,
         residency: row.residency,
@@ -109,7 +115,7 @@ export class SettingsService {
     await this.ensureTariffRows();
     await this.prisma.$transaction(
       (dto.items || [])
-        .filter((item) => SUPPORTED_TARIFF_OPERATIONS.has(item.operation))
+        .filter((item) => SUPPORTED_TARIFF_OPERATION_SET.has(item.operation))
         .map((item) =>
           this.prisma.tariffSetting.upsert({
             where: {

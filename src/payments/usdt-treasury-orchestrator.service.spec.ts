@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
 import { CryptoService } from '../config/crypto/crypto.service';
+import { EthereumService } from '../config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
 
@@ -31,6 +32,7 @@ describe('UsdtTreasuryOrchestratorService', () => {
               if (key === 'USDT_TREASURY_PRIVATE_KEY') {
                 return '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
               }
+              if (key === 'ADMIN_ADDRESS') return '0x1230000000000000000000000000000000000000';
               return undefined;
             }),
           },
@@ -39,6 +41,12 @@ describe('UsdtTreasuryOrchestratorService', () => {
           provide: CryptoService,
           useValue: {
             trxAddressFromPrivateKey: jest.fn(() => 'TXYZ'),
+          },
+        },
+        {
+          provide: EthereumService,
+          useValue: {
+            getEsomBalance: jest.fn().mockRejectedValue(new Error('no contract')),
           },
         },
         { provide: BricsService, useValue: {} },
@@ -68,6 +76,7 @@ describe('UsdtTreasuryOrchestratorService', () => {
     expect(snapshot).toEqual({
       treasury_address: 'TXYZ',
       usdt_balance: 0,
+      salam_balance: 0,
       trx_balance: 0,
       energy_available: 0,
       bandwidth_available: 0,
@@ -90,6 +99,7 @@ describe('UsdtTreasuryOrchestratorService', () => {
     expect(snapshot).toEqual({
       treasury_address: '',
       usdt_balance: 0,
+      salam_balance: 0,
       trx_balance: 0,
       energy_available: 0,
       bandwidth_available: 0,

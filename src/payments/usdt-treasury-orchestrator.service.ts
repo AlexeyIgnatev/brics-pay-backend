@@ -30,6 +30,7 @@ import { existsSync, readFileSync } from 'fs';
 import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
 import { CryptoService } from '../config/crypto/crypto.service';
+import { EthereumService } from '../config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
 
@@ -76,6 +77,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     private readonly prisma: PrismaClient,
     private readonly configService: ConfigService,
     private readonly cryptoService: CryptoService,
+    private readonly ethereumService: EthereumService,
     private readonly bricsService: BricsService,
   ) {}
 
@@ -594,9 +596,18 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     };
   }
 
+  private async getSalamTreasurySnapshot(): Promise<number> {
+    const address = this.configService.get<string>('ADMIN_ADDRESS')?.trim();
+    if (!address) {
+      return 0;
+    }
+    return await this.ethereumService.getEsomBalance(address);
+  }
+
   async getTreasuryReserveSnapshot(): Promise<{
     treasury_address: string;
     usdt_balance: number;
+    salam_balance: number;
     trx_balance: number;
     energy_available: number;
     bandwidth_available: number;
@@ -612,11 +623,16 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       startOfToday.setHours(0, 0, 0, 0);
 
       const runtime = this.getRuntime();
-      const [usdtBalance, accountSnapshot, todayTransactions, allTransactions] =
+      const [usdtBalance, salamBalance, accountSnapshot, todayTransactions, allTransactions] =
         await Promise.all([
           this.safeSnapshotValue(
             'USDT balance',
             this.getUsdtBalance(runtime.treasuryAddress),
+            0,
+          ),
+          this.safeSnapshotValue(
+            'SALAM balance',
+            this.getSalamTreasurySnapshot(),
             0,
           ),
           this.safeSnapshotValue(
@@ -677,6 +693,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       return {
         treasury_address: runtime.treasuryAddress,
         usdt_balance: usdtBalance,
+        salam_balance: salamBalance,
         trx_balance: accountSnapshot.trxBalance,
         energy_available: accountSnapshot.energyAvailable,
         bandwidth_available: accountSnapshot.bandwidthAvailable,
@@ -696,6 +713,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       return {
         treasury_address: '',
         usdt_balance: 0,
+        salam_balance: 0,
         trx_balance: 0,
         energy_available: 0,
         bandwidth_available: 0,
