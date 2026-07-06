@@ -13,6 +13,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint src test --ext .ts --fix",
+    "usdt:bootstrap": "node scripts/usdt-local-contract-bootstrap.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
