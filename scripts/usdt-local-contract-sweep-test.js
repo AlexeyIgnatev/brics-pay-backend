@@ -409,13 +409,18 @@ async function waitTx(rpcUrl, txHash, label, { strict = true } = {}) {
   return { txInfo: lastSnapshot?.txInfo || {}, txRaw: lastSnapshot?.txRaw || {} };
 }
 
-async function sendTrx(tron, treasuryPk, toAddress, amountTrx, label) {
+async function sendTrx(tron, treasuryPk, toAddress, amountTrx, label, { strict = false } = {}) {
   const res = await tron.trx.sendTransaction(toAddress, amountTrx, treasuryPk);
   const txHash = res?.txid || res?.transaction?.txID || res?.transaction?.txid;
   if (!txHash) {
     throw new Error(`${label} trx tx hash missing: ${JSON.stringify(res, null, 2)}`);
   }
-  const confirmed = await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label, { strict: false });
+  const confirmed = await waitTx(
+    process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090',
+    txHash,
+    label,
+    { strict },
+  );
   console.log(`${label}=`, JSON.stringify({ send: res, confirmed }, null, 2));
   return txHash;
 }
@@ -496,7 +501,7 @@ async function ensureTreasuryFunding({
       reason: 'treasury needs TRX for customer airdrops and contract calls',
     }, null, 2));
 
-    await sendTrx(witnessTron, witnessPk, treasuryAddress, 50_000_000, 'treasury-trx-topup');
+    await sendTrx(witnessTron, witnessPk, treasuryAddress, 50_000_000, 'treasury-trx-topup', { strict: true });
   }
 }
 
@@ -552,6 +557,7 @@ async function main() {
           deployAddress,
           DEPLOY_FUNDING_SUN,
           'deploy-only-fund-deployer',
+          { strict: true },
         );
         await waitForResourceUpdate(rpcUrl, deployAddress, TronWebCtor, 'deploy-only-funded');
         console.log('deploy-only-prep=', JSON.stringify({
@@ -746,7 +752,7 @@ async function main() {
 
     const txHashes = [];
 
-    await sendTrx(witnessTron, witnessPk, treasuryAddress, 50_000_000, 'treasury-trx-funding');
+    await sendTrx(witnessTron, witnessPk, treasuryAddress, 50_000_000, 'treasury-trx-funding', { strict: true });
 
     for (const customer of TEST_CUSTOMERS) {
       await sendTrx(treasuryTron, treasuryPk, customer.address, initialTrxAirdrop, `trx-airdrop-${customer.id}`);
