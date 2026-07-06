@@ -114,6 +114,35 @@ function requestJson(url, method, body, headers = {}) {
   });
 }
 
+async function waitForAppUrl(candidates) {
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      const response = await requestJson(`${candidate.replace(/\/+$/, '')}/`, 'GET');
+      if (response.ok) {
+        return candidate;
+      }
+    } catch (error) {
+      console.log(
+        'app-url-probe=',
+        JSON.stringify(
+          {
+            candidate,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          null,
+          2,
+        ),
+      );
+    }
+  }
+
+  throw new Error(`No reachable app url found: ${candidates.filter(Boolean).join(', ')}`);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -522,7 +551,14 @@ async function main() {
     : 'run';
 
   const rpcUrl = process.env.TRON_FULL_NODE || process.env.USDT_RPC_URL || 'http://172.17.0.1:8090';
-  const appUrl = process.env.APP_URL || 'http://127.0.0.1:8000';
+  const appUrl = await waitForAppUrl([
+    process.env.APP_URL,
+    process.env.BRICS_APP_URL,
+    'http://brics:8000',
+    'http://127.0.0.1:8000',
+    'http://172.17.0.1:8000',
+  ]);
+  console.log('app-url=', JSON.stringify({ appUrl }, null, 2));
   const witnessPk = process.env.USDT_WITNESS_PRIVATE_KEY || 'da146374a75310b9666e834ee4ad0866d6f4035967bfc76217c5a495fff9f0d0';
   const deployPk = process.env.USDT_DEPLOYER_PRIVATE_KEY || witnessPk;
   const treasuryPk = fs.readFileSync('/run/secrets/usdt_treasury_private_key', 'utf8').trim();
