@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TRON Test Wallet</title>
+  <script src="https://cdn.jsdelivr.net/npm/tronweb/dist/TronWeb.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08111f;
+      --panel: #0f1c2d;
+      --panel-2: #13243a;
+      --text: #eaf2ff;
+      --muted: #8ea5c1;
+      --accent: #4cc9f0;
+      --accent-2: #7df9d6;
+      --danger: #ff6b6b;
+      --border: rgba(255, 255, 255, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Segoe UI, Inter, Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(76, 201, 240, 0.16), transparent 30%),
+        radial-gradient(circle at top right, rgba(125, 249, 214, 0.10), transparent 28%),
+        linear-gradient(180deg, #06101d 0%, #08111f 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1.5fr 1fr;
+      align-items: start;
+      margin-bottom: 18px;
+    }
+
+    .card {
+      background: rgba(15, 28, 45, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 22px 44px rgba(0, 0, 0, 0.24);
+      backdrop-filter: blur(14px);
+    }
+
+    h1, h2, h3 { margin: 0 0 12px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 18px; color: var(--accent); }
+    p { margin: 0 0 10px; color: var(--muted); line-height: 1.5; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .full { grid-column: 1 / -1; }
+
+    label {
+      display: block;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input, textarea {
+      width: 100%;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font: inherit;
+      outline: none;
+    }
+
+    textarea { min-height: 110px; resize: vertical; }
+
+    input:focus, textarea:focus {
+      border-color: rgba(76, 201, 240, 0.65);
+      box-shadow: 0 0 0 3px rgba(76, 201, 240, 0.10);
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    button {
+      border: 0;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #03111d;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 12px 16px;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    button.danger {
+      background: linear-gradient(135deg, #ff7a7a, #ffb36b);
+      color: #1a0a0a;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .mono {
+      font-family: Consolas, Monaco, monospace;
+      word-break: break-all;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(76, 201, 240, 0.12);
+      color: var(--text);
+      border: 1px solid rgba(76, 201, 240, 0.22);
+      font-size: 13px;
+    }
+
+    .status.off {
+      background: rgba(255, 107, 107, 0.12);
+      border-color: rgba(255, 107, 107, 0.22);
+    }
+
+    .sep {
+      height: 1px;
+      background: var(--border);
+      margin: 16px 0;
+    }
+
+    .small {
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="card">
+        <h1>TRON Test Wallet</h1>
+        <p>Локальный кошелек для приватной сети TRON. Подходит для тестовых TRX и TRC20 переводов без реальных денег.</p>
+        <div class="row">
+          <span id="connStatus" class="status off">Disconnected</span>
+          <span class="muted">RPC: <span id="rpcLabel" class="mono"></span></span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Быстрый сценарий</h2>
+        <p class="small">1. Генерируешь кошелек. 2. Фундишь TRX с witness-кошелька. 3. Делаешь перевод на общий кошелек.</p>
+        <p class="small">Для TRC20 нужен уже поднятый тестовый контракт в этой же приватной сети.</p>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card full">
+        <h2>Кошелек</h2>
+        <div class="grid">
+          <div>
+            <label>Private key</label>
+            <textarea id="pk" placeholder="Сюда можно вставить private key или нажать Generate"></textarea>
+          </div>
+          <div>
+            <label>Address</label>
+            <input id="address" readonly placeholder="Появится после генерации или подключения" />
+            <div style="height: 10px"></div>
+            <label>TRX balance</label>
+            <input id="balance" readonly placeholder="-" />
+          </div>
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <button id="btnGenerate" type="button">Generate wallet</button>
+          <button id="btnConnect" type="button" class="secondary">Connect / refresh</button>
+          <button id="btnSave" type="button" class="secondary">Save locally</button>
+          <button id="btnClear" type="button" class="danger">Clear local wallet</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Send TRX</h2>
+        <label>Recipient</label>
+        <input id="trxRecipient" placeholder="T..." />
+        <div style="height: 10px"></div>
+        <label>Amount TRX</label>
+        <input id="trxAmount" placeholder="1.0" />
+        <div style="height: 12px"></div>
+        <button id="btnSendTrx" type="button">Send TRX</button>
+      </div>
+
+      <div class="card">
+        <h2>Send TRC20</h2>
+        <label>Token contract</label>
+        <input id="tokenAddress" placeholder="T..." />
+        <div style="height: 10px"></div>
+        <label>Recipient</label>
+        <input id="tokenRecipient" placeholder="T..." />
+        <div style="height: 10px"></div>
+        <label>Amount tokens</label>
+        <input id="tokenAmount" placeholder="10" />
+        <div style="height: 12px"></div>
+        <button id="btnSendToken" type="button">Send token</button>
+      </div>
+
+      <div class="card full">
+        <h2>Log</h2>
+        <textarea id="log" readonly placeholder="Здесь появится результат операций"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const RPC = 'http://172.17.0.1:8090';
+    const STORAGE_KEY = 'tron_test_wallet_private_key';
+    const state = {
+      tronWeb: null,
+      walletLoaded: false,
+    };
+
+    const el = (id) => document.getElementById(id);
+    const log = (message) => {
+      const box = el('log');
+      const current = box.value.trim();
+      box.value = (current ? current + '\n' : '') + message;
+      box.scrollTop = box.scrollHeight;
+    };
+
+    const setStatus = (ok, text) => {
+      const node = el('connStatus');
+      node.classList.toggle('off', !ok);
+      node.textContent = text;
+    };
+
+    function ensureTronWeb() {
+      if (!window.TronWeb) {
+        throw new Error('TronWeb is not loaded');
+      }
+      return window.TronWeb;
+    }
+
+    function makeWalletFromPk(pk) {
+      const TronWeb = ensureTronWeb();
+      const cleaned = String(pk || '').trim().replace(/^0x/, '');
+      if (!/^[a-fA-F0-9]{64}$/.test(cleaned)) {
+        throw new Error('Invalid private key');
+      }
+      const tronWeb = new TronWeb({
+        fullHost: RPC,
+        privateKey: cleaned,
+      });
+      const address = tronWeb.address.fromPrivateKey(cleaned);
+      return { tronWeb, address, pk: cleaned };
+    }
+
+    async function refreshBalance() {
+      if (!state.tronWeb) return;
+      const address = el('address').value.trim();
+      if (!address) return;
+      const balanceSun = await state.tronWeb.trx.getBalance(address);
+      el('balance').value = `${(balanceSun / 1_000_000).toFixed(6)} TRX (${balanceSun} sun)`;
+      setStatus(true, 'Connected');
+    }
+
+    async function connectWallet(pk) {
+      const wallet = makeWalletFromPk(pk);
+      state.tronWeb = wallet.tronWeb;
+      state.walletLoaded = true;
+      el('pk').value = wallet.pk;
+      el('address').value = wallet.address;
+      localStorage.setItem(STORAGE_KEY, wallet.pk);
+      await refreshBalance();
+      log(`Connected wallet: ${wallet.address}`);
+      return wallet;
+    }
+
+    async function sendTrx() {
+      if (!state.tronWeb) throw new Error('Connect wallet first');
+      const to = el('trxRecipient').value.trim();
+      const amount = Number(el('trxAmount').value.trim().replace(',', '.'));
+      if (!to) throw new Error('Recipient is empty');
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be > 0');
+      const sun = Math.round(amount * 1_000_000);
+      const tx = await state.tronWeb.trx.sendTransaction(to, sun);
+      log(`TRX tx sent: ${JSON.stringify(tx, null, 2)}`);
+      await refreshBalance();
+      return tx;
+    }
+
+    async function sendToken() {
+      if (!state.tronWeb) throw new Error('Connect wallet first');
+      const contract = el('tokenAddress').value.trim();
+      const to = el('tokenRecipient').value.trim();
+      const amount = el('tokenAmount').value.trim().replace(',', '.');
+      if (!contract || !to || !amount) throw new Error('Fill token contract, recipient and amount');
+      const token = await state.tronWeb.contract().at(contract);
+      const tx = await token.transfer(to, amount).send({ feeLimit: 1_000_000_000 });
+      log(`TRC20 tx sent: ${JSON.stringify(tx, null, 2)}`);
+      await refreshBalance();
+      return tx;
+    }
+
+    function generateWallet() {
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      const pk = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      return connectWallet(pk);
+    }
+
+    function loadWallet() {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        el('pk').value = saved;
+        return connectWallet(saved).catch((err) => {
+          setStatus(false, 'Wallet load failed');
+          log(`Load error: ${err.message}`);
+        });
+      }
+      setStatus(false, 'No wallet');
+    }
+
+    el('rpcLabel').textContent = RPC;
+    el('btnGenerate').addEventListener('click', async () => {
+      try { await generateWallet(); } catch (err) { log(`Generate error: ${err.message}`); setStatus(false, 'Error'); }
+    });
+    el('btnConnect').addEventListener('click', async () => {
+      try { await connectWallet(el('pk').value); } catch (err) { log(`Connect error: ${err.message}`); setStatus(false, 'Error'); }
+    });
+    el('btnSave').addEventListener('click', () => {
+      const pk = el('pk').value.trim();
+      if (!pk) return log('Nothing to save');
+      localStorage.setItem(STORAGE_KEY, pk);
+      log('Wallet saved locally');
+    });
+    el('btnClear').addEventListener('click', () => {
+      localStorage.removeItem(STORAGE_KEY);
+      el('pk').value = '';
+      el('address').value = '';
+      el('balance').value = '';
+      state.tronWeb = null;
+      setStatus(false, 'Cleared');
+      log('Local wallet cleared');
+    });
+    el('btnSendTrx').addEventListener('click', async () => {
+      try { await sendTrx(); } catch (err) { log(`TRX send error: ${err.message}`); setStatus(false, 'Error'); }
+    });
+    el('btnSendToken').addEventListener('click', async () => {
+      try { await sendToken(); } catch (err) { log(`Token send error: ${err.message}`); setStatus(false, 'Error'); }
+    });
+    el('pk').addEventListener('input', () => {
+      try {
+        const pk = el('pk').value.trim();
+        if (!pk) return;
+        const wallet = makeWalletFromPk(pk);
+        el('address').value = wallet.address;
+      } catch {
+        el('address').value = '';
+      }
+    });
+
+    loadWallet();
+  </script>
+</body>
+</html>
