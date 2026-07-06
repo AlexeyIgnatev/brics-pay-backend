@@ -24,6 +24,8 @@ import { SettingsService } from '../config/settings/settings.service';
 import { PaymentFeeDto } from './dto/payment-fee.dto';
 import { UsdtDepositWebhookDto } from './dto/usdt-deposit.dto';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
+import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
+import { BrowserWalletTransferDto } from './dto/browser-wallet-transfer.dto';
 
 @Controller('payments')
 export class PaymentsController {
@@ -32,6 +34,23 @@ export class PaymentsController {
     private readonly settingsService: SettingsService,
     private readonly usdtTreasuryOrchestrator: UsdtTreasuryOrchestratorService,
   ) {}
+
+  @Post('browser-wallet/transfer')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(AdminAuthGuard)
+  async browserWalletTransfer(
+    @Body() dto: BrowserWalletTransferDto,
+  ): Promise<StatusOKDto> {
+    return this.paymentsService.transfer(
+      {
+        amount: dto.amount,
+        address: dto.address,
+        currency: dto.currency,
+        idempotency_key: dto.idempotency_key,
+      },
+      dto.customer_id,
+    );
+  }
 
   @Post('transfer')
   @ApiBearerAuth('Basic')
