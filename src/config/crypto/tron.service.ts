@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as TronWeb from 'tronweb';
 
@@ -8,6 +8,7 @@ const TRON_SUN = 1_000_000;
 export class TronService {
   private tron: any;
   private readonly decimalsDefault: number;
+  private readonly logger = new Logger(TronService.name);
 
   constructor(private readonly config: ConfigService) {
     const fullNode =
@@ -130,6 +131,12 @@ export class TronService {
     const privateKey = this.normalizePrivateKey(params.fromPrivateKey);
     const tokenAddress = this.getTokenAddress(params.tokenAddress);
     const tron = this.getTronWeb(privateKey);
+    const fromAddress = tron.address.fromPrivateKey(privateKey);
+    const feeLimit = params.feeLimit ?? 100_000_000;
+
+    this.logger.verbose(
+      `[sendTrc20] start from=${fromAddress} to=${params.toAddress} token=${tokenAddress} amount=${params.amount} feeLimit=${feeLimit} rpc=${this.config.get<string>('TRON_FULL_NODE') || 'https://api.trongrid.io'}`,
+    );
 
     const contract = tron.contract(
       [
@@ -156,21 +163,32 @@ export class TronService {
       throw new BadRequestException('USDT amount must be greater than 0');
     }
 
-    const txHash = await contract
-      .transfer(params.toAddress, amountSun.toString())
-      .send(
-        {
-          feeLimit: params.feeLimit ?? 100_000_000,
-          shouldPollResponse: false,
-        },
-        privateKey,
+    try {
+      const txHash = await contract
+        .transfer(params.toAddress, amountSun.toString())
+        .send(
+          {
+            feeLimit,
+            shouldPollResponse: false,
+          },
+          privateKey,
+        );
+
+      if (!txHash || typeof txHash !== 'string') {
+        throw new BadRequestException('Failed to broadcast TRC20 transfer');
+      }
+
+      this.logger.verbose(`[sendTrc20] broadcasted txHash=${txHash}`);
+
+      return { txHash };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[sendTrc20] failed from=${fromAddress} to=${params.toAddress} token=${tokenAddress} amount=${params.amount}: ${details}`,
+        error instanceof Error ? error.stack : undefined,
       );
-
-    if (!txHash || typeof txHash !== 'string') {
-      throw new BadRequestException('Failed to broadcast TRC20 transfer');
+      throw new BadRequestException(`TRC20 broadcast failed: ${details}`);
     }
-
-    return { txHash };
   }
 
   async waitForTransaction(
@@ -179,6 +197,9 @@ export class TronService {
     pollMs = 2_000,
   ): Promise<Record<string, unknown> | null> {
     const deadline = Date.now() + timeoutMs;
+    this.logger.verbose(
+      `[waitForTransaction] start txHash=${txHash} timeoutMs=${timeoutMs} pollMs=${pollMs}`,
+    );
     while (Date.now() < deadline) {
       try {
         const info = await this.getTronWeb().trx.getTransactionInfo(txHash);
@@ -189,23 +210,39 @@ export class TronService {
             (info as { receipt?: { result?: string } }).receipt?.result ===
               'SUCCESS')
         ) {
+          this.logger.verbose(
+            `[waitForTransaction] confirmed txHash=${txHash} blockNumber=${String((info as { blockNumber?: number }).blockNumber ?? 0)} status=${
+              (info as { receipt?: { result?: string } }).receipt?.result ??
+              'UNKNOWN'
+            }`,
+          );
           return info as Record<string, unknown>;
         }
+        this.logger.verbose(
+          `[waitForTransaction] pending txHash=${txHash} payload=${JSON.stringify(info)}`,
+        );
       } catch {
         // keep polling
       }
       await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
+    this.logger.warn(`[waitForTransaction] timeout txHash=${txHash}`);
     return null;
   }
 
   async getTransactionInfo(txHash: string): Promise<Record<string, unknown> | null> {
     try {
       const info = await this.getTronWeb().trx.getTransactionInfo(txHash);
+      this.logger.verbose(
+        `[getTransactionInfo] txHash=${txHash} payload=${JSON.stringify(info)}`,
+      );
       return info && typeof info === 'object'
         ? (info as Record<string, unknown>)
         : null;
-    } catch {
+    } catch (error) {
+      this.logger.warn(
+        `[getTransactionInfo] failed txHash=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return null;
     }
   }

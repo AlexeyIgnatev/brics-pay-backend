@@ -437,74 +437,102 @@ export class PaymentsService {
     amount: number;
     comment: string;
   }): Promise<StatusOKDto> {
-    const { txHash } = await this.tronService.sendTrc20({
-      fromPrivateKey: input.sender.private_key,
-      toAddress: input.recipientAddress,
-      amount: input.amount,
-    });
-
-    const info = await this.tronService.waitForTransaction(txHash);
-    if (!info) {
-      throw new BadRequestException(
-        `TRC20 transfer confirmation timeout: ${txHash}`,
+    try {
+      this.logger.verbose(
+        `[browser-wallet-transfer] start sender=${input.sender.customer_id} from=${input.sender.address} to=${input.recipientAddress} amount=${input.amount} recipientCustomerId=${input.recipientCustomerId ?? 'null'}`,
       );
-    }
-    const receipt = (info?.receipt as Record<string, unknown> | undefined) ?? {};
-    const blockNumber = Number(info?.blockNumber ?? 0) || null;
-    const blockTimestamp = Number(info?.blockTimeStamp ?? 0) || null;
-    const receiptStatus =
-      typeof receipt.result === 'string'
-        ? receipt.result
-        : typeof info?.result === 'string'
-          ? (info.result as string)
-          : null;
-    const feeAmountRaw =
-      receipt.energy_fee ??
-      receipt.net_fee ??
-      receipt.fee ??
-      receipt.other_fee ??
-      null;
-    const energyUsed = Number(
-      receipt.energy_usage_total ??
-        receipt.energy_usage ??
-        receipt.energy_used ??
-        0,
-    );
-    const bandwidthUsed = Number(receipt.net_usage ?? receipt.bandwidth_used ?? 0);
 
-    const transactionId = await this.createOnChainUsdtWalletTransferRecord({
-      sender: {
-        customer_id: input.sender.customer_id,
-        address: input.sender.address,
-      },
-      recipientAddress: input.recipientAddress,
-      recipientCustomerId: input.recipientCustomerId,
-      amount: input.amount,
-      txHash,
-      blockNumber,
-      blockTimestamp,
-      receiptStatus,
-      feeAmountRaw: feeAmountRaw != null ? String(feeAmountRaw) : null,
-      energyUsed: Number.isFinite(energyUsed) ? energyUsed : null,
-      bandwidthUsed: Number.isFinite(bandwidthUsed) ? bandwidthUsed : null,
-      comment: input.comment,
-    });
+      const { txHash } = await this.tronService.sendTrc20({
+        fromPrivateKey: input.sender.private_key,
+        toAddress: input.recipientAddress,
+        amount: input.amount,
+      });
 
-    await this.balanceFetchService.refreshAllBalancesForUser(
-      input.sender.customer_id,
-      ['USDT_TRC20' as Asset],
-    );
-    if (
-      input.recipientCustomerId &&
-      input.recipientCustomerId !== input.sender.customer_id
-    ) {
+      const info = await this.tronService.waitForTransaction(txHash);
+      if (!info) {
+        throw new BadRequestException(
+          `TRC20 transfer confirmation timeout: ${txHash}`,
+        );
+      }
+
+      const receipt =
+        (info?.receipt as Record<string, unknown> | undefined) ?? {};
+      const blockNumber = Number(info?.blockNumber ?? 0) || null;
+      const blockTimestamp = Number(info?.blockTimeStamp ?? 0) || null;
+      const receiptStatus =
+        typeof receipt.result === 'string'
+          ? receipt.result
+          : typeof info?.result === 'string'
+            ? (info.result as string)
+            : null;
+      const feeAmountRaw =
+        receipt.energy_fee ??
+        receipt.net_fee ??
+        receipt.fee ??
+        receipt.other_fee ??
+        null;
+      const energyUsed = Number(
+        receipt.energy_usage_total ??
+          receipt.energy_usage ??
+          receipt.energy_used ??
+          0,
+      );
+      const bandwidthUsed = Number(
+        receipt.net_usage ?? receipt.bandwidth_used ?? 0,
+      );
+
+      this.logger.verbose(
+        `[browser-wallet-transfer] confirmed txHash=${txHash} blockNumber=${String(blockNumber ?? 0)} blockTimestamp=${String(blockTimestamp ?? 0)} receiptStatus=${receiptStatus ?? 'null'} feeAmountRaw=${String(feeAmountRaw ?? 'null')} energyUsed=${String(Number.isFinite(energyUsed) ? energyUsed : 0)} bandwidthUsed=${String(Number.isFinite(bandwidthUsed) ? bandwidthUsed : 0)}`,
+      );
+
+      const transactionId = await this.createOnChainUsdtWalletTransferRecord({
+        sender: {
+          customer_id: input.sender.customer_id,
+          address: input.sender.address,
+        },
+        recipientAddress: input.recipientAddress,
+        recipientCustomerId: input.recipientCustomerId,
+        amount: input.amount,
+        txHash,
+        blockNumber,
+        blockTimestamp,
+        receiptStatus,
+        feeAmountRaw: feeAmountRaw != null ? String(feeAmountRaw) : null,
+        energyUsed: Number.isFinite(energyUsed) ? energyUsed : null,
+        bandwidthUsed: Number.isFinite(bandwidthUsed) ? bandwidthUsed : null,
+        comment: input.comment,
+      });
+
+      this.logger.verbose(
+        `[browser-wallet-transfer] db-recorded transactionId=${transactionId} txHash=${txHash}`,
+      );
+
       await this.balanceFetchService.refreshAllBalancesForUser(
-        input.recipientCustomerId,
+        input.sender.customer_id,
         ['USDT_TRC20' as Asset],
       );
-    }
+      if (
+        input.recipientCustomerId &&
+        input.recipientCustomerId !== input.sender.customer_id
+      ) {
+        await this.balanceFetchService.refreshAllBalancesForUser(
+          input.recipientCustomerId,
+          ['USDT_TRC20' as Asset],
+        );
+      }
 
-    return new StatusOKDto(transactionId);
+      return new StatusOKDto(transactionId);
+    } catch (error) {
+      const details = this.errorDetails(error);
+      this.logger.error(
+        `[browser-wallet-transfer] failed sender=${input.sender.customer_id} from=${input.sender.address} to=${input.recipientAddress} amount=${input.amount} recipientCustomerId=${input.recipientCustomerId ?? 'null'}: ${details}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Browser wallet transfer failed: ${details}`);
+    }
   }
 
   private buildCreditPurpose(
