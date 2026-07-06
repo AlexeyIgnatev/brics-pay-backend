@@ -437,6 +437,17 @@ export class PaymentsService {
     amount: number;
     comment: string;
   }): Promise<StatusOKDto> {
+    const realOnChain =
+      this.configService.get<string>('BROWSER_WALLET_REAL_ONCHAIN') === 'true';
+
+    if (!realOnChain) {
+      const simulatedTxId = Date.now();
+      this.logger.warn(
+        `[browser-wallet-transfer] simulation mode enabled, skipping on-chain send sender=${input.sender.customer_id} from=${input.sender.address} to=${input.recipientAddress} amount=${input.amount} recipientCustomerId=${input.recipientCustomerId ?? 'null'} comment=${input.comment}`,
+      );
+      return new StatusOKDto(simulatedTxId);
+    }
+
     try {
       this.logger.verbose(
         `[browser-wallet-transfer] start sender=${input.sender.customer_id} from=${input.sender.address} to=${input.recipientAddress} amount=${input.amount} recipientCustomerId=${input.recipientCustomerId ?? 'null'}`,
