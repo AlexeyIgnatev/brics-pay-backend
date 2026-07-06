@@ -510,6 +510,24 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     });
   }
 
+  private isBrowserWalletCustomer(customer?: {
+    first_name?: string | null;
+    middle_name?: string | null;
+    last_name?: string | null;
+  } | null): boolean {
+    if (!customer) return false;
+    const markers = [
+      customer.first_name?.trim().toLowerCase(),
+      customer.middle_name?.trim().toLowerCase(),
+      customer.last_name?.trim().toLowerCase(),
+    ];
+    return (
+      markers[0] === 'browser' &&
+      markers[1] === 'tron' &&
+      markers[2] === 'wallet'
+    );
+  }
+
   private async ensureCustomer(
     customerId: number,
     address?: string,
@@ -1292,6 +1310,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     txHash: string | null,
     comment: string,
     receiverWalletAddress?: string,
+    senderWalletAddress?: string,
   ) {
     return client.transaction.create({
       data: {
@@ -1306,6 +1325,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         sender_customer_id: customerId,
         receiver_customer_id: counterpartyCustomerId,
         receiver_wallet_address: receiverWalletAddress,
+        sender_wallet_address: senderWalletAddress ?? null,
         comment,
       },
     });
@@ -1551,6 +1571,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           null,
           'USDT internal transfer',
           input.receiverAddress,
+          input.senderAddress,
         );
 
         await this.applyLedgerDelta(tx, {
@@ -1589,6 +1610,220 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             confirmed_at: new Date(),
             payload: {
               ...(input.payload ?? {}),
+              transaction_id: transaction.id,
+              confirmed: true,
+            },
+            attempt_count: op.attempt_count + 1,
+            last_error_code: null,
+            last_error_message: null,
+          },
+        });
+
+        return transaction.id;
+      });
+
+      return new StatusOKDto(result);
+    } catch (error) {
+      await this.markFailed(op, error);
+      throw error;
+    }
+  }
+
+  async processBrowserWalletBridgeTransfer(input: {
+    senderCustomerId: number;
+    receiverCustomerId: number;
+    amount: number;
+    senderAddress: string;
+    receiverAddress: string;
+    senderPrivateKey?: string | null;
+    idempotencyKey?: string;
+    payload?: UsdtPaymentPayload;
+  }): Promise<StatusOKDto> {
+    const sender = await this.getCustomer(input.senderCustomerId);
+    const receiver = await this.getCustomer(input.receiverCustomerId);
+    if (!sender || !receiver) {
+      throw new BadRequestException('Customer not found');
+    }
+
+    const senderIsBrowserWallet = this.isBrowserWalletCustomer(sender);
+    const receiverIsBrowserWallet = this.isBrowserWalletCustomer(receiver);
+    if (senderIsBrowserWallet === receiverIsBrowserWallet) {
+      throw new BadRequestException(
+        'Browser wallet bridge requires exactly one browser wallet participant',
+      );
+    }
+
+    const bridgeDirection = receiverIsBrowserWallet
+      ? 'TREASURY_TO_BROWSER'
+      : 'BROWSER_TO_TREASURY';
+    const idempotencyKey =
+      this.normalizeKey(input.idempotencyKey) ??
+      this.fallbackIdempotencyKey('usdt-browser-bridge', [
+        input.senderCustomerId,
+        input.receiverCustomerId,
+        input.amount,
+        input.senderAddress,
+        input.receiverAddress,
+        bridgeDirection,
+      ]);
+
+    const existing = await this.findOperationByIdempotencyKey(idempotencyKey);
+    if (
+      existing?.payload &&
+      typeof existing.payload === 'object' &&
+      'transaction_id' in existing.payload &&
+      existing.status === PaymentOperationStatus.CONFIRMED
+    ) {
+      return new StatusOKDto(Number((existing.payload as any).transaction_id));
+    }
+
+    const tariffFee = await this.getCustomerTariffFee(
+      input.senderCustomerId,
+      this.tariffOperationForWalletTransfer('USDT_TRC20'),
+      input.amount,
+    );
+    const feeAmount = tariffFee.fee > 0 ? tariffFee.fee : 0;
+    const receiverNetAmount = Math.max(input.amount - feeAmount, 0);
+    const chainSourceAddress = receiverIsBrowserWallet
+      ? this.getRuntime().treasuryAddress
+      : input.senderAddress;
+    const chainDestinationAddress = receiverIsBrowserWallet
+      ? input.receiverAddress
+      : this.getRuntime().treasuryAddress;
+    const chainSourcePrivateKey = receiverIsBrowserWallet
+      ? this.getRuntime().treasuryPrivateKey
+      : input.senderPrivateKey ?? sender.private_key;
+
+    if (!chainSourcePrivateKey) {
+      throw new BadRequestException('Browser wallet private key is missing');
+    }
+
+    const op =
+      existing ??
+      (await this.createOperation({
+        operation_type: PaymentOperationType.INTERNAL_TRANSFER,
+        idempotency_key: idempotencyKey,
+        customer_id: input.senderCustomerId,
+        counterparty_customer_id: input.receiverCustomerId,
+        network: Network.TRON,
+        from_address: chainSourceAddress,
+        to_address: chainDestinationAddress,
+        source_kind: receiverIsBrowserWallet
+          ? OperationAddressKind.TREASURY
+          : OperationAddressKind.USER_WALLET,
+        destination_kind: receiverIsBrowserWallet
+          ? OperationAddressKind.USER_WALLET
+          : OperationAddressKind.TREASURY,
+        asset: 'USDT_TRC20',
+        amount: input.amount,
+        initiator_type: OperationInitiatorType.USER,
+        payload: {
+          ...(input.payload ?? {}),
+          source: 'browser-wallet-bridge',
+          bridge_direction: bridgeDirection,
+          fee_amount: feeAmount,
+          sender_is_browser_wallet: senderIsBrowserWallet,
+          receiver_is_browser_wallet: receiverIsBrowserWallet,
+        },
+        status: PaymentOperationStatus.NEW,
+      }));
+
+    try {
+      const { txHash } = await this.sendUsdt(
+        chainSourcePrivateKey,
+        chainDestinationAddress,
+        input.amount,
+      );
+
+      await this.markBroadcasted(op, txHash, {
+        ...((op.payload as UsdtPaymentPayload) ?? {}),
+        source: 'browser-wallet-bridge',
+        bridge_direction: bridgeDirection,
+        fee_amount: feeAmount,
+      });
+
+      const confirmed = await this.waitForConfirmation(txHash);
+      if (!confirmed) {
+        throw new BadRequestException(
+          `Browser wallet bridge confirmation timeout: ${txHash}`,
+        );
+      }
+
+      const snapshot = await this.fetchChainTransactionSnapshot(txHash).catch(
+        () => null,
+      );
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        const transaction = await this.createTransactionForInternalTransfer(
+          tx,
+          input.senderCustomerId,
+          input.receiverCustomerId,
+          input.amount,
+          receiverNetAmount,
+          feeAmount,
+          txHash,
+          receiverIsBrowserWallet
+            ? 'Browser wallet bridge to browser'
+            : 'Browser wallet bridge from browser',
+          chainDestinationAddress,
+          chainSourceAddress,
+        );
+
+        await this.applyLedgerDelta(tx, {
+          paymentOperationId: op.id,
+          transactionId: transaction.id,
+          customerId: input.senderCustomerId,
+          asset: 'USDT_TRC20',
+          delta: -input.amount,
+          entryType: LedgerEntryType.DEBIT,
+          metadata: {
+            side: 'sender',
+            bridge_direction: bridgeDirection,
+            fee_amount: feeAmount,
+            on_chain_from: chainSourceAddress,
+            on_chain_to: chainDestinationAddress,
+            ...(input.payload ?? {}),
+          },
+        });
+        await this.applyLedgerDelta(tx, {
+          paymentOperationId: op.id,
+          transactionId: transaction.id,
+          customerId: input.receiverCustomerId,
+          asset: 'USDT_TRC20',
+          delta: receiverNetAmount,
+          entryType: LedgerEntryType.CREDIT,
+          metadata: {
+            side: 'receiver',
+            bridge_direction: bridgeDirection,
+            fee_amount: feeAmount,
+            on_chain_from: chainSourceAddress,
+            on_chain_to: chainDestinationAddress,
+            ...(input.payload ?? {}),
+          },
+        });
+
+        await this.upsertBlockchainTransaction(tx, {
+          paymentOperationId: op.id,
+          direction: BlockchainTransactionDirection.OUTBOUND,
+          asset: 'USDT_TRC20',
+          txHash,
+          fromAddress: chainSourceAddress,
+          toAddress: chainDestinationAddress,
+          amount: input.amount,
+          status: BlockchainTransactionStatus.CONFIRMED,
+          gasPayerAddress: chainSourceAddress,
+          snapshot,
+        });
+
+        await tx.paymentOperation.update({
+          where: { id: op.id },
+          data: {
+            tx_hash: txHash,
+            status: PaymentOperationStatus.CONFIRMED,
+            confirmed_at: new Date(),
+            broadcasted_at: op.broadcasted_at ?? new Date(),
+            payload: {
+              ...((op.payload as UsdtPaymentPayload | undefined) ?? {}),
               transaction_id: transaction.id,
               confirmed: true,
             },

@@ -2416,9 +2416,9 @@ export class PaymentsService {
         if (asset === 'ESOM') {
           candidate = customer.address;
         } else if (asset === 'USDT_TRC20') {
-          candidate = this.cryptoService.trxAddressFromPrivateKey(
-            customer.private_key,
-          );
+          candidate =
+            customer.address ||
+            this.cryptoService.trxAddressFromPrivateKey(customer.private_key);
         }
 
         if (!candidate) continue;
@@ -2531,23 +2531,60 @@ export class PaymentsService {
           customer_id,
         );
         if (this.isBrowserWalletCustomer(me)) {
-          return this.transferBrowserWalletOnChain({
-            sender: {
-              customer_id: me.customer_id,
-              address: me.address,
-              private_key: me.private_key,
-              first_name: me.first_name,
-              middle_name: me.middle_name,
-              last_name: me.last_name,
-            },
-            recipientAddress:
-              internalRecipient?.walletAddress ?? transferDto.address,
-            recipientCustomerId: internalRecipient?.customer_id ?? null,
-            amount: transferDto.amount,
-            comment: internalRecipient
-              ? 'Browser wallet on-chain transfer'
-              : 'Browser wallet on-chain withdrawal',
-          });
+          this.logger.verbose(
+            `[transfer] sender is browser wallet customer=${me.customer_id} internalRecipient=${internalRecipient?.customer_id ?? 'null'}`,
+          );
+          if (
+            internalRecipient &&
+            this.isBrowserWalletCustomer({
+              customer_id: internalRecipient.customer_id,
+            })
+          ) {
+            this.logger.verbose(
+              `[transfer] browser -> browser bridge customer=${me.customer_id} recipient=${internalRecipient.customer_id}`,
+            );
+            return this.transferBrowserWalletOnChain({
+              sender: {
+                customer_id: me.customer_id,
+                address: me.address,
+                private_key: me.private_key,
+                first_name: me.first_name,
+                middle_name: me.middle_name,
+                last_name: me.last_name,
+              },
+              recipientAddress: internalRecipient.walletAddress,
+              recipientCustomerId: internalRecipient.customer_id,
+              amount: transferDto.amount,
+              comment: 'On-chain transfer between browser wallets',
+            });
+          }
+          if (internalRecipient) {
+            this.logger.verbose(
+              `[transfer] browser wallet bridge to internal recipient customer=${internalRecipient.customer_id}`,
+            );
+            return this.usdtTreasuryOrchestrator.processBrowserWalletBridgeTransfer(
+              {
+                senderCustomerId: me.customer_id,
+                receiverCustomerId: internalRecipient.customer_id,
+                senderAddress: me.address,
+                receiverAddress: internalRecipient.walletAddress,
+                senderPrivateKey: me.private_key,
+                amount: transferDto.amount,
+                idempotencyKey: transferDto.idempotency_key,
+                payload: {
+                  source: 'payments.transfer.address',
+                  browser_wallet_transfer: true,
+                },
+              },
+            );
+          }
+          return this.withdrawCrypto(
+            asset,
+            transferDto.address,
+            transferDto.amount,
+            customer_id,
+            transferDto.idempotency_key,
+          );
         }
         if (
           internalRecipient &&
@@ -2555,20 +2592,23 @@ export class PaymentsService {
             customer_id: internalRecipient.customer_id,
           })
         ) {
-          return this.transferBrowserWalletOnChain({
-            sender: {
-              customer_id: me.customer_id,
-              address: me.address,
-              private_key: me.private_key,
-              first_name: me.first_name,
-              middle_name: me.middle_name,
-              last_name: me.last_name,
+          this.logger.verbose(
+            `[transfer] user -> browser wallet bridge sender=${customer_id} recipient=${internalRecipient.customer_id}`,
+          );
+          return this.usdtTreasuryOrchestrator.processBrowserWalletBridgeTransfer(
+            {
+              senderCustomerId: customer_id,
+              receiverCustomerId: internalRecipient.customer_id,
+              senderAddress: me?.address ?? '',
+              receiverAddress: internalRecipient.walletAddress,
+              amount: transferDto.amount,
+              idempotencyKey: transferDto.idempotency_key,
+              payload: {
+                source: 'payments.transfer.address',
+                browser_wallet_transfer: true,
+              },
             },
-            recipientAddress: internalRecipient.walletAddress,
-            recipientCustomerId: internalRecipient.customer_id,
-            amount: transferDto.amount,
-            comment: 'On-chain transfer to browser wallet',
-          });
+          );
         }
         if (internalRecipient) {
           const allowed = await this.antiFraud.shouldAllowTransaction({
@@ -2638,20 +2678,43 @@ export class PaymentsService {
         }
 
         if (this.isBrowserWalletCustomer(me)) {
-          return this.transferBrowserWalletOnChain({
-            sender: {
-              customer_id: me.customer_id,
-              address: me.address,
-              private_key: me.private_key,
-              first_name: me.first_name,
-              middle_name: me.middle_name,
-              last_name: me.last_name,
+          this.logger.verbose(
+            `[transfer] sender is browser wallet by phone customer=${me.customer_id} recipient=${recipient.customer_id}`,
+          );
+          if (this.isBrowserWalletCustomer(recipient)) {
+            this.logger.verbose(
+              `[transfer] browser -> browser phone transfer customer=${me.customer_id} recipient=${recipient.customer_id}`,
+            );
+            return this.transferBrowserWalletOnChain({
+              sender: {
+                customer_id: me.customer_id,
+                address: me.address,
+                private_key: me.private_key,
+                first_name: me.first_name,
+                middle_name: me.middle_name,
+                last_name: me.last_name,
+              },
+              recipientAddress: recipient.address,
+              recipientCustomerId: recipient.customer_id,
+              amount: transferDto.amount,
+              comment: 'Browser wallet on-chain transfer by phone',
+            });
+          }
+          return this.usdtTreasuryOrchestrator.processBrowserWalletBridgeTransfer(
+            {
+              senderCustomerId: me.customer_id,
+              receiverCustomerId: recipient.customer_id,
+              senderAddress: me.address,
+              receiverAddress: recipient.address,
+              senderPrivateKey: me.private_key,
+              amount: transferDto.amount,
+              idempotencyKey: transferDto.idempotency_key,
+              payload: {
+                source: 'payments.transfer.phone',
+                browser_wallet_transfer: true,
+              },
             },
-            recipientAddress: recipient.address,
-            recipientCustomerId: recipient.customer_id,
-            amount: transferDto.amount,
-            comment: 'Browser wallet on-chain transfer by phone',
-          });
+          );
         }
 
         return this.usdtTreasuryOrchestrator.processInternalTransfer({
