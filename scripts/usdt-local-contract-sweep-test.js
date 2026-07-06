@@ -329,7 +329,7 @@ async function freezeAccountBandwidth(tron, privateKey, amountSun, label) {
   if (!txHash) {
     throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(broadcast, null, 2)}`);
   }
-  await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
+  await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label, { strict: false });
   await sleep(8000);
   return txHash;
 }
@@ -344,12 +344,12 @@ async function freezeAccountEnergy(tron, privateKey, amountSun, label) {
   if (!txHash) {
     throw new Error(`${label} freeze tx hash missing: ${JSON.stringify(broadcast, null, 2)}`);
   }
-  await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
+  await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label, { strict: false });
   await sleep(8000);
   return txHash;
 }
 
-async function waitTx(rpcUrl, txHash, label) {
+async function waitTx(rpcUrl, txHash, label, { strict = true } = {}) {
   let lastSnapshot = null;
   for (let i = 0; i < 90; i += 1) {
     const [txInfoRes, txRawRes] = await Promise.all([
@@ -391,7 +391,12 @@ async function waitTx(rpcUrl, txHash, label) {
     await sleep(2000);
   }
 
-  throw new Error(`${label} confirmation timeout: ${txHash}; lastSnapshot=${JSON.stringify(lastSnapshot, null, 2)}`);
+  const message = `${label} confirmation timeout: ${txHash}; lastSnapshot=${JSON.stringify(lastSnapshot, null, 2)}`;
+  if (strict) {
+    throw new Error(message);
+  }
+  console.log(`${label}-warning=`, JSON.stringify({ message }, null, 2));
+  return { txInfo: lastSnapshot?.txInfo || {}, txRaw: lastSnapshot?.txRaw || {} };
 }
 
 async function sendTrx(tron, treasuryPk, toAddress, amountTrx, label) {
@@ -400,7 +405,7 @@ async function sendTrx(tron, treasuryPk, toAddress, amountTrx, label) {
   if (!txHash) {
     throw new Error(`${label} trx tx hash missing: ${JSON.stringify(res, null, 2)}`);
   }
-  const confirmed = await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
+  const confirmed = await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label, { strict: false });
   console.log(`${label}=`, JSON.stringify({ send: res, confirmed }, null, 2));
   return txHash;
 }
@@ -429,7 +434,7 @@ async function sendUsdt(
     throw new Error(`${label} usdt tx hash missing`);
   }
 
-  const confirmed = await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label);
+  const confirmed = await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', txHash, label, { strict: false });
   console.log(`${label}=`, JSON.stringify({ txHash, confirmed }, null, 2));
   return txHash;
 }

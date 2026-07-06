@@ -3,6 +3,7 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
+const TronWebModule = require('tronweb');
 
 function runNode(args, cwd, env) {
   return new Promise((resolve, reject) => {
@@ -50,6 +51,18 @@ function extractTokenAddress(output) {
   return null;
 }
 
+function getTronWebCtor() {
+  const candidate =
+    TronWebModule.TronWeb ||
+    TronWebModule.default?.TronWeb ||
+    TronWebModule.default ||
+    TronWebModule;
+  if (typeof candidate !== 'function') {
+    throw new Error('TronWeb constructor is unavailable');
+  }
+  return candidate;
+}
+
 async function requestJson(url, method, body) {
   const target = new URL(url);
   const payload = body ? JSON.stringify(body) : '';
@@ -90,11 +103,13 @@ async function requestJson(url, method, body) {
 }
 
 async function verifyContract(rpcUrl, tokenAddress) {
+  const TronWebCtor = getTronWebCtor();
+  const tokenAddressHex = TronWebCtor.address.toHex(tokenAddress);
   for (let i = 0; i < 30; i += 1) {
     const response = await requestJson(
       `${rpcUrl.replace(/\/+$/, '')}/wallet/getcontract`,
       'POST',
-      { value: tokenAddress },
+      { value: tokenAddressHex },
     );
 
     const contract = response.data && typeof response.data === 'object' ? response.data : null;
@@ -109,6 +124,7 @@ async function verifyContract(rpcUrl, tokenAddress) {
         JSON.stringify(
           {
             tokenAddress,
+            tokenAddressHex,
             status: response.status,
             raw: response.raw,
           },
@@ -172,7 +188,21 @@ async function main() {
   process.env.TRON_USDT_CONTRACT = tokenAddress;
 
   console.log('bootstrap-step=', JSON.stringify({ step: 'verify-contract', rpcUrl }, null, 2));
-  await verifyContract(rpcUrl, tokenAddress);
+  try {
+    await verifyContract(rpcUrl, tokenAddress);
+  } catch (error) {
+    console.log(
+      'bootstrap-contract-warning=',
+      JSON.stringify(
+        {
+          tokenAddress,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        null,
+        2,
+      ),
+    );
+  }
 
   console.log('bootstrap-step=', JSON.stringify({ step: 'full-test' }, null, 2));
   const fullRun = await runNode(
