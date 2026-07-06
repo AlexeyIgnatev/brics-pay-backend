@@ -2534,11 +2534,20 @@ export class PaymentsService {
           this.logger.verbose(
             `[transfer] sender is browser wallet customer=${me.customer_id} internalRecipient=${internalRecipient?.customer_id ?? 'null'}`,
           );
+          const internalRecipientCustomer = internalRecipient
+            ? await this.prisma.customer.findUnique({
+                where: { customer_id: internalRecipient.customer_id },
+                select: {
+                  customer_id: true,
+                  first_name: true,
+                  middle_name: true,
+                  last_name: true,
+                },
+              })
+            : null;
           if (
             internalRecipient &&
-            this.isBrowserWalletCustomer({
-              customer_id: internalRecipient.customer_id,
-            })
+            this.isBrowserWalletCustomer(internalRecipientCustomer)
           ) {
             this.logger.verbose(
               `[transfer] browser -> browser bridge customer=${me.customer_id} recipient=${internalRecipient.customer_id}`,
@@ -2588,9 +2597,17 @@ export class PaymentsService {
         }
         if (
           internalRecipient &&
-          this.isBrowserWalletCustomer({
-            customer_id: internalRecipient.customer_id,
-          })
+          this.isBrowserWalletCustomer(
+            await this.prisma.customer.findUnique({
+              where: { customer_id: internalRecipient.customer_id },
+              select: {
+                customer_id: true,
+                first_name: true,
+                middle_name: true,
+                last_name: true,
+              },
+            }),
+          )
         ) {
           this.logger.verbose(
             `[transfer] user -> browser wallet bridge sender=${customer_id} recipient=${internalRecipient.customer_id}`,
