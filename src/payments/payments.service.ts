@@ -10,7 +10,14 @@
 import { ModuleRef } from '@nestjs/core';
 import {
   Asset,
+  BlockchainTransactionDirection,
+  BlockchainTransactionStatus,
   PrismaClient,
+  Network,
+  OperationAddressKind,
+  OperationInitiatorType,
+  PaymentOperationStatus,
+  PaymentOperationType,
   TariffOperation,
   Transaction,
   TransactionKind,
@@ -31,6 +38,7 @@ import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 import { BalanceFetchService } from '../user-management/balance-fetch.service';
 import { CryptoService } from '../config/crypto/crypto.service';
+import { TronService } from '../config/crypto/tron.service';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
 
 import { GetTransactions } from './dto/get-transactions.dto';
@@ -143,6 +151,7 @@ export class PaymentsService {
     private readonly balanceFetchService: BalanceFetchService,
     private readonly antiFraud: AntiFraudService,
     private readonly cryptoService: CryptoService,
+    private readonly tronService: TronService,
     private readonly usdtTreasuryOrchestrator: UsdtTreasuryOrchestratorService,
   ) {}
 
@@ -276,6 +285,226 @@ export class PaymentsService {
         comment: input.comment ?? null,
       },
     });
+  }
+
+  private isBrowserWalletCustomer(customer?: {
+    customer_id: number;
+    first_name?: string | null;
+    middle_name?: string | null;
+    last_name?: string | null;
+  } | number | null): boolean {
+    if (customer == null) return false;
+    if (typeof customer === 'number') {
+      return customer >= 910_000_000;
+    }
+    if (customer.customer_id >= 910_000_000) return true;
+
+    const markers = [
+      customer.first_name?.trim().toLowerCase(),
+      customer.middle_name?.trim().toLowerCase(),
+      customer.last_name?.trim().toLowerCase(),
+    ];
+    return (
+      markers[0] === 'browser' &&
+      markers[1] === 'tron' &&
+      markers[2] === 'wallet'
+    );
+  }
+
+  private async createOnChainUsdtWalletTransferRecord(input: {
+    sender: {
+      customer_id: number;
+      address: string;
+    };
+    recipientAddress: string;
+    recipientCustomerId?: number | null;
+    amount: number;
+    txHash: string;
+    blockNumber?: number | null;
+    blockTimestamp?: number | null;
+    receiptStatus?: string | null;
+    feeAmountRaw?: string | null;
+    energyUsed?: number | null;
+    bandwidthUsed?: number | null;
+    comment?: string;
+  }): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const paymentOperation = await tx.paymentOperation.create({
+        data: {
+          operation_type: PaymentOperationType.INTERNAL_TRANSFER,
+          status: PaymentOperationStatus.CONFIRMED,
+          idempotency_key: `browser-wallet-onchain-${input.txHash}`,
+          customer_id: input.sender.customer_id,
+          counterparty_customer_id: input.recipientCustomerId ?? null,
+          network: Network.TRON,
+          from_address: input.sender.address,
+          to_address: input.recipientAddress,
+          source_kind: OperationAddressKind.USER_WALLET,
+          destination_kind: input.recipientCustomerId
+            ? OperationAddressKind.USER_WALLET
+            : OperationAddressKind.EXTERNAL,
+          asset: 'USDT_TRC20',
+          amount: input.amount,
+          amount_raw: Math.floor(input.amount * 1_000_000).toString(),
+          decimals: 6,
+          tx_hash: input.txHash,
+          attempt_count: 1,
+          initiator_type: OperationInitiatorType.USER,
+          confirmed_at: new Date(),
+          payload: {
+            source: 'browser-wallet-on-chain-transfer',
+          },
+        },
+      });
+
+      await tx.blockchainTransaction.create({
+        data: {
+          payment_operation_id: paymentOperation.id,
+          direction: BlockchainTransactionDirection.OUTBOUND,
+          network: Network.TRON,
+          asset: 'USDT_TRC20',
+          token_contract: this.configService.get<string>('USDT_TOKEN_ADDRESS')
+            ?? this.configService.get<string>('TRON_USDT_CONTRACT')
+            ?? null,
+          tx_hash: input.txHash,
+          from_address: input.sender.address,
+          to_address: input.recipientAddress,
+          amount: input.amount,
+          amount_raw: Math.floor(input.amount * 1_000_000).toString(),
+          decimals: 6,
+          status: BlockchainTransactionStatus.CONFIRMED,
+          block_number: input.blockNumber ?? null,
+          block_timestamp: input.blockTimestamp
+            ? new Date(input.blockTimestamp)
+            : null,
+          confirmations: 1,
+          gas_payer_address: input.sender.address,
+          fee_amount_raw: input.feeAmountRaw ?? null,
+          fee_asset: 'TRX',
+          energy_used: input.energyUsed ?? null,
+          bandwidth_used: input.bandwidthUsed ?? null,
+          receipt_status: input.receiptStatus ?? null,
+        },
+      });
+
+      const transaction = await tx.transaction.create({
+        data: {
+          kind: TransactionKind.WALLET_TO_WALLET,
+          status: TransactionStatus.SUCCESS,
+          amount_in: input.amount.toString(),
+          asset_in: 'USDT_TRC20',
+          amount_out: input.amount.toString(),
+          asset_out: 'USDT_TRC20',
+          tx_hash: input.txHash,
+          sender_customer_id: input.sender.customer_id,
+          receiver_customer_id: input.recipientCustomerId ?? null,
+          sender_wallet_address: input.sender.address,
+          receiver_wallet_address: input.recipientAddress,
+          external_address: input.recipientCustomerId
+            ? null
+            : input.recipientAddress,
+          comment:
+            input.comment ??
+            'USDT TRC20 on-chain transfer involving browser wallet',
+        },
+      });
+
+      await tx.paymentOperation.update({
+        where: { id: paymentOperation.id },
+        data: {
+          payload: {
+            source: 'browser-wallet-on-chain-transfer',
+            transaction_id: transaction.id,
+          },
+        },
+      });
+
+      return transaction.id;
+    });
+  }
+
+  private async transferBrowserWalletOnChain(input: {
+    sender: {
+      customer_id: number;
+      address: string;
+      private_key: string;
+      first_name?: string | null;
+      middle_name?: string | null;
+      last_name?: string | null;
+    };
+    recipientAddress: string;
+    recipientCustomerId?: number | null;
+    amount: number;
+    comment: string;
+  }): Promise<StatusOKDto> {
+    const { txHash } = await this.tronService.sendTrc20({
+      fromPrivateKey: input.sender.private_key,
+      toAddress: input.recipientAddress,
+      amount: input.amount,
+    });
+
+    const info = await this.tronService.waitForTransaction(txHash);
+    if (!info) {
+      throw new BadRequestException(
+        `TRC20 transfer confirmation timeout: ${txHash}`,
+      );
+    }
+    const receipt = (info?.receipt as Record<string, unknown> | undefined) ?? {};
+    const blockNumber = Number(info?.blockNumber ?? 0) || null;
+    const blockTimestamp = Number(info?.blockTimeStamp ?? 0) || null;
+    const receiptStatus =
+      typeof receipt.result === 'string'
+        ? receipt.result
+        : typeof info?.result === 'string'
+          ? (info.result as string)
+          : null;
+    const feeAmountRaw =
+      receipt.energy_fee ??
+      receipt.net_fee ??
+      receipt.fee ??
+      receipt.other_fee ??
+      null;
+    const energyUsed = Number(
+      receipt.energy_usage_total ??
+        receipt.energy_usage ??
+        receipt.energy_used ??
+        0,
+    );
+    const bandwidthUsed = Number(receipt.net_usage ?? receipt.bandwidth_used ?? 0);
+
+    const transactionId = await this.createOnChainUsdtWalletTransferRecord({
+      sender: {
+        customer_id: input.sender.customer_id,
+        address: input.sender.address,
+      },
+      recipientAddress: input.recipientAddress,
+      recipientCustomerId: input.recipientCustomerId,
+      amount: input.amount,
+      txHash,
+      blockNumber,
+      blockTimestamp,
+      receiptStatus,
+      feeAmountRaw: feeAmountRaw != null ? String(feeAmountRaw) : null,
+      energyUsed: Number.isFinite(energyUsed) ? energyUsed : null,
+      bandwidthUsed: Number.isFinite(bandwidthUsed) ? bandwidthUsed : null,
+      comment: input.comment,
+    });
+
+    await this.balanceFetchService.refreshAllBalancesForUser(
+      input.sender.customer_id,
+      ['USDT_TRC20' as Asset],
+    );
+    if (
+      input.recipientCustomerId &&
+      input.recipientCustomerId !== input.sender.customer_id
+    ) {
+      await this.balanceFetchService.refreshAllBalancesForUser(
+        input.recipientCustomerId,
+        ['USDT_TRC20' as Asset],
+      );
+    }
+
+    return new StatusOKDto(transactionId);
   }
 
   private buildCreditPurpose(
@@ -2262,6 +2491,46 @@ export class PaymentsService {
           transferDto.address,
           customer_id,
         );
+        if (this.isBrowserWalletCustomer(me)) {
+          return this.transferBrowserWalletOnChain({
+            sender: {
+              customer_id: me.customer_id,
+              address: me.address,
+              private_key: me.private_key,
+              first_name: me.first_name,
+              middle_name: me.middle_name,
+              last_name: me.last_name,
+            },
+            recipientAddress:
+              internalRecipient?.walletAddress ?? transferDto.address,
+            recipientCustomerId: internalRecipient?.customer_id ?? null,
+            amount: transferDto.amount,
+            comment: internalRecipient
+              ? 'Browser wallet on-chain transfer'
+              : 'Browser wallet on-chain withdrawal',
+          });
+        }
+        if (
+          internalRecipient &&
+          this.isBrowserWalletCustomer({
+            customer_id: internalRecipient.customer_id,
+          })
+        ) {
+          return this.transferBrowserWalletOnChain({
+            sender: {
+              customer_id: me.customer_id,
+              address: me.address,
+              private_key: me.private_key,
+              first_name: me.first_name,
+              middle_name: me.middle_name,
+              last_name: me.last_name,
+            },
+            recipientAddress: internalRecipient.walletAddress,
+            recipientCustomerId: internalRecipient.customer_id,
+            amount: transferDto.amount,
+            comment: 'On-chain transfer to browser wallet',
+          });
+        }
         if (internalRecipient) {
           const allowed = await this.antiFraud.shouldAllowTransaction({
             kind: TransactionKind.WALLET_TO_WALLET,
@@ -2327,6 +2596,23 @@ export class PaymentsService {
         });
         if (!allowed) {
           throw new BadRequestException('Rejected by anti-fraud');
+        }
+
+        if (this.isBrowserWalletCustomer(me)) {
+          return this.transferBrowserWalletOnChain({
+            sender: {
+              customer_id: me.customer_id,
+              address: me.address,
+              private_key: me.private_key,
+              first_name: me.first_name,
+              middle_name: me.middle_name,
+              last_name: me.last_name,
+            },
+            recipientAddress: recipient.address,
+            recipientCustomerId: recipient.customer_id,
+            amount: transferDto.amount,
+            comment: 'Browser wallet on-chain transfer by phone',
+          });
         }
 
         return this.usdtTreasuryOrchestrator.processInternalTransfer({

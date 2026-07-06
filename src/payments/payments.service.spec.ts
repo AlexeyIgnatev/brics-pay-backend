@@ -17,6 +17,7 @@ describe('PaymentsService', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
       { processInternalTransfer: jest.fn(), processWithdraw: jest.fn() } as any,
     );
 
@@ -613,6 +614,7 @@ describe('PaymentsService', () => {
       } as any,
       {} as any,
       {} as any,
+      {} as any,
     );
 
     await service.convert(
@@ -706,6 +708,7 @@ describe('PaymentsService', () => {
           .fn()
           .mockResolvedValue({ allowed: true }),
       } as any,
+      {} as any,
       {} as any,
       {} as any,
     );

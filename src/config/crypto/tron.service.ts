@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as TronWeb from 'tronweb';
+
+const TRON_SUN = 1_000_000;
 
 @Injectable()
 export class TronService {
@@ -31,6 +33,78 @@ export class TronService {
       Number(this.config.get<number>('TRON_USDT_DECIMALS')) || 6;
   }
 
+  private getTronWebCtor(): new (options: {
+    fullHost: string;
+    privateKey?: string;
+    headers?: Record<string, string>;
+    solidityNode?: string;
+    eventServer?: string;
+  }) => any {
+    const candidate =
+      (TronWeb as { TronWeb?: unknown }).TronWeb ??
+      (TronWeb as { default?: { TronWeb?: unknown } }).default?.TronWeb ??
+      (TronWeb as { default?: unknown }).default ??
+      TronWeb;
+
+    if (typeof candidate !== 'function') {
+      throw new BadRequestException('TronWeb constructor is unavailable');
+    }
+
+    return candidate as new (options: {
+      fullHost: string;
+      privateKey?: string;
+      headers?: Record<string, string>;
+      solidityNode?: string;
+      eventServer?: string;
+    }) => any;
+  }
+
+  private getTronWeb(privateKey?: string): any {
+    const fullNode =
+      this.config.get<string>('TRON_FULL_NODE') || 'https://api.trongrid.io';
+    const solidityNode =
+      this.config.get<string>('TRON_SOLIDITY_NODE') || fullNode;
+    const eventServer =
+      this.config.get<string>('TRON_EVENT_SERVER') || fullNode;
+    const apiKey = this.config.get<string>('TRON_API_KEY');
+
+    const headers: Record<string, string> = {};
+    if (apiKey) headers['TRON-PRO-API-KEY'] = apiKey;
+
+    const TronCtor = this.getTronWebCtor();
+    return new TronCtor({
+      fullHost: fullNode,
+      privateKey,
+      headers,
+      solidityNode,
+      eventServer,
+    });
+  }
+
+  private getTokenAddress(tokenAddress?: string): string {
+    const resolved =
+      tokenAddress ||
+      this.config.get<string>('USDT_TOKEN_ADDRESS') ||
+      this.config.get<string>('TRON_USDT_CONTRACT');
+    if (!resolved?.trim()) {
+      throw new BadRequestException('USDT token contract is not configured');
+    }
+    return resolved.trim();
+  }
+
+  private normalizePrivateKey(privateKey: string): string {
+    let pk = privateKey.trim();
+    if (pk.startsWith('0x') || pk.startsWith('0X')) {
+      pk = pk.slice(2);
+    }
+    if (!/^[0-9a-fA-F]{64}$/.test(pk)) {
+      throw new BadRequestException(
+        'Invalid private key: expected 32-byte hex (64 chars).',
+      );
+    }
+    return pk.toLowerCase();
+  }
+
   async getTrc20Balance(
     address: string,
     contract: string,
@@ -44,5 +118,95 @@ export class TronService {
         : String(res);
     const denom = 10 ** decimals;
     return Number(raw) / denom;
+  }
+
+  async sendTrc20(params: {
+    fromPrivateKey: string;
+    toAddress: string;
+    amount: number;
+    tokenAddress?: string;
+    feeLimit?: number;
+  }): Promise<{ txHash: string }> {
+    const privateKey = this.normalizePrivateKey(params.fromPrivateKey);
+    const tokenAddress = this.getTokenAddress(params.tokenAddress);
+    const tron = this.getTronWeb(privateKey);
+
+    const contract = tron.contract(
+      [
+        {
+          constant: false,
+          inputs: [
+            { name: 'to', type: 'address' },
+            { name: 'amount', type: 'uint256' },
+          ],
+          name: 'transfer',
+          outputs: [],
+          type: 'function',
+          stateMutability: 'nonpayable',
+          payable: false,
+        },
+      ],
+      tokenAddress,
+    );
+
+    const amountSun = BigInt(
+      Math.floor(Number(params.amount) * 10 ** this.decimalsDefault),
+    );
+    if (!(amountSun > 0n)) {
+      throw new BadRequestException('USDT amount must be greater than 0');
+    }
+
+    const txHash = await contract
+      .transfer(params.toAddress, amountSun.toString())
+      .send(
+        {
+          feeLimit: params.feeLimit ?? 100_000_000,
+          shouldPollResponse: false,
+        },
+        privateKey,
+      );
+
+    if (!txHash || typeof txHash !== 'string') {
+      throw new BadRequestException('Failed to broadcast TRC20 transfer');
+    }
+
+    return { txHash };
+  }
+
+  async waitForTransaction(
+    txHash: string,
+    timeoutMs = 120_000,
+    pollMs = 2_000,
+  ): Promise<Record<string, unknown> | null> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const info = await this.getTronWeb().trx.getTransactionInfo(txHash);
+        if (
+          info &&
+          typeof info === 'object' &&
+          (Number((info as { blockNumber?: number }).blockNumber ?? 0) > 0 ||
+            (info as { receipt?: { result?: string } }).receipt?.result ===
+              'SUCCESS')
+        ) {
+          return info as Record<string, unknown>;
+        }
+      } catch {
+        // keep polling
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+    return null;
+  }
+
+  async getTransactionInfo(txHash: string): Promise<Record<string, unknown> | null> {
+    try {
+      const info = await this.getTronWeb().trx.getTransactionInfo(txHash);
+      return info && typeof info === 'object'
+        ? (info as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
   }
 }
