@@ -551,14 +551,6 @@ async function main() {
     : 'run';
 
   const rpcUrl = process.env.TRON_FULL_NODE || process.env.USDT_RPC_URL || 'http://172.17.0.1:8090';
-  const appUrl = await waitForAppUrl([
-    process.env.APP_URL,
-    process.env.BRICS_APP_URL,
-    'http://brics:8000',
-    'http://127.0.0.1:8000',
-    'http://172.17.0.1:8000',
-  ]);
-  console.log('app-url=', JSON.stringify({ appUrl }, null, 2));
   const witnessPk = process.env.USDT_WITNESS_PRIVATE_KEY || 'da146374a75310b9666e834ee4ad0866d6f4035967bfc76217c5a495fff9f0d0';
   const deployPk = process.env.USDT_DEPLOYER_PRIVATE_KEY || witnessPk;
   const treasuryPk = fs.readFileSync('/run/secrets/usdt_treasury_private_key', 'utf8').trim();
@@ -765,6 +757,15 @@ async function main() {
     console.log('treasuryAddress=', treasuryAddress);
     console.log('tokenAddress=', tokenAddress);
     console.log('beforeBalances=', JSON.stringify(balancesBefore, null, 2));
+
+    const appUrl = await waitForAppUrl([
+      process.env.APP_URL,
+      process.env.BRICS_APP_URL,
+      'http://brics:8000',
+      'http://127.0.0.1:8000',
+      'http://172.17.0.1:8000',
+    ]);
+    console.log('app-url=', JSON.stringify({ appUrl }, null, 2));
 
     const initialTrxAirdrop = 5_000_000;
     const depositAmount = 1000;
