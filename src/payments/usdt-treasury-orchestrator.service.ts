@@ -1684,15 +1684,10 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     );
     const feeAmount = tariffFee.fee > 0 ? tariffFee.fee : 0;
     const receiverNetAmount = Math.max(input.amount - feeAmount, 0);
-    const chainSourceAddress = receiverIsBrowserWallet
-      ? this.getRuntime().treasuryAddress
-      : input.senderAddress;
-    const chainDestinationAddress = receiverIsBrowserWallet
-      ? input.receiverAddress
-      : this.getRuntime().treasuryAddress;
-    const chainSourcePrivateKey = receiverIsBrowserWallet
-      ? this.getRuntime().treasuryPrivateKey
-      : input.senderPrivateKey ?? sender.private_key;
+    const chainSourceAddress = input.senderAddress;
+    const chainDestinationAddress = input.receiverAddress;
+    const chainSourcePrivateKey =
+      input.senderPrivateKey ?? sender.private_key;
 
     if (!chainSourcePrivateKey) {
       throw new BadRequestException('Browser wallet private key is missing');
@@ -1708,12 +1703,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         network: Network.TRON,
         from_address: chainSourceAddress,
         to_address: chainDestinationAddress,
-        source_kind: receiverIsBrowserWallet
-          ? OperationAddressKind.TREASURY
-          : OperationAddressKind.USER_WALLET,
-        destination_kind: receiverIsBrowserWallet
-          ? OperationAddressKind.USER_WALLET
-          : OperationAddressKind.TREASURY,
+        source_kind: OperationAddressKind.USER_WALLET,
+        destination_kind: OperationAddressKind.USER_WALLET,
         asset: 'USDT_TRC20',
         amount: input.amount,
         initiator_type: OperationInitiatorType.USER,
