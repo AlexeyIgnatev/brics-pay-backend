@@ -1873,6 +1873,13 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           );
         });
 
+      if (senderIsBrowserWallet) {
+        void this.maybeSweepCustomerWallet(input.senderCustomerId, txHash);
+      }
+      if (receiverIsBrowserWallet) {
+        void this.maybeSweepCustomerWallet(input.receiverCustomerId, txHash);
+      }
+
       return new StatusOKDto(result);
     } catch (error) {
       await this.markFailed(op, error);

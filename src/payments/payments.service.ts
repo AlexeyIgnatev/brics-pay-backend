@@ -438,7 +438,7 @@ export class PaymentsService {
     comment: string;
   }): Promise<StatusOKDto> {
     const realOnChain =
-      this.configService.get<string>('BROWSER_WALLET_REAL_ONCHAIN') === 'true';
+      this.configService.get<string>('BROWSER_WALLET_REAL_ONCHAIN') !== 'false';
 
     if (!realOnChain) {
       const simulatedTxId = Date.now();
