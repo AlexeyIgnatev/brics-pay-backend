@@ -1,5 +1,12 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { PrismaClient, Asset, PushPlatform } from '@prisma/client';
+import {
+  Asset,
+  CustomerResidency,
+  PrismaClient,
+  PushPlatform,
+  TariffCategory,
+  UserStatus,
+} from '@prisma/client';
 import { BricsService } from 'src/config/brics/brics.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { UserInfoDto } from './dto/user-info.dto';
@@ -7,6 +14,7 @@ import { WalletDto } from './dto/wallet.dto';
 import { Currency } from './enums/currency';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { SettingsService } from '../config/settings/settings.service';
+import { BrowserWalletRegisterDto } from './dto/browser-wallet.dto';
 
 @Injectable()
 export class UsersService {
@@ -151,6 +159,62 @@ export class UsersService {
       where: { customer_id: customerId },
       data: { push_enabled: pushEnabled },
     });
+  }
+
+  async registerBrowserWallet(dto: BrowserWalletRegisterDto): Promise<{
+    customer_id: number;
+    address: string;
+    private_key: string;
+  }> {
+    const privateKey = dto.private_key.trim().replace(/^0x/, '');
+    const address = this.cryptoService.trxAddressFromPrivateKey(privateKey);
+    const customerId =
+      dto.customer_id && dto.customer_id > 0
+        ? dto.customer_id
+        : await this.getNextBrowserWalletCustomerId();
+
+    await this.prisma.customer.upsert({
+      where: { customer_id: customerId },
+      create: {
+        customer_id: customerId,
+        address,
+        private_key: privateKey,
+        first_name: 'Browser',
+        middle_name: 'TRON',
+        last_name: 'Wallet',
+        phone: '',
+        email: '',
+        tariff_category: TariffCategory.K1,
+        residency: CustomerResidency.RESIDENT,
+        status: UserStatus.ACTIVE,
+      },
+      update: {
+        address,
+        private_key: privateKey,
+      },
+    });
+
+    return {
+      customer_id: customerId,
+      address,
+      private_key: privateKey,
+    };
+  }
+
+  private async getNextBrowserWalletCustomerId(): Promise<number> {
+    const base = 910_000_000;
+    for (let attempt = 0; attempt < 32; attempt += 1) {
+      const candidate = base + Math.floor(Math.random() * 90_000_000);
+      const existing = await this.prisma.customer.findUnique({
+        where: { customer_id: candidate },
+        select: { customer_id: true },
+      });
+      if (!existing) {
+        return candidate;
+      }
+    }
+
+    throw new Error('Unable to allocate browser wallet customer id');
   }
 
   async getUserInfo(username: string, password: string): Promise<UserInfoDto> {

@@ -8,6 +8,7 @@ import { BasicAuthGuard } from 'src/common/guards/basic-auth.guard';
 import { CryptoModule } from '../config/crypto/crypto.module';
 import { SettingsModule } from '../config/settings/settings.module';
 import { ExchangeModule } from '../config/exchange/exchange.module';
+import { BrowserWalletController } from './browser-wallet.controller';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { ExchangeModule } from '../config/exchange/exchange.module';
     SettingsModule,
     ExchangeModule,
   ],
-  controllers: [UsersController],
+  controllers: [UsersController, BrowserWalletController],
   providers: [UsersService, PrismaClient, BasicAuthGuard],
   exports: [UsersService],
 })
