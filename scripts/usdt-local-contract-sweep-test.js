@@ -42,6 +42,16 @@ const TOKEN_ABI = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
+  {
+    inputs: [
+      { internalType: 'address', name: 'to', type: 'address' },
+      { internalType: 'uint256', name: 'amount', type: 'uint256' },
+    ],
+    name: 'mint',
+    outputs: [{ internalType: 'bool', name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
 ];
 
 const TOKEN_BYTECODE = fs
@@ -439,6 +449,57 @@ async function sendUsdt(
   return txHash;
 }
 
+async function ensureTreasuryFunding({
+  treasuryTron,
+  witnessTron,
+  witnessPk,
+  deployPk,
+  tokenAbi,
+  tokenAddress,
+  treasuryAddress,
+  initialSupply,
+  TronWebCtor,
+}) {
+  const contract = await treasuryTron.contract(tokenAbi, tokenAddress);
+  const treasuryTokenBalance = BigInt(String(await contract.balanceOf(treasuryAddress).call() || '0'));
+
+  if (treasuryTokenBalance === 0n) {
+    console.log('treasury-mint-prep=', JSON.stringify({
+      treasuryAddress,
+      initialSupply,
+      reason: 'treasury token balance is empty on this private chain, minting test supply explicitly',
+    }, null, 2));
+
+    const mintTx = await contract.mint(treasuryAddress, initialSupply).send(
+      {
+        feeLimit: 100_000_000,
+        callValue: 0,
+        shouldPollResponse: false,
+      },
+      deployPk,
+    );
+
+    console.log('treasury-mint-send=', JSON.stringify({ mintTx }, null, 2));
+    await waitTx(process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090', mintTx, 'treasury-mint', { strict: false });
+  }
+
+  const treasuryTrxBalance = await getTrxBalanceSun(
+    process.env.TRON_FULL_NODE || 'http://172.17.0.1:8090',
+    treasuryAddress,
+    TronWebCtor,
+  ).catch(() => 0);
+
+  if (treasuryTrxBalance < 30_000_000) {
+    console.log('treasury-trx-topup=', JSON.stringify({
+      treasuryAddress,
+      treasuryTrxBalance,
+      reason: 'treasury needs TRX for customer airdrops and contract calls',
+    }, null, 2));
+
+    await sendTrx(witnessTron, witnessPk, treasuryAddress, 50_000_000, 'treasury-trx-topup');
+  }
+}
+
 async function postWebhook(appUrl, webhookSecret, body) {
   const response = await requestJson(
     `${appUrl.replace(/\/+$/, '')}/payments/usdt/deposit-webhook`,
@@ -668,10 +729,24 @@ async function main() {
 
     const tokenAbi = TOKEN_ABI;
     const tokenContract = treasuryTron.contract(tokenAbi, tokenAddress);
+    const initialSupply = (1_000_000_000n * 1_000_000n).toString();
+    await ensureTreasuryFunding({
+      treasuryTron,
+      witnessTron,
+      witnessPk,
+      deployPk,
+      tokenAbi,
+      tokenAddress,
+      treasuryAddress,
+      initialSupply,
+      TronWebCtor,
+    });
     const treasuryTokenBefore = await tokenContract.balanceOf(treasuryAddress).call();
     console.log('treasuryTokenBefore=', treasuryTokenBefore.toString());
 
     const txHashes = [];
+
+    await sendTrx(witnessTron, witnessPk, treasuryAddress, 50_000_000, 'treasury-trx-funding');
 
     for (const customer of TEST_CUSTOMERS) {
       await sendTrx(treasuryTron, treasuryPk, customer.address, initialTrxAirdrop, `trx-airdrop-${customer.id}`);
