@@ -1742,13 +1742,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         fee_amount: feeAmount,
       });
 
-      const confirmed = await this.waitForConfirmation(txHash);
-      if (!confirmed) {
-        throw new BadRequestException(
-          `Browser wallet bridge confirmation timeout: ${txHash}`,
-        );
-      }
-
       const snapshot = await this.fetchChainTransactionSnapshot(txHash).catch(
         () => null,
       );
@@ -1819,13 +1812,12 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           where: { id: op.id },
           data: {
             tx_hash: txHash,
-            status: PaymentOperationStatus.CONFIRMED,
-            confirmed_at: new Date(),
+            status: PaymentOperationStatus.BROADCASTED,
             broadcasted_at: op.broadcasted_at ?? new Date(),
             payload: {
               ...((op.payload as UsdtPaymentPayload | undefined) ?? {}),
               transaction_id: transaction.id,
-              confirmed: true,
+              confirmed: false,
             },
             attempt_count: op.attempt_count + 1,
             last_error_code: null,
@@ -1835,6 +1827,51 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
         return transaction.id;
       });
+
+      void this.waitForConfirmation(txHash, 12, 1000)
+        .then(async (confirmed) => {
+          if (!confirmed) {
+            this.logger.warn(
+              `Browser wallet bridge tx still not confirmed yet: ${txHash}`,
+            );
+            return;
+          }
+          const confirmedSnapshot =
+            await this.fetchChainTransactionSnapshot(txHash).catch(() => null);
+          await this.prisma.$transaction(async (tx) => {
+            await this.upsertBlockchainTransaction(tx, {
+              paymentOperationId: op.id,
+              direction: BlockchainTransactionDirection.OUTBOUND,
+              asset: 'USDT_TRC20',
+              txHash,
+              fromAddress: chainSourceAddress,
+              toAddress: chainDestinationAddress,
+              amount: input.amount,
+              status: BlockchainTransactionStatus.CONFIRMED,
+              gasPayerAddress: chainSourceAddress,
+              snapshot: confirmedSnapshot,
+            });
+            await tx.paymentOperation.update({
+              where: { id: op.id },
+              data: {
+                status: PaymentOperationStatus.CONFIRMED,
+                confirmed_at: new Date(),
+                payload: {
+                  ...((op.payload as UsdtPaymentPayload | undefined) ?? {}),
+                  transaction_id: result,
+                  confirmed: true,
+                },
+                last_error_code: null,
+                last_error_message: null,
+              },
+            });
+          });
+        })
+        .catch((error) => {
+          this.logger.warn(
+            `Browser wallet bridge confirmation watcher failed for tx=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
 
       return new StatusOKDto(result);
     } catch (error) {
