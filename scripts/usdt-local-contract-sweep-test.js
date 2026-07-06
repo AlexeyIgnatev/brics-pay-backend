@@ -115,32 +115,38 @@ function requestJson(url, method, body, headers = {}) {
 }
 
 async function waitForAppUrl(candidates) {
-  for (const candidate of candidates) {
-    if (!candidate) {
-      continue;
+  const activeCandidates = candidates.filter(Boolean);
+
+  for (let attempt = 1; attempt <= 60; attempt += 1) {
+    for (const candidate of activeCandidates) {
+      try {
+        const response = await requestJson(`${candidate.replace(/\/+$/, '')}/`, 'GET');
+        if (response.ok) {
+          console.log('app-url=', JSON.stringify({ appUrl: candidate, attempt }, null, 2));
+          return candidate;
+        }
+      } catch (error) {
+        if (attempt === 1 || attempt % 10 === 0) {
+          console.log(
+            'app-url-probe=',
+            JSON.stringify(
+              {
+                attempt,
+                candidate,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              null,
+              2,
+            ),
+          );
+        }
+      }
     }
 
-    try {
-      const response = await requestJson(`${candidate.replace(/\/+$/, '')}/`, 'GET');
-      if (response.ok) {
-        return candidate;
-      }
-    } catch (error) {
-      console.log(
-        'app-url-probe=',
-        JSON.stringify(
-          {
-            candidate,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          null,
-          2,
-        ),
-      );
-    }
+    await sleep(2000);
   }
 
-  throw new Error(`No reachable app url found: ${candidates.filter(Boolean).join(', ')}`);
+  throw new Error(`No reachable app url found: ${activeCandidates.join(', ')}`);
 }
 
 function sleep(ms) {
