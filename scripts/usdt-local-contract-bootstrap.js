@@ -151,19 +151,37 @@ function upsertEnvLine(source, key, value) {
 }
 
 async function updateEnvFile(envFile, tokenAddress) {
-  if (!fs.existsSync(envFile)) {
-    throw new Error(`Env file not found: ${envFile}`);
+  if (!envFile || !fs.existsSync(envFile)) {
+    console.log(
+      'bootstrap-env-warning=',
+      JSON.stringify(
+        {
+          message: 'Env file not found, skipping persistence of USDT_TOKEN_ADDRESS/TRON_USDT_CONTRACT',
+          envFile: envFile || null,
+        },
+        null,
+        2,
+      ),
+    );
+    return false;
   }
 
   const current = fs.readFileSync(envFile, 'utf8');
   let next = upsertEnvLine(current, 'USDT_TOKEN_ADDRESS', tokenAddress);
   next = upsertEnvLine(next, 'TRON_USDT_CONTRACT', tokenAddress);
   fs.writeFileSync(envFile, next, 'utf8');
+  console.log('bootstrap-env-updated=', JSON.stringify({ envFile, tokenAddress }, null, 2));
+  return true;
 }
 
 async function main() {
   const repoRoot = process.cwd();
-  const envFile = path.join(repoRoot, '.env.production');
+  const envFileCandidates = [
+    process.env.BRICS_ENV_FILE,
+    path.join(repoRoot, '.env.production'),
+    '/app/.env.production',
+  ].filter(Boolean);
+  const envFile = envFileCandidates.find((candidate) => fs.existsSync(candidate)) || null;
   const rpcUrl = process.env.TRON_FULL_NODE || process.env.USDT_RPC_URL || 'http://172.17.0.1:8090';
 
   console.log('bootstrap-step=', JSON.stringify({ step: 'deploy-only' }, null, 2));
