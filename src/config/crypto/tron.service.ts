@@ -130,6 +130,81 @@ export class TronService {
     return pk.toLowerCase();
   }
 
+  private isEmptyAccountPayload(payload: unknown): boolean {
+    return !payload || typeof payload !== 'object' || Object.keys(payload as Record<string, unknown>).length === 0;
+  }
+
+  async getAccount(address: string): Promise<Record<string, unknown> | null> {
+    try {
+      const account = await this.getTronWeb().trx.getAccount(address);
+      return this.isEmptyAccountPayload(account)
+        ? null
+        : (account as Record<string, unknown>);
+    } catch (error) {
+      this.logger.warn(
+        `[getAccount] failed address=${address}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  }
+
+  async sendTrx(params: {
+    fromPrivateKey: string;
+    toAddress: string;
+    amountTrx: number;
+  }): Promise<{ txHash: string }> {
+    const privateKey = this.normalizePrivateKey(params.fromPrivateKey);
+    const tron = this.getTronWeb(privateKey);
+    const fromAddress = tron.address.fromPrivateKey(privateKey);
+    const amountSun = Math.floor(Number(params.amountTrx) * TRON_SUN);
+    if (!(amountSun > 0)) {
+      throw new BadRequestException('TRX amount must be greater than 0');
+    }
+
+    try {
+      const txHash = await tron.trx.sendTransaction(
+        params.toAddress,
+        amountSun,
+        privateKey,
+      );
+      if (!txHash || typeof txHash !== 'string') {
+        throw new BadRequestException('Failed to broadcast TRX transfer');
+      }
+      this.logger.verbose(
+        `[sendTrx] broadcasted from=${fromAddress} to=${params.toAddress} amountTrx=${params.amountTrx} txHash=${txHash}`,
+      );
+      return { txHash };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[sendTrx] failed from=${fromAddress} to=${params.toAddress} amountTrx=${params.amountTrx}: ${details}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new BadRequestException(`TRX broadcast failed: ${details}`);
+    }
+  }
+
+  async ensureAccountActivated(params: {
+    address: string;
+    funderPrivateKey: string;
+    amountTrx?: number;
+  }): Promise<boolean> {
+    const account = await this.getAccount(params.address);
+    if (account) return false;
+
+    const amountTrx = params.amountTrx ?? 1;
+    this.logger.warn(
+      `[ensureAccountActivated] activating address=${params.address} amountTrx=${amountTrx}`,
+    );
+    const { txHash } = await this.sendTrx({
+      fromPrivateKey: params.funderPrivateKey,
+      toAddress: params.address,
+      amountTrx,
+    });
+    await this.waitForTransaction(txHash);
+    return true;
+  }
+
   async getTrc20Balance(
     address: string,
     contract: string,

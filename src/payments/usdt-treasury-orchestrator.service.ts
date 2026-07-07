@@ -30,6 +30,7 @@ import { existsSync, readFileSync } from 'fs';
 import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
 import { CryptoService } from '../config/crypto/crypto.service';
+import { TronService } from '../config/crypto/tron.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
@@ -77,6 +78,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     private readonly prisma: PrismaClient,
     private readonly configService: ConfigService,
     private readonly cryptoService: CryptoService,
+    private readonly tronService: TronService,
     private readonly ethereumService: EthereumService,
     private readonly bricsService: BricsService,
   ) {}
@@ -1692,6 +1694,18 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     if (!chainSourcePrivateKey) {
       throw new BadRequestException('Browser wallet private key is missing');
     }
+
+    const treasuryPrivateKey = this.getRuntime().treasuryPrivateKey;
+    await this.tronService.ensureAccountActivated({
+      address: chainSourceAddress,
+      funderPrivateKey: treasuryPrivateKey,
+      amountTrx: 1,
+    });
+    await this.tronService.ensureAccountActivated({
+      address: chainDestinationAddress,
+      funderPrivateKey: treasuryPrivateKey,
+      amountTrx: 1,
+    });
 
     const op =
       existing ??
