@@ -1011,6 +1011,7 @@ export class PaymentsService {
       last_name: string | null;
     } | null;
     sender_customer_id: number | null;
+    external_address: string | null;
     receiver_customer?: {
       first_name: string | null;
       middle_name: string | null;
@@ -1048,6 +1049,7 @@ export class PaymentsService {
     if (fullName) return fullName;
     if (t.receiver_customer_id != null)
       return `Customer #${t.receiver_customer_id}`;
+    if (t.external_address) return this.maskAccount(t.external_address);
     return 'N/A';
   }
 
@@ -2587,13 +2589,7 @@ export class PaymentsService {
               },
             );
           }
-          return this.withdrawCrypto(
-            asset,
-            transferDto.address,
-            transferDto.amount,
-            customer_id,
-            transferDto.idempotency_key,
-          );
+          throw new BadRequestException('Recipient not found');
         }
         if (
           internalRecipient &&

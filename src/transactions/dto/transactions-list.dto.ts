@@ -165,6 +165,7 @@ export class TransactionItemDto {
   client_abs_id?: number;
   @ApiProperty({ required: false }) sender_wallet_address?: string;
   @ApiProperty({ required: false }) receiver_wallet_address?: string;
+  @ApiProperty({ required: false }) external_address?: string;
   @ApiProperty({ required: false }) comment?: string;
   @ApiProperty({ required: false }) network_fee_amount?: number;
   @ApiProperty({ required: false }) network_fee_asset?: string;

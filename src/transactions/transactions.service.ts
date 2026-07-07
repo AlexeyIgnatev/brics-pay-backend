@@ -231,6 +231,12 @@ export class TransactionsService {
           },
         },
         {
+          external_address: {
+            contains: query.receiver,
+            mode: 'insensitive',
+          },
+        },
+        {
           receiver_customer: {
             OR: [
               { first_name: { contains: query.receiver, mode: 'insensitive' } },
@@ -366,6 +372,7 @@ export class TransactionsService {
             item.sender_customer_id ?? item.receiver_customer_id ?? undefined,
           sender_wallet_address: item.sender_wallet_address ?? undefined,
           receiver_wallet_address: item.receiver_wallet_address ?? undefined,
+          external_address: item.external_address ?? undefined,
           comment: item.comment ?? undefined,
           network_fee_amount: networkFee.amount,
           network_fee_asset: networkFee.asset,
