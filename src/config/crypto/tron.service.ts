@@ -93,30 +93,6 @@ export class TronService {
     return resolved.trim();
   }
 
-  private isEmptyContractPayload(payload: unknown): boolean {
-    if (!payload || typeof payload !== 'object') return true;
-    return Object.keys(payload as Record<string, unknown>).length === 0;
-  }
-
-  async assertTokenContractLive(tokenAddress?: string): Promise<string> {
-    const resolved = this.getTokenAddress(tokenAddress);
-
-    try {
-      const contract = await this.getTronWeb().trx.getContract(resolved);
-      if (this.isEmptyContractPayload(contract)) {
-        throw new BadRequestException(
-          `USDT token contract is not live on this node: ${resolved}`,
-        );
-      }
-      return resolved;
-    } catch (error) {
-      if (error instanceof BadRequestException) throw error;
-      throw new BadRequestException(
-        `USDT token contract is not live on this node: ${resolved}`,
-      );
-    }
-  }
-
   private normalizePrivateKey(privateKey: string): string {
     let pk = privateKey.trim();
     if (pk.startsWith('0x') || pk.startsWith('0X')) {
@@ -135,7 +111,6 @@ export class TronService {
     contract: string,
     decimals = this.decimalsDefault,
   ): Promise<number> {
-    await this.assertTokenContractLive(contract);
     const ctr = await this.tron.contract().at(contract);
     const res = await ctr.balanceOf(address).call();
     const raw =
@@ -154,7 +129,7 @@ export class TronService {
     feeLimit?: number;
   }): Promise<{ txHash: string }> {
     const privateKey = this.normalizePrivateKey(params.fromPrivateKey);
-    const tokenAddress = await this.assertTokenContractLive(params.tokenAddress);
+    const tokenAddress = this.getTokenAddress(params.tokenAddress);
     const tron = this.getTronWeb(privateKey);
     const fromAddress = tron.address.fromPrivateKey(privateKey);
     const feeLimit = params.feeLimit ?? 100_000_000;
