@@ -1,5 +1,6 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { TransactionStatus } from '@prisma/client';
+import * as TronWeb from 'tronweb';
 import { PaymentsService } from './payments.service';
 import { TransactionType } from './enums/transaction-type';
 import { ReceiptConversionSide } from './dto/transaction-receipt.dto';
@@ -345,6 +346,34 @@ describe('PaymentsService', () => {
     expect(rows[0].id).toBe(77);
     expect(rows[0].transaction_id).toBe(77);
     expect(rows[0].conversion_side).toBe(ReceiptConversionSide.OUT);
+  });
+
+  it('finds USDT recipients even when input address is hex and customer address is base58', async () => {
+    const recipientBase58 = 'TQYvtaMVomk4BFgGPNjnEadrnVaLAqS5Kj';
+    const recipientHex = TronWeb.TronWeb.address.toHex(recipientBase58) as string;
+    const prismaMock = {
+      customer: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            customer_id: 55,
+            address: recipientBase58,
+            private_key: null,
+          },
+        ]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const result = await (service as any).findInternalRecipientByAddress(
+      'USDT_TRC20',
+      recipientHex,
+      7,
+    );
+
+    expect(result).toEqual({
+      customer_id: 55,
+      walletAddress: recipientBase58,
+    });
   });
 
   it('returns output side for SOM to USDT bridge conversion history', async () => {

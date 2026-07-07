@@ -49,6 +49,7 @@ import {
 } from './dto/transaction-receipt.dto';
 import { TransactionDto } from './dto/transaction.dto';
 import { TransactionType } from './enums/transaction-type';
+import * as TronWeb from 'tronweb';
 
 type AccountingMetadata = Record<string, unknown>;
 
@@ -2339,6 +2340,50 @@ export class PaymentsService {
     return trimmed.toLowerCase();
   }
 
+  private getComparableTronAddressForms(address: string): string[] {
+    const trimmed = address.trim();
+    if (!trimmed) return [];
+
+    const variants = new Set<string>();
+    const add = (value?: string | null) => {
+      if (!value) return;
+      const normalized = value.trim();
+      if (!normalized) return;
+      variants.add(normalized);
+      variants.add(normalized.toLowerCase());
+    };
+
+    add(trimmed);
+
+    const hexSource = trimmed.startsWith('0x') || trimmed.startsWith('0X')
+      ? trimmed.slice(2)
+      : trimmed;
+
+    if (/^[0-9a-fA-F]{40,42}$/.test(hexSource)) {
+      const canonicalHex =
+        hexSource.length === 42 && hexSource.startsWith('41')
+          ? hexSource
+          : `41${hexSource}`;
+      add(canonicalHex);
+      try {
+        add(TronWeb.TronWeb.address.fromHex(canonicalHex) as string);
+      } catch {}
+    }
+
+    try {
+      add(TronWeb.TronWeb.address.toHex(trimmed) as string);
+    } catch {}
+
+    return [...variants];
+  }
+
+  private isSameTronAddress(left: string, right: string): boolean {
+    const leftForms = this.getComparableTronAddressForms(left);
+    if (!leftForms.length) return false;
+    const rightForms = new Set(this.getComparableTronAddressForms(right));
+    return leftForms.some((candidate) => rightForms.has(candidate));
+  }
+
   private isValidEsomWallet(customer: {
     address: string | null;
     private_key: string | null;
@@ -2424,11 +2469,14 @@ export class PaymentsService {
         }
 
         if (!candidate) continue;
-        const normalizedCandidate = this.normalizeWalletAddress(
-          asset,
-          candidate,
-        );
-        if (normalizedCandidate === target) {
+        if (
+          asset === 'USDT_TRC20'
+            ? this.isSameTronAddress(candidate, target)
+            : this.normalizeWalletAddress(asset, candidate) === target
+        ) {
+          this.logger.verbose(
+            `[findInternalRecipientByAddress] matched asset=${asset} target=${target} customer=${customer.customer_id} candidate=${candidate}`,
+          );
           return {
             customer_id: customer.customer_id,
             walletAddress: candidate,
@@ -2436,6 +2484,10 @@ export class PaymentsService {
         }
       } catch {}
     }
+
+    this.logger.verbose(
+      `[findInternalRecipientByAddress] no match asset=${asset} target=${target} excludeCustomerId=${excludeCustomerId} checked=${customers.length}`,
+    );
 
     return null;
   }
