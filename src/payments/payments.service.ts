@@ -50,7 +50,6 @@ import {
 import { TransactionDto } from './dto/transaction.dto';
 import { TransactionType } from './enums/transaction-type';
 import * as TronWeb from 'tronweb';
-import { existsSync, readFileSync } from 'fs';
 
 type AccountingMetadata = Record<string, unknown>;
 
@@ -158,29 +157,6 @@ export class PaymentsService {
   ) {}
 
   private readonly logger = new (Logger as any)('PaymentsService');
-
-  private readSecretFromFile(
-    envKey: string,
-    defaultPath?: string,
-  ): string | undefined {
-    const configuredPath = this.configService.get<string>(envKey)?.trim();
-    const path = configuredPath || defaultPath;
-    if (!path || !existsSync(path)) {
-      return undefined;
-    }
-    const value = readFileSync(path, 'utf8').trim();
-    return value || undefined;
-  }
-
-  private getTreasuryPrivateKey(): string | undefined {
-    return (
-      this.configService.get<string>('USDT_TREASURY_PRIVATE_KEY')?.trim() ||
-      this.readSecretFromFile(
-        'USDT_TREASURY_PRIVATE_KEY_FILE',
-        '/run/secrets/usdt_treasury_private_key',
-      )
-    );
-  }
 
   private antiFraudRejectMessage(
     flow: string,
@@ -477,20 +453,6 @@ export class PaymentsService {
       this.logger.verbose(
         `[browser-wallet-transfer] start sender=${input.sender.customer_id} from=${input.sender.address} to=${input.recipientAddress} amount=${input.amount} recipientCustomerId=${input.recipientCustomerId ?? 'null'}`,
       );
-
-      const treasuryPrivateKey = this.getTreasuryPrivateKey();
-      if (treasuryPrivateKey) {
-        await this.tronService.ensureAccountActivated({
-          address: input.sender.address,
-          funderPrivateKey: treasuryPrivateKey,
-          amountTrx: 1,
-        });
-        await this.tronService.ensureAccountActivated({
-          address: input.recipientAddress,
-          funderPrivateKey: treasuryPrivateKey,
-          amountTrx: 1,
-        });
-      }
 
       const { txHash } = await this.tronService.sendTrc20({
         fromPrivateKey: input.sender.private_key,
