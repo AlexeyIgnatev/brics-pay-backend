@@ -1874,7 +1874,17 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       return new StatusOKDto(result);
     } catch (error) {
       await this.markFailed(op, error);
-      throw error;
+      const details = this.getErrorDetails(error);
+      this.logger.error(
+        `[browser-wallet-bridge] failed sender=${input.senderCustomerId} receiver=${input.receiverCustomerId} from=${chainSourceAddress} to=${chainDestinationAddress} amount=${input.amount} error=${details.message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        `Browser wallet bridge failed: ${details.message}`,
+      );
     }
   }
 
