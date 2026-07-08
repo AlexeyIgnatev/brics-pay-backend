@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import {
   UsersListQueryDto,
@@ -83,6 +83,7 @@ export class UserManagementService {
         last_name: c.last_name ?? undefined,
         phone: c.phone ?? undefined,
         email: c.email ?? undefined,
+        status_comment: c.status_comment ?? undefined,
         status:
           c.status === 'BLOCKED'
             ? UserStatusDtoEnum.BLOCKED
@@ -114,7 +115,18 @@ export class UserManagementService {
     if (dto.last_name !== undefined) data.last_name = dto.last_name;
     if (dto.phone !== undefined) data.phone = dto.phone;
     if (dto.email !== undefined) data.email = dto.email;
-    if (dto.status !== undefined) data.status = dto.status;
+    if (dto.status !== undefined) {
+      const statusComment = dto.status_comment?.trim();
+      if (!statusComment) {
+        throw new BadRequestException(
+          'Комментарий обязателен при изменении статуса',
+        );
+      }
+      data.status = dto.status;
+      data.status_comment = statusComment;
+    } else if (dto.status_comment !== undefined) {
+      data.status_comment = dto.status_comment.trim() || null;
+    }
     if (dto.tariff_category !== undefined)
       data.tariff_category = dto.tariff_category;
     if (dto.residency !== undefined) data.residency = dto.residency;
@@ -141,6 +153,7 @@ export class UserManagementService {
       last_name: c.last_name ?? undefined,
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
+      status_comment: c.status_comment ?? undefined,
       status:
         c.status === 'BLOCKED'
           ? UserStatusDtoEnum.BLOCKED
@@ -189,6 +202,7 @@ export class UserManagementService {
       last_name: c.last_name ?? undefined,
       phone: c.phone ?? undefined,
       email: c.email ?? undefined,
+      status_comment: c.status_comment ?? undefined,
       status:
         c.status === 'BLOCKED'
           ? UserStatusDtoEnum.BLOCKED

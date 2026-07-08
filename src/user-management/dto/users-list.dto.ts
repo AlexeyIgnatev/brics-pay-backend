@@ -98,6 +98,7 @@ export class UsersListItemDto {
   @ApiProperty({ required: false }) last_name?: string;
   @ApiProperty({ required: false }) phone?: string;
   @ApiProperty({ required: false }) email?: string;
+  @ApiProperty({ required: false }) status_comment?: string;
   @ApiProperty({ enum: UserStatusDtoEnum }) status: UserStatusDtoEnum;
   @ApiProperty({ enum: TariffCategory }) tariff_category: TariffCategory;
   @ApiProperty({ enum: CustomerResidency }) residency: CustomerResidency;
@@ -162,6 +163,11 @@ export class AdminUpdateUserDto {
   @IsNotEmpty()
   @IsOptional()
   status?: UserStatusDtoEnum;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  status_comment?: string;
 
   @ApiPropertyOptional({ enum: TariffCategory })
   @IsEnum(TariffCategory)
