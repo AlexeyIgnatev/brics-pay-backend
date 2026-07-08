@@ -1109,18 +1109,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         snapshot,
       });
 
-      const existingLedger = await tx.ledgerEntry.findFirst({
-        where: {
-          payment_operation_id: currentOp.id,
-          transaction_id: transactionRecord.id,
-          customer_id: input.customerId,
-          asset: 'USDT_TRC20',
-          entry_type: LedgerEntryType.CREDIT,
-          status: LedgerEntryStatus.POSTED,
-        },
-      });
-
-      if (!existingLedger) {
+      if (!existingTransaction) {
         await this.applyLedgerDelta(tx, {
           paymentOperationId: currentOp.id,
           blockchainTransactionId: blockchainTransaction.id,
@@ -2306,6 +2295,22 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     const existing =
       (await this.findOperationByIdempotencyKey(idempotencyKey)) ??
       (await this.findOperationByTxHash(dto.tx_hash));
+    if (existing?.status === PaymentOperationStatus.CONFIRMED) {
+      return new StatusOKDto(
+        Number(
+          (existing.payload as UsdtPaymentPayload | undefined)
+            ?.transaction_id ?? existing.id,
+        ),
+      );
+    }
+    if (
+      existing?.payload &&
+      typeof existing.payload === 'object' &&
+      'transaction_id' in existing.payload
+    ) {
+      return new StatusOKDto(existing.id);
+    }
+
     const confirmed = await this.isConfirmedTx(dto.tx_hash);
     const op =
       existing ??

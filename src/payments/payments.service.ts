@@ -1255,37 +1255,6 @@ export class PaymentsService {
 
     const side = this.getDisplaySide(tx, dto);
     const fee = await this.resolveTransactionFeeFromTariffs(tx, customer_id);
-    const resolvedSenderCustomer =
-      tx.sender_customer ??
-      (tx.sender_wallet_address
-        ? await this.prisma.customer.findFirst({
-            where: { address: tx.sender_wallet_address },
-            select: {
-              address: true,
-              first_name: true,
-              middle_name: true,
-              last_name: true,
-            },
-          })
-        : null);
-    const resolvedReceiverCustomer =
-      tx.receiver_customer ??
-      (tx.receiver_wallet_address
-        ? await this.prisma.customer.findFirst({
-            where: { address: tx.receiver_wallet_address },
-            select: {
-              address: true,
-              first_name: true,
-              middle_name: true,
-              last_name: true,
-            },
-          })
-        : null);
-    const txForDisplay = {
-      ...tx,
-      sender_customer: resolvedSenderCustomer ?? tx.sender_customer,
-      receiver_customer: resolvedReceiverCustomer ?? tx.receiver_customer,
-    };
 
     return {
       successful: tx.status === TransactionStatus.SUCCESS,
@@ -1294,9 +1263,9 @@ export class PaymentsService {
       currency: side.currency,
       created_at: tx.createdAt.getTime(),
       fee,
-      account_details: this.buildAccountDetails(txForDisplay as typeof tx),
-      recipient_full_name: this.buildRecipientFullName(txForDisplay as typeof tx),
-      paid_from_account: this.buildPaidFromAccount(txForDisplay as typeof tx),
+      account_details: this.buildAccountDetails(tx),
+      recipient_full_name: this.buildRecipientFullName(tx),
+      paid_from_account: this.buildPaidFromAccount(tx),
       receipt_number: `TX-${tx.id}-${tx.createdAt.getTime()}`,
     };
   }

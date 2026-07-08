@@ -32,7 +32,6 @@ model Customer {
   last_name       String?
   phone           String?
   email           String?
-  status_comment  String?
   push_enabled    Boolean           @default(true)
   tariff_category TariffCategory    @default(K1)
   residency       CustomerResidency @default(RESIDENT)

@@ -29,17 +29,6 @@ const BRICS_BURN_DEBIT_ACCOUNT = '92602';
 const BRICS_BURN_CREDIT_ACCOUNT = '90001';
 const TRON_SUN = 1_000_000;
 
-type CustomerBrief = {
-  customer_id: number;
-  first_name?: string;
-  middle_name?: string;
-  last_name?: string;
-  phone?: string;
-  email?: string;
-  tariff_category?: TariffCategory;
-  residency?: CustomerResidency;
-};
-
 @Injectable()
 export class TransactionsService {
   constructor(
@@ -88,40 +77,6 @@ export class TransactionsService {
       .reduce((sum, posting) => sum + Number(posting.amount), 0);
 
     return burnedAmount > 0 ? burnedAmount : undefined;
-  }
-
-  private async resolveCustomerBriefByWalletAddress(
-    address?: string | null,
-  ): Promise<CustomerBrief | null> {
-    const normalized = address?.trim();
-    if (!normalized) return null;
-
-    const customer = await this.prisma.customer.findFirst({
-      where: { address: normalized },
-      select: {
-        customer_id: true,
-        first_name: true,
-        middle_name: true,
-        last_name: true,
-        phone: true,
-        email: true,
-        tariff_category: true,
-        residency: true,
-      },
-    });
-
-    if (!customer) return null;
-
-    return {
-      customer_id: customer.customer_id,
-      first_name: customer.first_name ?? undefined,
-      middle_name: customer.middle_name ?? undefined,
-      last_name: customer.last_name ?? undefined,
-      phone: customer.phone ?? undefined,
-      email: customer.email ?? undefined,
-      tariff_category: customer.tariff_category,
-      residency: customer.residency,
-    };
   }
 
   private tariffOperationForTransaction(item: {
@@ -386,31 +341,19 @@ export class TransactionsService {
           ? blockchainByHash.get(item.tx_hash)
           : undefined;
         const networkFee = this.parseNetworkFee(blockchainTransaction);
-        const resolvedSenderCustomer =
-          item.sender_customer ??
-          (await this.resolveCustomerBriefByWalletAddress(
-            item.sender_wallet_address,
-          ));
-        const feeAmount = await this.resolveFeeAmountFromTariffs({
-          kind: item.kind,
-          fee_amount: item.fee_amount,
-          amount_in: item.amount_in,
-          asset_in: item.asset_in as Asset,
-          asset_out: item.asset_out as Asset,
-          sender_customer:
-            resolvedSenderCustomer?.tariff_category &&
-            resolvedSenderCustomer?.residency
-              ? {
-                  tariff_category: resolvedSenderCustomer.tariff_category,
-                  residency: resolvedSenderCustomer.residency,
-                }
-              : null,
-        });
-        const resolvedReceiverCustomer =
-          item.receiver_customer ??
-          (await this.resolveCustomerBriefByWalletAddress(
-            item.receiver_wallet_address,
-          ));
+      const feeAmount = await this.resolveFeeAmountFromTariffs({
+        kind: item.kind,
+        fee_amount: item.fee_amount,
+        amount_in: item.amount_in,
+        asset_in: item.asset_in as Asset,
+        asset_out: item.asset_out as Asset,
+        sender_customer: item.sender_customer
+          ? {
+              tariff_category: item.sender_customer.tariff_category,
+              residency: item.sender_customer.residency,
+            }
+          : null,
+      });
 
         return {
           id: item.id,
@@ -446,24 +389,24 @@ export class TransactionsService {
               postingsByTransactionId.get(item.id) ?? [],
             ) ?? 0,
           createdAt: item.createdAt,
-          sender_customer: resolvedSenderCustomer
+          sender_customer: item.sender_customer
             ? {
-                customer_id: resolvedSenderCustomer.customer_id,
-                first_name: resolvedSenderCustomer.first_name ?? undefined,
-                middle_name: resolvedSenderCustomer.middle_name ?? undefined,
-                last_name: resolvedSenderCustomer.last_name ?? undefined,
-                phone: resolvedSenderCustomer.phone ?? undefined,
-                email: resolvedSenderCustomer.email ?? undefined,
+                customer_id: item.sender_customer.customer_id,
+                first_name: item.sender_customer.first_name ?? undefined,
+                middle_name: item.sender_customer.middle_name ?? undefined,
+                last_name: item.sender_customer.last_name ?? undefined,
+                phone: item.sender_customer.phone ?? undefined,
+                email: item.sender_customer.email ?? undefined,
               }
             : undefined,
-          receiver_customer: resolvedReceiverCustomer
+          receiver_customer: item.receiver_customer
             ? {
-                customer_id: resolvedReceiverCustomer.customer_id,
-                first_name: resolvedReceiverCustomer.first_name ?? undefined,
-                middle_name: resolvedReceiverCustomer.middle_name ?? undefined,
-                last_name: resolvedReceiverCustomer.last_name ?? undefined,
-                phone: resolvedReceiverCustomer.phone ?? undefined,
-                email: resolvedReceiverCustomer.email ?? undefined,
+                customer_id: item.receiver_customer.customer_id,
+                first_name: item.receiver_customer.first_name ?? undefined,
+                middle_name: item.receiver_customer.middle_name ?? undefined,
+                last_name: item.receiver_customer.last_name ?? undefined,
+                phone: item.receiver_customer.phone ?? undefined,
+                email: item.receiver_customer.email ?? undefined,
               }
             : undefined,
         };
