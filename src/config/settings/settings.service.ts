@@ -1,11 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  CustomerResidency,
-  PrismaClient,
-  TariffCategory,
-  TariffOperation,
-} from '@prisma/client';
+import { PrismaClient, TariffOperation } from '@prisma/client';
 import { BricsService } from '../brics/brics.service';
 import { EthereumService } from '../ethereum/ethereum.service';
 import { TronService } from '../crypto/tron.service';
@@ -56,10 +51,6 @@ export class SettingsService {
     private readonly tronService: TronService,
   ) {}
 
-  private readonly tariffCategories = Object.values(TariffCategory);
-  private readonly tariffResidencies = Object.values(CustomerResidency);
-  private readonly tariffOperations = SUPPORTED_TARIFF_OPERATIONS;
-
   private async getOrCreateSettingsRow() {
     let s = await this.prisma.settings.findUnique({ where: { id: 1 } });
     if (!s) {
@@ -109,7 +100,9 @@ export class SettingsService {
     return this.mapToDto(s);
   }
 
-  async updateAdmin(partial: AdminSettingsPartialDto): Promise<AdminSettingsDto> {
+  async updateAdmin(
+    partial: AdminSettingsPartialDto,
+  ): Promise<AdminSettingsDto> {
     const current = await this.getOrCreateSettingsRow();
 
     this.logger.debug(
@@ -200,7 +193,6 @@ export class SettingsService {
   }
 
   async getTariffs(): Promise<TariffSettingDto[]> {
-    await this.ensureTariffRows();
     const rows = await this.prisma.tariffSetting.findMany({
       orderBy: [
         { category: 'asc' },
@@ -222,7 +214,6 @@ export class SettingsService {
   async updateTariffs(
     dto: TariffSettingsUpdateDto,
   ): Promise<TariffSettingDto[]> {
-    await this.ensureTariffRows();
     await this.prisma.$transaction(
       (dto.items || [])
         .filter((item) => SUPPORTED_TARIFF_OPERATION_SET.has(item.operation))
@@ -252,46 +243,6 @@ export class SettingsService {
     return this.getTariffs();
   }
 
-  private async ensureTariffRows(): Promise<void> {
-    const existing = await this.prisma.tariffSetting.findMany({
-      select: { category: true, residency: true, operation: true },
-    });
-    const seen = new Set(
-      existing.map(
-        (row) => `${row.category}:${row.residency}:${row.operation}`,
-      ),
-    );
-    const missing: {
-      category: TariffCategory;
-      residency: CustomerResidency;
-      operation: TariffOperation;
-      percent_fee: string;
-      fixed_fee: string;
-    }[] = [];
-    for (const category of this.tariffCategories) {
-      for (const residency of this.tariffResidencies) {
-        for (const operation of this.tariffOperations) {
-          const key = `${category}:${residency}:${operation}`;
-          if (!seen.has(key)) {
-            missing.push({
-              category,
-              residency,
-              operation,
-              percent_fee: '0',
-              fixed_fee: '0',
-            });
-          }
-        }
-      }
-    }
-    if (missing.length) {
-      await this.prisma.tariffSetting.createMany({
-        data: missing,
-        skipDuplicates: true,
-      });
-    }
-  }
-
   private normalizeString(value: unknown): string {
     return value == null ? '' : String(value);
   }
@@ -312,7 +263,9 @@ export class SettingsService {
     return fallback;
   }
 
-  private parsePartnersJson(raw: string | null | undefined): BankCommissionPartnerConfig[] {
+  private parsePartnersJson(
+    raw: string | null | undefined,
+  ): BankCommissionPartnerConfig[] {
     if (!raw?.trim()) return [];
     try {
       const parsed = JSON.parse(raw);
