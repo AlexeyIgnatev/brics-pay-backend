@@ -23,6 +23,7 @@ import {
   TransactionsStatsTodayDto,
 } from './dto/transactions-stats.dto';
 import { SettingsService } from '../config/settings/settings.service';
+import { CryptoService } from '../config/crypto/crypto.service';
 
 const ALLOWED_ASSETS = ['SOM', 'ESOM', 'USDT_TRC20'] as const;
 const BRICS_BURN_DEBIT_ACCOUNT = '92602';
@@ -34,7 +35,90 @@ export class TransactionsService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly settings: SettingsService,
+    private readonly cryptoService: CryptoService,
   ) {}
+
+  private resolveCustomerTronAddress(customer: {
+    address?: string | null;
+    private_key?: string | null;
+  }): string | undefined {
+    const privateKey = customer.private_key?.trim();
+    if (privateKey) {
+      try {
+        return this.cryptoService.trxAddressFromPrivateKey(privateKey).trim();
+      } catch {
+        // Fall back to the stored address below for legacy rows.
+      }
+    }
+
+    const storedAddress = customer.address?.trim();
+    return storedAddress || undefined;
+  }
+
+  private async buildCustomerLookupByTronAddress(
+    addresses: string[],
+  ): Promise<
+    Map<
+      string,
+      {
+        customer_id: number;
+        first_name?: string | null;
+        middle_name?: string | null;
+        last_name?: string | null;
+        phone?: string | null;
+        email?: string | null;
+      }
+    >
+  > {
+    const uniqueAddresses = Array.from(
+      new Set(addresses.map((address) => address.trim()).filter(Boolean)),
+    );
+    if (!uniqueAddresses.length) {
+      return new Map();
+    }
+
+    const customers = await this.prisma.customer.findMany({
+      select: {
+        customer_id: true,
+        address: true,
+        private_key: true,
+        first_name: true,
+        middle_name: true,
+        last_name: true,
+        phone: true,
+        email: true,
+      },
+    });
+
+    const lookup = new Map<
+      string,
+      {
+        customer_id: number;
+        first_name?: string | null;
+        middle_name?: string | null;
+        last_name?: string | null;
+        phone?: string | null;
+        email?: string | null;
+      }
+    >();
+
+    for (const customer of customers) {
+      const tronAddress = this.resolveCustomerTronAddress(customer);
+      if (!tronAddress || !uniqueAddresses.includes(tronAddress)) continue;
+      if (lookup.has(tronAddress)) continue;
+
+      lookup.set(tronAddress, {
+        customer_id: customer.customer_id,
+        first_name: customer.first_name,
+        middle_name: customer.middle_name,
+        last_name: customer.last_name,
+        phone: customer.phone,
+        email: customer.email,
+      });
+    }
+
+    return lookup;
+  }
 
   private parseNetworkFee(
     tx: Pick<BlockchainTransaction, 'fee_amount_raw' | 'fee_asset'> | undefined,
@@ -279,8 +363,28 @@ export class TransactionsService {
       new Set(filteredItems.map((item) => item.tx_hash).filter(Boolean)),
     ) as string[];
     const transactionIds = filteredItems.map((item) => item.id);
+    const unresolvedWalletAddresses = Array.from(
+      new Set(
+        filteredItems
+          .flatMap((item) => [
+            !item.sender_customer && item.sender_wallet_address
+              ? item.sender_wallet_address
+              : null,
+            !item.receiver_customer && item.receiver_wallet_address
+              ? item.receiver_wallet_address
+              : null,
+            !item.receiver_customer &&
+            !item.receiver_customer_id &&
+            item.external_address
+              ? item.external_address
+              : null,
+          ])
+          .filter((address): address is string => Boolean(address?.trim())),
+      ),
+    );
 
-    const [blockchainTransactions, accountingPostings] = await Promise.all([
+    const [blockchainTransactions, accountingPostings, customersByTronAddress] =
+      await Promise.all([
       txHashes.length
         ? this.prisma.blockchainTransaction.findMany({
             where: { tx_hash: { in: txHashes } },
@@ -298,6 +402,7 @@ export class TransactionsService {
             },
           })
         : Promise.resolve([]),
+      this.buildCustomerLookupByTronAddress(unresolvedWalletAddresses),
     ]);
 
     const blockchainByHash = new Map<
@@ -341,19 +446,35 @@ export class TransactionsService {
           ? blockchainByHash.get(item.tx_hash)
           : undefined;
         const networkFee = this.parseNetworkFee(blockchainTransaction);
-      const feeAmount = await this.resolveFeeAmountFromTariffs({
-        kind: item.kind,
-        fee_amount: item.fee_amount,
-        amount_in: item.amount_in,
-        asset_in: item.asset_in as Asset,
-        asset_out: item.asset_out as Asset,
-        sender_customer: item.sender_customer
-          ? {
-              tariff_category: item.sender_customer.tariff_category,
-              residency: item.sender_customer.residency,
-            }
-          : null,
-      });
+        const feeAmount = await this.resolveFeeAmountFromTariffs({
+          kind: item.kind,
+          fee_amount: item.fee_amount,
+          amount_in: item.amount_in,
+          asset_in: item.asset_in as Asset,
+          asset_out: item.asset_out as Asset,
+          sender_customer: item.sender_customer
+            ? {
+                tariff_category: item.sender_customer.tariff_category,
+                residency: item.sender_customer.residency,
+              }
+            : null,
+        });
+        const resolvedSenderCustomer =
+          item.sender_customer ??
+          (item.sender_wallet_address
+            ? customersByTronAddress.get(item.sender_wallet_address)
+            : undefined);
+        const resolvedReceiverCustomer =
+          item.receiver_customer ??
+          (item.receiver_wallet_address
+            ? customersByTronAddress.get(item.receiver_wallet_address)
+            : item.external_address
+              ? customersByTronAddress.get(item.external_address)
+              : undefined);
+        const resolvedSenderCustomerId =
+          item.sender_customer_id ?? resolvedSenderCustomer?.customer_id;
+        const resolvedReceiverCustomerId =
+          item.receiver_customer_id ?? resolvedReceiverCustomer?.customer_id;
 
         return {
           id: item.id,
@@ -364,12 +485,14 @@ export class TransactionsService {
           asset: item.asset_in as unknown as string,
           tx_hash: item.tx_hash ?? undefined,
           bank_op_id: item.bank_op_id ?? undefined,
-          sender_customer_id: item.sender_customer_id ?? undefined,
-          receiver_customer_id: item.receiver_customer_id ?? undefined,
-          sender_abs_id: item.sender_customer_id ?? undefined,
-          receiver_abs_id: item.receiver_customer_id ?? undefined,
+          sender_customer_id: resolvedSenderCustomerId ?? undefined,
+          receiver_customer_id: resolvedReceiverCustomerId ?? undefined,
+          sender_abs_id: resolvedSenderCustomerId ?? undefined,
+          receiver_abs_id: resolvedReceiverCustomerId ?? undefined,
           client_abs_id:
-            item.sender_customer_id ?? item.receiver_customer_id ?? undefined,
+            resolvedSenderCustomerId ??
+            resolvedReceiverCustomerId ??
+            undefined,
           sender_wallet_address: item.sender_wallet_address ?? undefined,
           receiver_wallet_address: item.receiver_wallet_address ?? undefined,
           external_address: item.external_address ?? undefined,
@@ -389,24 +512,24 @@ export class TransactionsService {
               postingsByTransactionId.get(item.id) ?? [],
             ) ?? 0,
           createdAt: item.createdAt,
-          sender_customer: item.sender_customer
+          sender_customer: resolvedSenderCustomer
             ? {
-                customer_id: item.sender_customer.customer_id,
-                first_name: item.sender_customer.first_name ?? undefined,
-                middle_name: item.sender_customer.middle_name ?? undefined,
-                last_name: item.sender_customer.last_name ?? undefined,
-                phone: item.sender_customer.phone ?? undefined,
-                email: item.sender_customer.email ?? undefined,
+                customer_id: resolvedSenderCustomer.customer_id,
+                first_name: resolvedSenderCustomer.first_name ?? undefined,
+                middle_name: resolvedSenderCustomer.middle_name ?? undefined,
+                last_name: resolvedSenderCustomer.last_name ?? undefined,
+                phone: resolvedSenderCustomer.phone ?? undefined,
+                email: resolvedSenderCustomer.email ?? undefined,
               }
             : undefined,
-          receiver_customer: item.receiver_customer
+          receiver_customer: resolvedReceiverCustomer
             ? {
-                customer_id: item.receiver_customer.customer_id,
-                first_name: item.receiver_customer.first_name ?? undefined,
-                middle_name: item.receiver_customer.middle_name ?? undefined,
-                last_name: item.receiver_customer.last_name ?? undefined,
-                phone: item.receiver_customer.phone ?? undefined,
-                email: item.receiver_customer.email ?? undefined,
+                customer_id: resolvedReceiverCustomer.customer_id,
+                first_name: resolvedReceiverCustomer.first_name ?? undefined,
+                middle_name: resolvedReceiverCustomer.middle_name ?? undefined,
+                last_name: resolvedReceiverCustomer.last_name ?? undefined,
+                phone: resolvedReceiverCustomer.phone ?? undefined,
+                email: resolvedReceiverCustomer.email ?? undefined,
               }
             : undefined,
         };

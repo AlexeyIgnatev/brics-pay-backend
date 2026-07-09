@@ -36,6 +36,7 @@ model Customer {
   tariff_category TariffCategory    @default(K1)
   residency       CustomerResidency @default(RESIDENT)
   status          UserStatus        @default(ACTIVE)
+  status_comment  String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -258,6 +259,15 @@ model Settings {
   min_withdraw_btc        Decimal @db.Decimal(38, 18)
   min_withdraw_eth        Decimal @db.Decimal(38, 18)
   min_withdraw_usdt_trc20 Decimal @db.Decimal(38, 18)
+  rates_change_reasons_json     String?
+  bank_fee_posting_time_bishkek String?
+  central_bank_som_account      String?
+  central_bank_salam_wallet     String?
+  central_bank_usdt_wallet      String?
+  bank_som_account              String?
+  bank_salam_wallet             String?
+  bank_usdt_wallet              String?
+  bank_commission_partners_json String?
 
   updatedAt DateTime @updatedAt
 

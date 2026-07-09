@@ -64,6 +64,17 @@ interface ChainTransactionSnapshot {
   currentBlockNumber: number;
 }
 
+interface TronCustomerSnapshot {
+  customer_id: number;
+  address: string;
+  private_key: string;
+  status: string;
+  first_name?: string | null;
+  middle_name?: string | null;
+  last_name?: string | null;
+  tron_address: string;
+}
+
 @Injectable()
 export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private readonly logger = new Logger(UsdtTreasuryOrchestratorService.name);
@@ -508,6 +519,52 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         last_name: true,
       },
     });
+  }
+
+  private resolveCustomerTronAddress(customer: {
+    address?: string | null;
+    private_key?: string | null;
+  }): string | null {
+    const privateKey = customer.private_key?.trim();
+    if (privateKey) {
+      try {
+        return this.cryptoService.trxAddressFromPrivateKey(privateKey).trim();
+      } catch {
+        // Fall back to the stored address below when legacy data is malformed.
+      }
+    }
+
+    const storedAddress = customer.address?.trim();
+    return storedAddress || null;
+  }
+
+  private async findCustomerByTronAddress(
+    address: string,
+  ): Promise<TronCustomerSnapshot | null> {
+    const customers = await this.prisma.customer.findMany({
+      select: {
+        customer_id: true,
+        address: true,
+        private_key: true,
+        status: true,
+        first_name: true,
+        middle_name: true,
+        last_name: true,
+      },
+    });
+
+    for (const customer of customers) {
+      const tronAddress = this.resolveCustomerTronAddress(customer);
+      if (!tronAddress) continue;
+      if (!this.sameAddress(tronAddress, address)) continue;
+
+      return {
+        ...customer,
+        tron_address: tronAddress,
+      };
+    }
+
+    return null;
   }
 
   private isBrowserWalletCustomer(customer?: {
@@ -1073,28 +1130,59 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         where: {
           tx_hash: input.txHash,
           receiver_customer_id: input.customerId,
-          comment: 'USDT deposit',
+          asset_in: 'USDT_TRC20',
+          asset_out: 'USDT_TRC20',
         },
         orderBy: { id: 'asc' },
       });
+      const unresolvedTransaction = existingTransaction
+        ? null
+        : await tx.transaction.findFirst({
+            where: {
+              tx_hash: input.txHash,
+              receiver_customer_id: null,
+              asset_in: 'USDT_TRC20',
+              asset_out: 'USDT_TRC20',
+              OR: [
+                { receiver_wallet_address: input.toAddress },
+                { external_address: input.toAddress },
+              ],
+            },
+            orderBy: { id: 'asc' },
+          });
 
       const transactionRecord =
         existingTransaction ??
-        (await tx.transaction.create({
-          data: {
-            kind: TransactionKind.WALLET_TO_WALLET,
-            status: TransactionStatus.SUCCESS,
-            amount_in: input.amount.toString(),
-            asset_in: 'USDT_TRC20',
-            amount_out: input.amount.toString(),
-            asset_out: 'USDT_TRC20',
-            tx_hash: input.txHash,
-            sender_wallet_address: input.fromAddress,
-            receiver_customer_id: input.customerId,
-            receiver_wallet_address: input.toAddress,
-            comment: 'USDT deposit',
-          },
-        }));
+        (unresolvedTransaction
+          ? await tx.transaction.update({
+              where: { id: unresolvedTransaction.id },
+              data: {
+                status: TransactionStatus.SUCCESS,
+                sender_wallet_address:
+                  unresolvedTransaction.sender_wallet_address ??
+                  input.fromAddress,
+                receiver_customer_id: input.customerId,
+                receiver_wallet_address:
+                  unresolvedTransaction.receiver_wallet_address ??
+                  input.toAddress,
+                comment: unresolvedTransaction.comment ?? 'USDT deposit',
+              },
+            })
+          : await tx.transaction.create({
+              data: {
+                kind: TransactionKind.WALLET_TO_WALLET,
+                status: TransactionStatus.SUCCESS,
+                amount_in: input.amount.toString(),
+                asset_in: 'USDT_TRC20',
+                amount_out: input.amount.toString(),
+                asset_out: 'USDT_TRC20',
+                tx_hash: input.txHash,
+                sender_wallet_address: input.fromAddress,
+                receiver_customer_id: input.customerId,
+                receiver_wallet_address: input.toAddress,
+                comment: 'USDT deposit',
+              },
+            }));
 
       const blockchainTransaction = await this.upsertBlockchainTransaction(tx, {
         paymentOperationId: currentOp.id,
@@ -1408,11 +1496,13 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     idempotencyHint: string,
   ): Promise<void> {
     const customer = await this.getCustomer(customerId);
-    if (!customer?.address || !customer.private_key) return;
+    const customerTronAddress =
+      customer && this.resolveCustomerTronAddress(customer);
+    if (!customerTronAddress || !customer?.private_key) return;
 
     let liveBalance: number;
     try {
-      liveBalance = await this.getUsdtBalance(customer.address);
+      liveBalance = await this.getUsdtBalance(customerTronAddress);
     } catch (error) {
       this.logger.warn(
         `USDT sweep skipped for customer=${customerId}: unable to read on-chain balance (${error instanceof Error ? error.message : String(error)})`,
@@ -1426,7 +1516,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     const sweepKey = this.fallbackIdempotencyKey('usdt-sweep', [
       customerId,
       idempotencyHint,
-      customer.address,
+      customerTronAddress,
       liveBalance,
     ]);
     const existing = await this.findOperationByIdempotencyKey(sweepKey);
@@ -1441,7 +1531,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         idempotency_key: sweepKey,
         customer_id: customerId,
         network: Network.TRON,
-        from_address: customer.address,
+        from_address: customerTronAddress,
         to_address: this.getRuntime().treasuryAddress,
         source_kind: OperationAddressKind.USER_WALLET,
         destination_kind: OperationAddressKind.TREASURY,
@@ -1471,28 +1561,28 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         direction: BlockchainTransactionDirection.OUTBOUND,
         asset: 'USDT_TRC20',
         txHash,
-        fromAddress: customer.address,
+        fromAddress: customerTronAddress,
         toAddress: this.getRuntime().treasuryAddress,
         amount: liveBalance,
         status: BlockchainTransactionStatus.BROADCASTED,
-        gasPayerAddress: customer.address,
+        gasPayerAddress: customerTronAddress,
       });
       if (await this.waitForConfirmation(txHash)) {
         const snapshot = await this.fetchChainTransactionSnapshot(txHash).catch(
           () => null,
         );
-        await this.upsertBlockchainTransaction(this.prisma, {
-          paymentOperationId: op.id,
-          direction: BlockchainTransactionDirection.OUTBOUND,
-          asset: 'USDT_TRC20',
-          txHash,
-          fromAddress: customer.address,
-          toAddress: this.getRuntime().treasuryAddress,
-          amount: liveBalance,
-          status: BlockchainTransactionStatus.CONFIRMED,
-          gasPayerAddress: customer.address,
-          snapshot,
-        });
+          await this.upsertBlockchainTransaction(this.prisma, {
+            paymentOperationId: op.id,
+            direction: BlockchainTransactionDirection.OUTBOUND,
+            asset: 'USDT_TRC20',
+            txHash,
+            fromAddress: customerTronAddress,
+            toAddress: this.getRuntime().treasuryAddress,
+            amount: liveBalance,
+            status: BlockchainTransactionStatus.CONFIRMED,
+            gasPayerAddress: customerTronAddress,
+            snapshot,
+          });
         await this.markConfirmed(op);
       }
     } catch (error) {
@@ -2272,15 +2362,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       throw new UnauthorizedException('Invalid webhook secret');
     }
 
-    const customer = await this.prisma.customer.findFirst({
-      where: { address: dto.to_address },
-      select: {
-        customer_id: true,
-        address: true,
-        private_key: true,
-        status: true,
-      },
-    });
+    const customer = await this.findCustomerByTronAddress(dto.to_address);
     if (!customer) {
       throw new BadRequestException('Unknown USDT deposit recipient');
     }

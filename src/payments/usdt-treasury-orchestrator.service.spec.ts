@@ -200,4 +200,131 @@ describe('UsdtTreasuryOrchestratorService', () => {
       }),
     );
   });
+
+  it('matches deposit recipients by derived TRON address for regular users', async () => {
+    prismaMock.customer = {
+      findMany: jest.fn().mockResolvedValue([
+        {
+          customer_id: 55,
+          address: '0x1111111111111111111111111111111111111111',
+          private_key:
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+          status: 'ACTIVE',
+          first_name: 'Test',
+          middle_name: null,
+          last_name: 'User',
+        },
+      ]),
+    };
+
+    (service as any).findOperationByIdempotencyKey = jest
+      .fn()
+      .mockResolvedValue(null);
+    (service as any).findOperationByTxHash = jest.fn().mockResolvedValue(null);
+    (service as any).isConfirmedTx = jest.fn().mockResolvedValue(true);
+    (service as any).createOperation = jest.fn().mockResolvedValue({
+      id: 901,
+      payload: null,
+      status: 'BROADCASTED',
+    });
+    (service as any).finalizeDepositOperation = jest
+      .fn()
+      .mockResolvedValue(777);
+    (service as any).maybeSweepCustomerWallet = jest
+      .fn()
+      .mockResolvedValue(undefined);
+
+    const result = await service.handleUsdtDepositWebhook({
+      tx_hash: '6f580f445d84295fc6c10fdf9062d714c7c16cbbc519524208bf99c7dc27d6ca',
+      from_address: 'TFromAddress1111111111111111111111111',
+      to_address: 'TXYZ',
+      amount: 800,
+    });
+
+    expect(result.transaction_id).toBe(777);
+    expect((service as any).finalizeDepositOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 55,
+        toAddress: 'TXYZ',
+      }),
+    );
+    expect((service as any).maybeSweepCustomerWallet).toHaveBeenCalledWith(
+      55,
+      '6f580f445d84295fc6c10fdf9062d714c7c16cbbc519524208bf99c7dc27d6ca',
+    );
+  });
+
+  it('reuses an existing on-chain transaction row when finalizing a deposit', async () => {
+    const transactionFindFirst = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 321,
+        sender_wallet_address: 'TFromAddress1111111111111111111111111',
+        receiver_wallet_address: 'TXYZ',
+        comment: null,
+      });
+    const transactionUpdate = jest.fn().mockResolvedValue({
+      id: 321,
+      sender_wallet_address: 'TFromAddress1111111111111111111111111',
+      receiver_wallet_address: 'TXYZ',
+      receiver_customer_id: 55,
+      comment: 'USDT deposit',
+    });
+    const transactionCreate = jest.fn();
+    const paymentOperationFindUnique = jest.fn().mockResolvedValue({ id: 901 });
+    const paymentOperationUpdate = jest.fn().mockResolvedValue({ id: 901 });
+    prismaMock.$transaction = jest
+      .fn()
+      .mockImplementation(async (callback: any) =>
+        callback({
+          paymentOperation: {
+            findUnique: paymentOperationFindUnique,
+            update: paymentOperationUpdate,
+          },
+          transaction: {
+            findFirst: transactionFindFirst,
+            update: transactionUpdate,
+            create: transactionCreate,
+          },
+        }),
+      );
+
+    (service as any).fetchChainTransactionSnapshot = jest
+      .fn()
+      .mockResolvedValue(null);
+    (service as any).upsertBlockchainTransaction = jest
+      .fn()
+      .mockResolvedValue({ id: 999 });
+    (service as any).applyLedgerDelta = jest.fn().mockResolvedValue(undefined);
+
+    const transactionId = await (service as any).finalizeDepositOperation({
+      customerId: 55,
+      fromAddress: 'TFromAddress1111111111111111111111111',
+      toAddress: 'TXYZ',
+      amount: 800,
+      txHash: '6f580f445d84295fc6c10fdf9062d714c7c16cbbc519524208bf99c7dc27d6ca',
+      operationId: 901,
+      payload: {},
+    });
+
+    expect(transactionId).toBe(321);
+    expect(transactionUpdate).toHaveBeenCalledWith({
+      where: { id: 321 },
+      data: expect.objectContaining({
+        receiver_customer_id: 55,
+        receiver_wallet_address: 'TXYZ',
+        comment: 'USDT deposit',
+      }),
+    });
+    expect(transactionCreate).not.toHaveBeenCalled();
+    expect((service as any).applyLedgerDelta).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        transactionId: 321,
+        customerId: 55,
+        delta: 800,
+      }),
+    );
+  });
 });

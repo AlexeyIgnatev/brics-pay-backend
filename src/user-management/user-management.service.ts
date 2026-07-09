@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import {
   UsersListQueryDto,
@@ -60,6 +60,7 @@ export class UserManagementService {
     ]);
 
     const items: UsersListItemDto[] = itemsRaw.map((c) => {
+      const customer = c as any;
       const cached = this.balanceCache.get(c.customer_id);
       let ESOM: number, SOM: number, USDT_TRC20: number;
       if (cached) {
@@ -89,6 +90,7 @@ export class UserManagementService {
             : c.status === 'FRAUD'
               ? UserStatusDtoEnum.FRAUD
               : UserStatusDtoEnum.ACTIVE,
+        status_comment: customer.status_comment ?? undefined,
         tariff_category: c.tariff_category,
         residency: c.residency,
         balances: { ESOM, SOM, USDT_TRC20 },
@@ -105,6 +107,11 @@ export class UserManagementService {
   }
 
   async update(id: number, dto: AdminUpdateUserDto) {
+    const current = await this.prisma.customer.findUnique({
+      where: { customer_id: id },
+      select: { status: true },
+    });
+
     const data: any = {};
     if (dto.first_name !== undefined) data.first_name = dto.first_name;
     if (dto.middle_name !== undefined) {
@@ -114,7 +121,24 @@ export class UserManagementService {
     if (dto.last_name !== undefined) data.last_name = dto.last_name;
     if (dto.phone !== undefined) data.phone = dto.phone;
     if (dto.email !== undefined) data.email = dto.email;
+    const statusChanged =
+      dto.status !== undefined && current != null && dto.status !== current.status;
+    const normalizedStatusComment =
+      dto.status_comment !== undefined ? dto.status_comment.trim() : undefined;
+
+    if (statusChanged && !normalizedStatusComment) {
+      throw new BadRequestException(
+        'Укажите комментарий с причиной изменения статуса',
+      );
+    }
+
     if (dto.status !== undefined) data.status = dto.status;
+    if (dto.status_comment !== undefined) {
+      data.status_comment =
+        normalizedStatusComment && normalizedStatusComment.length > 0
+          ? normalizedStatusComment
+          : null;
+    }
     if (dto.tariff_category !== undefined)
       data.tariff_category = dto.tariff_category;
     if (dto.residency !== undefined) data.residency = dto.residency;
@@ -124,6 +148,7 @@ export class UserManagementService {
       data,
       include: { balances: true },
     });
+    const customer = c as any;
     this.balanceCache.invalidate(id);
 
     const bal = Object.fromEntries(
@@ -147,6 +172,7 @@ export class UserManagementService {
           : c.status === 'FRAUD'
             ? UserStatusDtoEnum.FRAUD
             : UserStatusDtoEnum.ACTIVE,
+      status_comment: customer.status_comment ?? undefined,
       tariff_category: c.tariff_category,
       residency: c.residency,
       balances: { ESOM, SOM, USDT_TRC20 },
@@ -165,6 +191,7 @@ export class UserManagementService {
       include: { balances: true },
     });
     if (!c) return null;
+    const customer = c as any;
 
     const cached = this.balanceCache.get(c.customer_id);
     let ESOM: number, SOM: number, USDT_TRC20: number;
@@ -195,6 +222,7 @@ export class UserManagementService {
           : c.status === 'FRAUD'
             ? UserStatusDtoEnum.FRAUD
             : UserStatusDtoEnum.ACTIVE,
+      status_comment: customer.status_comment ?? undefined,
       tariff_category: c.tariff_category,
       residency: c.residency,
       balances: { ESOM, SOM, USDT_TRC20 },
