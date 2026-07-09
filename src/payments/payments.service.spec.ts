@@ -447,6 +447,28 @@ describe('PaymentsService', () => {
     expect(rows[0].currency).toBe('USDT_TRC20');
   });
 
+  it('includes ledger-linked transactions in history lookup', async () => {
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xmy' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    await service.getHistory({} as any, 7);
+
+    expect(prismaMock.transaction.findMany).toHaveBeenCalledTimes(1);
+    const query = prismaMock.transaction.findMany.mock.calls[0][0];
+    expect(query.where.OR).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ledger_entries: { some: { customer_id: 7 } } }),
+      ]),
+    );
+  });
+
   it('creates SOM purchase accounting postings with the provided account map', async () => {
     const createMany = jest.fn().mockResolvedValue({ count: 6 });
     const service = makeService({

@@ -1098,8 +1098,9 @@ export class PaymentsService {
       me?.address ? { sender_wallet_address: me.address } : undefined,
       me?.address ? { receiver_wallet_address: me.address } : undefined,
     ].filter(Boolean);
+    const ledgerOr = [{ ledger_entries: { some: { customer_id } } }];
 
-    const where: any = { OR: userOr };
+    const where: any = { OR: [...userOr, ...ledgerOr] };
 
     if (body.currency?.length) {
       const assets = body.currency.map((c) => c as unknown as Asset);
@@ -1108,7 +1109,7 @@ export class PaymentsService {
         { asset_in: { in: assets } },
       ];
 
-      where.AND = [{ OR: userOr }, { OR: currencyOr }];
+      where.AND = [{ OR: [...userOr, ...ledgerOr] }, { OR: currencyOr }];
       delete where.OR;
     }
     if (body.from_time || body.to_time) {
