@@ -24,11 +24,17 @@ export class BalanceFetchService {
     if (!customer) return;
 
     const allow = (a: Asset) => !assets || assets.includes(a);
+    this.logger.verbose(
+      `[balance-refresh] start customer=${customer_id} assets=${assets?.join(',') ?? 'all'} address=${customer.address}`,
+    );
 
     if (allow('ESOM')) {
       try {
         const esom = await this.eth.getEsomBalance(customer.address);
         await this.upsertBalance(customer_id, 'ESOM', esom);
+        this.logger.verbose(
+          `[balance-refresh] ESOM updated customer=${customer_id} balance=${esom}`,
+        );
       } catch (e) {
         this.logger.warn(`ESOM balance fetch failed for ${customer_id}: ${e}`);
       }
@@ -44,12 +50,16 @@ export class BalanceFetchService {
           'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj';
         const usdt = await this.tron.getTrc20Balance(tronAddress, usdtContract);
         await this.upsertBalance(customer_id, 'USDT_TRC20', usdt);
+        this.logger.verbose(
+          `[balance-refresh] USDT_TRC20 updated customer=${customer_id} tronAddress=${tronAddress} balance=${usdt}`,
+        );
       } catch (e) {
         this.logger.warn(
           `USDT_TRC20 balance fetch failed for ${customer_id}: ${e}`,
         );
       }
     }
+    this.logger.verbose(`[balance-refresh] done customer=${customer_id}`);
   }
 
   private async upsertBalance(customer_id: number, asset: Asset, amt: number) {

@@ -1602,6 +1602,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     idempotencyKey?: string;
     payload?: UsdtPaymentPayload;
   }): Promise<StatusOKDto> {
+    this.logger.verbose(
+      `[internal-transfer] start sender=${input.senderCustomerId} receiver=${input.receiverCustomerId} amount=${input.amount} senderAddress=${input.senderAddress} receiverAddress=${input.receiverAddress} idempotency=${input.idempotencyKey ?? 'null'}`,
+    );
     const idempotencyKey =
       this.normalizeKey(input.idempotencyKey) ??
       this.fallbackIdempotencyKey('usdt-internal', [
@@ -1649,6 +1652,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       );
       const feeAmount = tariffFee.fee > 0 ? tariffFee.fee : 0;
       const receiverNetAmount = Math.max(input.amount - feeAmount, 0);
+      this.logger.verbose(
+        `[internal-transfer] fee sender=${input.senderCustomerId} receiver=${input.receiverCustomerId} gross=${input.amount} fee=${feeAmount} net=${receiverNetAmount}`,
+      );
 
       const result = await this.prisma.$transaction(async (tx) => {
         const transaction = await this.createTransactionForInternalTransfer(
@@ -1678,6 +1684,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             ...(input.payload ?? {}),
           },
         });
+        this.logger.verbose(
+          `[internal-transfer] sender ledger updated customer=${input.senderCustomerId} tx=${transaction.id}`,
+        );
         await this.applyLedgerDelta(tx, {
           paymentOperationId: op.id,
           transactionId: transaction.id,
@@ -1692,6 +1701,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             ...(input.payload ?? {}),
           },
         });
+        this.logger.verbose(
+          `[internal-transfer] receiver ledger updated customer=${input.receiverCustomerId} tx=${transaction.id}`,
+        );
 
         await tx.paymentOperation.update({
           where: { id: op.id },
@@ -1712,8 +1724,15 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         return transaction.id;
       });
 
+      this.logger.verbose(
+        `[internal-transfer] confirmed tx=${result} sender=${input.senderCustomerId} receiver=${input.receiverCustomerId}`,
+      );
+
       return new StatusOKDto(result);
     } catch (error) {
+      this.logger.warn(
+        `[internal-transfer] failed sender=${input.senderCustomerId} receiver=${input.receiverCustomerId} amount=${input.amount}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       await this.markFailed(op, error);
       throw error;
     }
@@ -1729,6 +1748,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     idempotencyKey?: string;
     payload?: UsdtPaymentPayload;
   }): Promise<StatusOKDto> {
+    this.logger.verbose(
+      `[browser-bridge] start sender=${input.senderCustomerId} receiver=${input.receiverCustomerId} amount=${input.amount} senderAddress=${input.senderAddress} receiverAddress=${input.receiverAddress} idempotency=${input.idempotencyKey ?? 'null'}`,
+    );
     const sender = await this.getCustomer(input.senderCustomerId);
     const receiver = await this.getCustomer(input.receiverCustomerId);
     if (!sender || !receiver) {
@@ -1746,6 +1768,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     const bridgeDirection = receiverIsBrowserWallet
       ? 'TREASURY_TO_BROWSER'
       : 'BROWSER_TO_TREASURY';
+    this.logger.verbose(
+      `[browser-bridge] participants senderBrowser=${senderIsBrowserWallet} receiverBrowser=${receiverIsBrowserWallet} direction=${bridgeDirection}`,
+    );
     const idempotencyKey =
       this.normalizeKey(input.idempotencyKey) ??
       this.fallbackIdempotencyKey('usdt-browser-bridge', [
@@ -1824,6 +1849,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         chainDestinationAddress,
         input.amount,
       );
+      this.logger.verbose(
+        `[browser-bridge] broadcasted txHash=${txHash} chainFrom=${chainSourceAddress} chainTo=${chainDestinationAddress} amount=${input.amount}`,
+      );
 
       await this.markBroadcasted(op, txHash, {
         ...((op.payload as UsdtPaymentPayload) ?? {}),
@@ -1851,6 +1879,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           chainDestinationAddress,
           chainSourceAddress,
         );
+        this.logger.verbose(
+          `[browser-bridge] transaction row created tx=${transaction.id} txHash=${txHash}`,
+        );
 
         await this.applyLedgerDelta(tx, {
           paymentOperationId: op.id,
@@ -1868,6 +1899,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             ...(input.payload ?? {}),
           },
         });
+        this.logger.verbose(
+          `[browser-bridge] sender ledger updated customer=${input.senderCustomerId} tx=${transaction.id}`,
+        );
         await this.applyLedgerDelta(tx, {
           paymentOperationId: op.id,
           transactionId: transaction.id,
@@ -1884,6 +1918,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             ...(input.payload ?? {}),
           },
         });
+        this.logger.verbose(
+          `[browser-bridge] receiver ledger updated customer=${input.receiverCustomerId} tx=${transaction.id}`,
+        );
 
         await this.upsertBlockchainTransaction(tx, {
           paymentOperationId: op.id,
@@ -1917,6 +1954,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
         return transaction.id;
       });
+      this.logger.verbose(
+        `[browser-bridge] db transaction committed tx=${result} txHash=${txHash}`,
+      );
 
       void this.waitForConfirmation(txHash, 12, 1000)
         .then(async (confirmed) => {
@@ -1972,6 +2012,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
       return new StatusOKDto(result);
     } catch (error) {
+      this.logger.warn(
+        `[browser-bridge] failed sender=${input.senderCustomerId} receiver=${input.receiverCustomerId} amount=${input.amount}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       await this.markFailed(op, error);
       throw error;
     }

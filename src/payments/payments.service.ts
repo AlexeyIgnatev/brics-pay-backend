@@ -1126,12 +1126,18 @@ export class PaymentsService {
       skip: body.skip ?? 0,
       take: body.take ?? 50,
     });
+    this.logger.verbose(
+      `[history] customer=${customer_id} matched=${items.length} skip=${body.skip ?? 0} take=${body.take ?? 50} currency=${body.currency?.join(',') ?? 'all'} from=${body.from_time ?? 'null'} to=${body.to_time ?? 'null'}`,
+    );
 
     const rows: TransactionDto[] = [];
     const filterSet = body.currency?.length ? new Set(body.currency) : null;
 
     for (const t of items) {
       if (this.isInternalBridgeTransaction(t)) {
+        this.logger.verbose(
+          `[history] skip internal bridge tx=${t.id} customer=${customer_id} comment=${t.comment ?? 'null'}`,
+        );
         continue;
       }
 
@@ -1207,6 +1213,9 @@ export class PaymentsService {
         }
       }
     }
+    this.logger.verbose(
+      `[history] customer=${customer_id} returned_rows=${rows.length}`,
+    );
     return rows;
   }
 
@@ -2406,6 +2415,9 @@ export class PaymentsService {
     excludeCustomerId: number,
   ): Promise<{ customer_id: number; walletAddress: string } | null> {
     const target = this.normalizeWalletAddress(asset, address);
+    this.logger.verbose(
+      `[recipient-match] start asset=${asset} target=${target} exclude=${excludeCustomerId}`,
+    );
     const customers = await this.prisma.customer.findMany({
       where: { customer_id: { not: excludeCustomerId } },
       select: { customer_id: true, address: true, private_key: true },
@@ -2428,6 +2440,9 @@ export class PaymentsService {
           candidate,
         );
         if (normalizedCandidate === target) {
+          this.logger.verbose(
+            `[recipient-match] matched asset=${asset} target=${target} customer=${customer.customer_id} wallet=${candidate}`,
+          );
           return {
             customer_id: customer.customer_id,
             walletAddress: candidate,
@@ -2435,6 +2450,10 @@ export class PaymentsService {
         }
       } catch {}
     }
+
+    this.logger.verbose(
+      `[recipient-match] no match asset=${asset} target=${target} exclude=${excludeCustomerId}`,
+    );
 
     return null;
   }
@@ -2522,6 +2541,9 @@ export class PaymentsService {
 
     if (transferDto.currency == Currency.USDT_TRC20) {
       const asset = transferDto.currency as unknown as Asset;
+      this.logger.verbose(
+        `[transfer] start customer=${customer_id} asset=${asset} amount=${transferDto.amount} address=${transferDto.address ?? 'null'} phone=${transferDto.phone_number ?? 'null'} idempotency=${transferDto.idempotency_key ?? 'null'} browser=${this.isBrowserWalletCustomer(me)}`,
+      );
       if (!me?.address) {
         throw new BadRequestException('Customer not found');
       }
