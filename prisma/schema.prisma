@@ -264,6 +264,9 @@ model Settings {
   central_bank_som_account      String?
   central_bank_salam_wallet     String?
   central_bank_usdt_wallet      String?
+  bank_commission_central_bank_pct Decimal @default(20) @db.Decimal(5, 2)
+  bank_commission_bank_pct      Decimal @default(40) @db.Decimal(5, 2)
+  bank_commission_partners_pct  Decimal @default(40) @db.Decimal(5, 2)
   bank_som_account              String?
   bank_salam_wallet             String?
   bank_usdt_wallet              String?

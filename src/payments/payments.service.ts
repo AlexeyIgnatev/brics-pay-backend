@@ -79,7 +79,7 @@ const SOM_PURCHASE_ACCOUNTS = {
   },
   govCryptoReserve: {
     account_no: '21115',
-    account_name: 'Расчеты с гос. крипторезервом',
+    account_name: 'Расчеты с ЦБ',
   },
   cryptoSettlement: {
     account_no: '11531',
@@ -94,12 +94,6 @@ const SOM_PURCHASE_ACCOUNTS = {
     account_name:
       'Контр счет, Забалансовый учет клиентских криптоактивов, по номиналу',
   },
-} as const;
-
-const SOM_PURCHASE_FEE_SPLIT = {
-  bankPercent: 40,
-  partnerPercent: 10,
-  reservePercent: 50,
 } as const;
 
 const SOM_REDEMPTION_ACCOUNTS = {
@@ -125,7 +119,7 @@ const SOM_REDEMPTION_ACCOUNTS = {
   },
   govCryptoReserve: {
     account_no: '21115',
-    account_name: 'Расчеты с гос. крипторезервом',
+    account_name: 'Расчеты с ЦБ',
   },
   offBalanceAsset: {
     account_no: '90001',
@@ -572,15 +566,28 @@ export class PaymentsService {
     return `${clientFio}, ID транзакции ${transactionRef}, ${this.formatAbsTime(at)}`;
   }
 
-  private splitSomPurchaseCommission(amount: number): {
+  private clampPercent(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(100, Math.max(0, value));
+  }
+
+  private splitSomPurchaseCommission(
+    amount: number,
+    centralBankPercent: number,
+  ): {
+    centralBankShare: number;
     bankShare: number;
     partnerShare: number;
-    reserveShare: number;
   } {
-    const bankShare = (amount * SOM_PURCHASE_FEE_SPLIT.bankPercent) / 100;
-    const partnerShare = (amount * SOM_PURCHASE_FEE_SPLIT.partnerPercent) / 100;
-    const reserveShare = (amount * SOM_PURCHASE_FEE_SPLIT.reservePercent) / 100;
-    return { bankShare, partnerShare, reserveShare };
+    const centralPercent = this.clampPercent(centralBankPercent);
+    const remainingPercent = Math.max(100 - centralPercent, 0);
+    const sharedPercent = remainingPercent / 2;
+
+    return {
+      centralBankShare: (amount * centralPercent) / 100,
+      bankShare: (amount * sharedPercent) / 100,
+      partnerShare: (amount * sharedPercent) / 100,
+    };
   }
 
   private async createSomPurchaseAccountingPostings(
@@ -601,7 +608,14 @@ export class PaymentsService {
       internalBridge?: boolean;
     },
   ): Promise<void> {
-    const split = this.splitSomPurchaseCommission(input.commissionAmount);
+    const adminSettings = await this.settingsService.getAdmin();
+    const centralBankPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_central_bank_pct),
+    );
+    const split = this.splitSomPurchaseCommission(
+      input.commissionAmount,
+      centralBankPercent,
+    );
     const metadataBase: AccountingMetadata = {
       flow: 'SOM_PURCHASE',
       transaction_ref: input.transactionRef,
@@ -610,7 +624,11 @@ export class PaymentsService {
       net_amount: input.netAmount,
       bank_operation_id: input.bankOperationId ?? null,
       internal_bridge: input.internalBridge ?? false,
-      fee_split: SOM_PURCHASE_FEE_SPLIT,
+      fee_split: {
+        centralBankPercent,
+        bankPercent: (100 - centralBankPercent) / 2,
+        partnerPercent: (100 - centralBankPercent) / 2,
+      },
       account_catalog: SOM_PURCHASE_ACCOUNTS,
     };
 
@@ -665,8 +683,8 @@ export class PaymentsService {
         credit_account_no: SOM_PURCHASE_ACCOUNTS.govCryptoReserve.account_no,
         credit_account_name:
           SOM_PURCHASE_ACCOUNTS.govCryptoReserve.account_name,
-        amount: split.reserveShare,
-        comment: '0.5% госрезерв',
+        amount: split.centralBankShare,
+        comment: 'Доля ЦБ',
       },
       {
         sequence: 6,
@@ -723,7 +741,14 @@ export class PaymentsService {
       transactionRef: string;
     },
   ): Promise<void> {
-    const split = this.splitSomPurchaseCommission(input.commissionAmount);
+    const adminSettings = await this.settingsService.getAdmin();
+    const centralBankPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_central_bank_pct),
+    );
+    const split = this.splitSomPurchaseCommission(
+      input.commissionAmount,
+      centralBankPercent,
+    );
     const metadataBase: AccountingMetadata = {
       flow: 'SOM_REDEMPTION',
       transaction_ref: input.transactionRef,
@@ -731,7 +756,11 @@ export class PaymentsService {
       commission_amount: input.commissionAmount,
       net_amount: input.netAmount,
       bank_operation_id: input.bankOperationId ?? null,
-      fee_split: SOM_PURCHASE_FEE_SPLIT,
+      fee_split: {
+        centralBankPercent,
+        bankPercent: (100 - centralBankPercent) / 2,
+        partnerPercent: (100 - centralBankPercent) / 2,
+      },
       account_catalog: SOM_REDEMPTION_ACCOUNTS,
     };
 
@@ -786,8 +815,8 @@ export class PaymentsService {
         credit_account_no: SOM_REDEMPTION_ACCOUNTS.govCryptoReserve.account_no,
         credit_account_name:
           SOM_REDEMPTION_ACCOUNTS.govCryptoReserve.account_name,
-        amount: split.reserveShare,
-        comment: '0.5% госрезерв',
+        amount: split.centralBankShare,
+        comment: 'Доля ЦБ',
       },
       {
         sequence: 6,

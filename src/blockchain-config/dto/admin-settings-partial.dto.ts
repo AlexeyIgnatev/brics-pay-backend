@@ -47,6 +47,18 @@ export class AdminSettingsPartialDto {
 
   @IsOptional()
   @IsString()
+  bank_commission_central_bank_pct?: string;
+
+  @IsOptional()
+  @IsString()
+  bank_commission_bank_pct?: string;
+
+  @IsOptional()
+  @IsString()
+  bank_commission_partners_pct?: string;
+
+  @IsOptional()
+  @IsString()
   bank_som_account?: string;
 
   @IsOptional()

@@ -72,6 +72,9 @@ export class SettingsService {
           min_withdraw_btc: '0.0002',
           min_withdraw_eth: '0.003',
           min_withdraw_usdt_trc20: '10',
+          bank_commission_central_bank_pct: '20',
+          bank_commission_bank_pct: '40',
+          bank_commission_partners_pct: '40',
         },
       });
     }
@@ -148,6 +151,18 @@ export class SettingsService {
       ),
       central_bank_usdt_wallet: this.normalizeString(
         s.central_bank_usdt_wallet,
+      ),
+      bank_commission_central_bank_pct: this.toDecimalString(
+        s.bank_commission_central_bank_pct,
+        '20',
+      ),
+      bank_commission_bank_pct: this.toDecimalString(
+        s.bank_commission_bank_pct,
+        '40',
+      ),
+      bank_commission_partners_pct: this.toDecimalString(
+        s.bank_commission_partners_pct,
+        '40',
       ),
       bank_som_account: this.normalizeString(s.bank_som_account),
       bank_salam_wallet: this.normalizeString(s.bank_salam_wallet),

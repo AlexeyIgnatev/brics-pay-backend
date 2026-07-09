@@ -12,6 +12,9 @@ export class AdminSettingsDto {
   @ApiProperty() central_bank_som_account: string;
   @ApiProperty() central_bank_salam_wallet: string;
   @ApiProperty() central_bank_usdt_wallet: string;
+  @ApiProperty() bank_commission_central_bank_pct: string;
+  @ApiProperty() bank_commission_bank_pct: string;
+  @ApiProperty() bank_commission_partners_pct: string;
   @ApiProperty() bank_som_account: string;
   @ApiProperty() bank_salam_wallet: string;
   @ApiProperty() bank_usdt_wallet: string;
