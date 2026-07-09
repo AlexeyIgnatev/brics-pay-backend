@@ -2425,30 +2425,35 @@ export class PaymentsService {
 
     for (const customer of customers) {
       try {
-        let candidate = '';
-        if (asset === 'ESOM') {
-          candidate = customer.address;
-        } else if (asset === 'USDT_TRC20') {
-          candidate =
-            customer.address ||
-            this.cryptoService.trxAddressFromPrivateKey(customer.private_key);
-        }
+        const candidateList =
+          asset === 'USDT_TRC20'
+            ? [
+                this.cryptoService.trxAddressFromPrivateKey(customer.private_key),
+                customer.address,
+              ]
+            : [customer.address];
 
-        if (!candidate) continue;
-        const normalizedCandidate = this.normalizeWalletAddress(
-          asset,
-          candidate,
-        );
-        if (normalizedCandidate === target) {
-          this.logger.verbose(
-            `[recipient-match] matched asset=${asset} target=${target} customer=${customer.customer_id} wallet=${candidate}`,
+        for (const candidate of candidateList) {
+          if (!candidate) continue;
+          const normalizedCandidate = this.normalizeWalletAddress(
+            asset,
+            candidate,
           );
-          return {
-            customer_id: customer.customer_id,
-            walletAddress: candidate,
-          };
+          if (normalizedCandidate === target) {
+            this.logger.verbose(
+              `[recipient-match] matched asset=${asset} target=${target} customer=${customer.customer_id} wallet=${candidate}`,
+            );
+            return {
+              customer_id: customer.customer_id,
+              walletAddress: candidate,
+            };
+          }
         }
-      } catch {}
+      } catch (error) {
+        this.logger.verbose(
+          `[recipient-match] candidate check failed asset=${asset} customer=${customer.customer_id} error=${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
 
     this.logger.verbose(
