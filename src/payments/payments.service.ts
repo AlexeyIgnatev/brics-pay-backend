@@ -966,6 +966,23 @@ export class PaymentsService {
     }
   }
 
+  private resolveHistoryAmount(
+    t: Transaction,
+    baseType: TransactionType,
+  ): number {
+    const grossAmount = Number(t.amount_in ?? 0);
+    if (baseType !== TransactionType.INCOME) {
+      return grossAmount;
+    }
+
+    const feeAmount = Number(t.fee_amount ?? 0);
+    if (!Number.isFinite(feeAmount) || feeAmount <= 0) {
+      return grossAmount;
+    }
+
+    return Math.max(grossAmount - feeAmount, 0);
+  }
+
   private maskAccount(value?: string | number | null): string {
     if (value == null) return 'N/A';
     const raw = String(value).trim();
@@ -1178,7 +1195,7 @@ export class PaymentsService {
         id: t.id,
         transaction_id: t.id,
         currency: inCurrency,
-        amount: Number(t.amount_in),
+        amount: this.resolveHistoryAmount(t, baseType),
         type: inSideType,
         conversion_side:
           inSideType === TransactionType.CONVERSION

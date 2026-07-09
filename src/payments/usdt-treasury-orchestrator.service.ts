@@ -25,7 +25,7 @@ import {
   TransactionStatus,
 } from '@prisma/client';
 import TronWeb from 'tronweb';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
@@ -231,6 +231,14 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private normalizeKey(value?: string | null): string | undefined {
     const trimmed = value?.trim();
     return trimmed ? trimmed : undefined;
+  }
+
+  private resolveUserOperationIdempotencyKey(
+    scope: string,
+    providedKey?: string | null,
+  ): string {
+    const normalized = this.normalizeKey(providedKey);
+    return normalized ?? `${scope}:${randomUUID()}`;
   }
 
   private fallbackIdempotencyKey(scope: string, parts: unknown[]): string {
@@ -1609,15 +1617,10 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     this.logger.verbose(
       `[internal-transfer] start sender=${input.senderCustomerId} receiver=${input.receiverCustomerId} amount=${input.amount} senderAddress=${input.senderAddress} receiverAddress=${input.receiverAddress} idempotency=${input.idempotencyKey ?? 'null'}`,
     );
-    const idempotencyKey =
-      this.normalizeKey(input.idempotencyKey) ??
-      this.fallbackIdempotencyKey('usdt-internal', [
-        input.senderCustomerId,
-        input.receiverCustomerId,
-        input.amount,
-        input.senderAddress,
-        input.receiverAddress,
-      ]);
+    const idempotencyKey = this.resolveUserOperationIdempotencyKey(
+      'usdt-internal',
+      input.idempotencyKey,
+    );
 
     const existing = await this.findOperationByIdempotencyKey(idempotencyKey);
     if (
@@ -1775,16 +1778,10 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     this.logger.verbose(
       `[browser-bridge] participants senderBrowser=${senderIsBrowserWallet} receiverBrowser=${receiverIsBrowserWallet} direction=${bridgeDirection}`,
     );
-    const idempotencyKey =
-      this.normalizeKey(input.idempotencyKey) ??
-      this.fallbackIdempotencyKey('usdt-browser-bridge', [
-        input.senderCustomerId,
-        input.receiverCustomerId,
-        input.amount,
-        input.senderAddress,
-        input.receiverAddress,
-        bridgeDirection,
-      ]);
+    const idempotencyKey = this.resolveUserOperationIdempotencyKey(
+      'usdt-browser-bridge',
+      input.idempotencyKey,
+    );
 
     const existing = await this.findOperationByIdempotencyKey(idempotencyKey);
     if (
@@ -2039,13 +2036,10 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       throw new BadRequestException('User is blocked');
     }
 
-    const idempotencyKey =
-      this.normalizeKey(input.idempotencyKey) ??
-      this.fallbackIdempotencyKey('usdt-withdraw', [
-        input.customerId,
-        input.amount,
-        input.address,
-      ]);
+    const idempotencyKey = this.resolveUserOperationIdempotencyKey(
+      'usdt-withdraw',
+      input.idempotencyKey,
+    );
 
     const existing = await this.findOperationByIdempotencyKey(idempotencyKey);
     if (

@@ -395,6 +395,48 @@ describe('PaymentsService', () => {
     ]);
   });
 
+  it('shows net amount for incoming history rows when fee is present', async () => {
+    const createdAt = new Date('2026-06-12T12:00:00.000Z');
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xmy' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 401,
+            kind: 'WALLET_TO_WALLET',
+            status: TransactionStatus.SUCCESS,
+            amount_in: '10',
+            asset_in: 'USDT_TRC20',
+            amount_out: '10',
+            asset_out: 'USDT_TRC20',
+            fee_amount: '4',
+            createdAt,
+            sender_customer_id: 11,
+            receiver_customer_id: 7,
+          },
+        ]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const rows = await service.getHistory({} as any, 7);
+
+    expect(rows).toEqual([
+      {
+        id: 401,
+        transaction_id: 401,
+        currency: 'USDT_TRC20',
+        amount: 6,
+        type: TransactionType.INCOME,
+        conversion_side: undefined,
+        successful: true,
+        created_at: createdAt.getTime(),
+      },
+    ]);
+  });
+
   it('hides internal bridge transactions from history', async () => {
     const createdAt = new Date('2026-06-12T10:00:00.000Z');
     const prismaMock = {

@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
+import * as crypto from 'crypto';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
+import { BalanceCacheService } from '../user-management/balance-cache.service';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
 
 describe('UsdtTreasuryOrchestratorService', () => {
@@ -53,6 +55,12 @@ describe('UsdtTreasuryOrchestratorService', () => {
           },
         },
         { provide: BricsService, useValue: {} },
+        {
+          provide: BalanceCacheService,
+          useValue: {
+            refreshAllBalancesForUser: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
@@ -199,6 +207,83 @@ describe('UsdtTreasuryOrchestratorService', () => {
         delta: 90,
       }),
     );
+  });
+
+  it('creates a fresh internal transfer when idempotency key is omitted', async () => {
+    const transactionCreate = jest
+      .fn()
+      .mockResolvedValueOnce({ id: 601 })
+      .mockResolvedValueOnce({ id: 602 });
+    const paymentOperationUpdate = jest.fn().mockResolvedValue({ id: 77 });
+    const prismaTxMock = {
+      transaction: {
+        create: transactionCreate,
+      },
+      paymentOperation: {
+        update: paymentOperationUpdate,
+      },
+    };
+
+    prismaMock.customer = {
+      findUnique: jest.fn().mockResolvedValue({
+        tariff_category: 'K1',
+        residency: 'RESIDENT',
+      }),
+    };
+    prismaMock.tariffSetting = {
+      findUnique: jest.fn().mockResolvedValue({
+        percent_fee: '0',
+        fixed_fee: '0',
+      }),
+    };
+    prismaMock.$transaction = jest
+      .fn()
+      .mockImplementation(async (callback: any) => callback(prismaTxMock));
+
+    (service as any).findOperationByIdempotencyKey = jest
+      .fn()
+      .mockResolvedValue(null);
+    (service as any).createOperation = jest
+      .fn()
+      .mockResolvedValue({ id: 77, attempt_count: 0, payload: null, status: 'NEW' });
+    (service as any).applyLedgerDelta = jest.fn().mockResolvedValue(undefined);
+    (service as any).markFailed = jest.fn();
+
+    const randomSpy = jest
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000001')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000002');
+
+    try {
+      const first = await service.processInternalTransfer({
+        senderCustomerId: 1,
+        receiverCustomerId: 2,
+        amount: 10,
+        senderAddress: 'Tsender',
+        receiverAddress: 'Treceiver',
+        payload: { source: 'spec' },
+      });
+      const second = await service.processInternalTransfer({
+        senderCustomerId: 1,
+        receiverCustomerId: 2,
+        amount: 10,
+        senderAddress: 'Tsender',
+        receiverAddress: 'Treceiver',
+        payload: { source: 'spec' },
+      });
+
+      expect(first.transaction_id).toBe(601);
+      expect(second.transaction_id).toBe(602);
+      expect((service as any).createOperation).toHaveBeenCalledTimes(2);
+      expect((service as any).createOperation.mock.calls[0][0].idempotency_key).toBe(
+        'usdt-internal:00000000-0000-4000-8000-000000000001',
+      );
+      expect((service as any).createOperation.mock.calls[1][0].idempotency_key).toBe(
+        'usdt-internal:00000000-0000-4000-8000-000000000002',
+      );
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it('matches deposit recipients by derived TRON address for regular users', async () => {
