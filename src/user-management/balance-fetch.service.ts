@@ -3,6 +3,7 @@ import { PrismaClient, Asset } from '@prisma/client';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { TronService } from '../config/crypto/tron.service';
+import { BalanceCacheService } from './balance-cache.service';
 
 @Injectable()
 export class BalanceFetchService {
@@ -12,6 +13,7 @@ export class BalanceFetchService {
     private readonly eth: EthereumService,
     private readonly crypto: CryptoService,
     private readonly tron: TronService,
+    private readonly balanceCache: BalanceCacheService,
   ) {}
 
   async refreshAllBalancesForUser(
@@ -68,5 +70,6 @@ export class BalanceFetchService {
       create: { customer_id, asset, balance: amt.toString() },
       update: { balance: amt.toString() },
     });
+    this.balanceCache.invalidate(customer_id);
   }
 }

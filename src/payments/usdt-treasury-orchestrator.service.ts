@@ -33,6 +33,7 @@ import { CryptoService } from '../config/crypto/crypto.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
+import { BalanceCacheService } from '../user-management/balance-cache.service';
 
 const USDT_DECIMALS = 6;
 const TRON_SUN = 1_000_000;
@@ -90,6 +91,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     private readonly cryptoService: CryptoService,
     private readonly ethereumService: EthereumService,
     private readonly bricsService: BricsService,
+    private readonly balanceCache: BalanceCacheService,
   ) {}
 
   onModuleInit(): void {
@@ -485,6 +487,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         },
       });
     }
+
+    this.balanceCache.invalidate(input.customerId);
 
     return client.ledgerEntry.create({
       data: {
