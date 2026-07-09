@@ -125,12 +125,16 @@ export class SettingsService {
 
   mapToDto(s: any): SettingsDto {
     return {
-      esom_per_usd: s.esom_per_usd.toString(),
-      esom_som_conversion_fee_pct: s.esom_som_conversion_fee_pct.toString(),
-      esom_som_conversion_fee_min: s.esom_som_conversion_fee_min.toString(),
-      usdt_trade_fee_pct: s.usdt_trade_fee_pct.toString(),
-      usdt_withdraw_fee_fixed: s.usdt_withdraw_fee_fixed.toString(),
-      min_withdraw_usdt_trc20: s.min_withdraw_usdt_trc20.toString(),
+      esom_per_usd: this.toDecimalString(s.esom_per_usd),
+      esom_som_conversion_fee_pct: this.toDecimalString(
+        s.esom_som_conversion_fee_pct,
+      ),
+      esom_som_conversion_fee_min: this.toDecimalString(
+        s.esom_som_conversion_fee_min,
+      ),
+      usdt_trade_fee_pct: this.toDecimalString(s.usdt_trade_fee_pct),
+      usdt_withdraw_fee_fixed: this.toDecimalString(s.usdt_withdraw_fee_fixed),
+      min_withdraw_usdt_trc20: this.toDecimalString(s.min_withdraw_usdt_trc20),
     };
   }
 
@@ -210,8 +214,8 @@ export class SettingsService {
         category: row.category,
         residency: row.residency,
         operation: row.operation,
-        percent_fee: row.percent_fee.toString(),
-        fixed_fee: row.fixed_fee.toString(),
+        percent_fee: this.toDecimalString(row.percent_fee),
+        fixed_fee: this.toDecimalString(row.fixed_fee),
       }));
   }
 
@@ -290,6 +294,22 @@ export class SettingsService {
 
   private normalizeString(value: unknown): string {
     return value == null ? '' : String(value);
+  }
+
+  private toDecimalString(value: unknown, fallback = '0'): string {
+    if (value == null) return fallback;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? String(value) : fallback;
+    }
+    if (typeof value === 'object' && value !== null && 'toString' in value) {
+      try {
+        return String((value as { toString(): string }).toString());
+      } catch {
+        return fallback;
+      }
+    }
+    return fallback;
   }
 
   private parsePartnersJson(raw: string | null | undefined): BankCommissionPartnerConfig[] {
