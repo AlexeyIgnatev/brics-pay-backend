@@ -307,10 +307,18 @@ export class TronService {
         );
       }
 
-      this.logger.verbose(
-        `[sendTrc20] sign transaction from=${fromAddress} txID=${tx.transaction.txID}`,
+      const extendedTransaction = await tron.transactionBuilder.extendExpiration(
+        tx.transaction,
+        300,
       );
-      const signedTransaction = await tron.trx.sign(tx.transaction, privateKey);
+
+      this.logger.verbose(
+        `[sendTrc20] sign transaction from=${fromAddress} txID=${extendedTransaction.txID} expiration=${String(extendedTransaction.raw_data?.expiration ?? 'null')}`,
+      );
+      const signedTransaction = await tron.trx.sign(
+        extendedTransaction,
+        privateKey,
+      );
       if (!signedTransaction.signature?.length) {
         throw new BadRequestException('Failed to sign TRC20 transfer');
       }
