@@ -989,42 +989,26 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       throw new BadRequestException('USDT amount must be greater than 0');
     }
 
-    const sendWithOptions = async (confirmed: boolean): Promise<string> => {
-      const sendOptions = {
-        feeLimit: 100_000_000,
-        shouldPollResponse: false,
-        ...(confirmed ? { confirmed: true } : {}),
-      } as {
-        feeLimit: number;
-        shouldPollResponse: boolean;
-        confirmed?: boolean;
-      };
-
-      return contract
-        .transfer(toAddress, amountSun.toString())
-        .send(sendOptions, fromPrivateKey);
-    };
-
-    let txHash: string;
     try {
-      txHash = await sendWithOptions(false);
-    } catch (error) {
-      const details = error instanceof Error ? error.message : String(error);
-      if (!/tapos|reference block/i.test(details)) {
-        throw error;
+      const txHash = await contract
+        .transfer(toAddress, amountSun.toString())
+        .send(
+          {
+            feeLimit: 100_000_000,
+            shouldPollResponse: false,
+          },
+          fromPrivateKey,
+        );
+
+      if (!txHash || typeof txHash !== 'string') {
+        throw new BadRequestException('Failed to broadcast TRC20 transfer');
       }
 
-      this.logger.warn(
-        `[sendUsdt] retrying with solidity reference due to ${details}`,
-      );
-      txHash = await sendWithOptions(true);
+      return { txHash };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      throw new BadRequestException(`TRC20 broadcast failed: ${details}`);
     }
-
-    if (!txHash || typeof txHash !== 'string') {
-      throw new BadRequestException('Failed to broadcast TRC20 transfer');
-    }
-
-    return { txHash };
   }
 
   private async isConfirmedTx(txHash: string): Promise<boolean> {
@@ -1821,15 +1805,38 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     );
     const feeAmount = tariffFee.fee > 0 ? tariffFee.fee : 0;
     const receiverNetAmount = Math.max(input.amount - feeAmount, 0);
+    const senderResolvedAddress = this.resolveCustomerTronAddress(sender);
+    const receiverResolvedAddress = this.resolveCustomerTronAddress(receiver);
     const chainSourceAddress = receiverIsBrowserWallet
       ? this.getRuntime().treasuryAddress
-      : input.senderAddress;
+      : senderResolvedAddress ?? input.senderAddress;
     const chainDestinationAddress = receiverIsBrowserWallet
-      ? input.receiverAddress
+      ? receiverResolvedAddress ?? input.receiverAddress
       : this.getRuntime().treasuryAddress;
     const chainSourcePrivateKey = receiverIsBrowserWallet
       ? this.getRuntime().treasuryPrivateKey
       : input.senderPrivateKey ?? sender.private_key;
+
+    if (
+      !receiverIsBrowserWallet &&
+      senderResolvedAddress &&
+      input.senderAddress &&
+      !this.sameAddress(senderResolvedAddress, input.senderAddress)
+    ) {
+      this.logger.warn(
+        `[browser-bridge] sender address mismatch customer=${input.senderCustomerId} stored=${input.senderAddress} derived=${senderResolvedAddress}`,
+      );
+    }
+    if (
+      receiverIsBrowserWallet &&
+      receiverResolvedAddress &&
+      input.receiverAddress &&
+      !this.sameAddress(receiverResolvedAddress, input.receiverAddress)
+    ) {
+      this.logger.warn(
+        `[browser-bridge] receiver address mismatch customer=${input.receiverCustomerId} stored=${input.receiverAddress} derived=${receiverResolvedAddress}`,
+      );
+    }
 
     if (!chainSourcePrivateKey) {
       throw new BadRequestException('Browser wallet private key is missing');

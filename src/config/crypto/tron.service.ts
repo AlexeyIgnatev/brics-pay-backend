@@ -163,37 +163,16 @@ export class TronService {
       throw new BadRequestException('USDT amount must be greater than 0');
     }
 
-    const sendWithOptions = async (confirmed: boolean): Promise<string> => {
-      const sendOptions = {
-        feeLimit,
-        shouldPollResponse: false,
-        ...(confirmed ? { confirmed: true } : {}),
-      } as {
-        feeLimit: number;
-        shouldPollResponse: boolean;
-        confirmed?: boolean;
-      };
-
-      return contract
-        .transfer(params.toAddress, amountSun.toString())
-        .send(sendOptions, privateKey);
-    };
-
     try {
-      let txHash: string;
-      try {
-        txHash = await sendWithOptions(false);
-      } catch (error) {
-        const details = error instanceof Error ? error.message : String(error);
-        if (!/tapos|reference block/i.test(details)) {
-          throw error;
-        }
-
-        this.logger.warn(
-          `[sendTrc20] retrying with solidity reference due to ${details}`,
+      const txHash = await contract
+        .transfer(params.toAddress, amountSun.toString())
+        .send(
+          {
+            feeLimit,
+            shouldPollResponse: false,
+          },
+          privateKey,
         );
-        txHash = await sendWithOptions(true);
-      }
 
       if (!txHash || typeof txHash !== 'string') {
         throw new BadRequestException('Failed to broadcast TRC20 transfer');
