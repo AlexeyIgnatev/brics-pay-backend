@@ -253,6 +253,9 @@ export class TronService {
     contract: string,
     decimals = this.decimalsDefault,
   ): Promise<number> {
+    this.logger.verbose(
+      `[getTrc20Balance] start address=${address} contract=${contract} decimals=${decimals}`,
+    );
     try {
       const response = await this.tron.transactionBuilder.triggerConstantContract(
         contract,
@@ -264,9 +267,14 @@ export class TronService {
         [{ type: 'address', value: address }],
         address,
       );
+      const responseObject = response as Record<string, unknown>;
+      const constantResult = (response as { constant_result?: unknown[] })
+        .constant_result;
+      this.logger.verbose(
+        `[getTrc20Balance] direct constant response address=${address} contract=${contract} hasResult=${Boolean(responseObject.result)} constantResultCount=${Array.isArray(constantResult) ? constantResult.length : 0} txKeys=${Object.keys(responseObject).join(',')}`,
+      );
       const rawResult =
-        (response as { constant_result?: unknown[] }).constant_result?.[0] ??
-        null;
+        constantResult?.[0] ?? null;
       if (rawResult == null) {
         throw new Error(`Invalid TRC20 constant response: ${JSON.stringify(response)}`);
       }
@@ -274,7 +282,11 @@ export class TronService {
         typeof rawResult === 'object' && rawResult && 'toString' in rawResult
           ? rawResult.toString()
           : String(rawResult);
-      return Number(BigInt(`0x${raw.replace(/^0x/, '')}`)) / 10 ** decimals;
+      const balance = Number(BigInt(`0x${raw.replace(/^0x/, '')}`)) / 10 ** decimals;
+      this.logger.verbose(
+        `[getTrc20Balance] direct constant parsed address=${address} contract=${contract} raw=${raw} balance=${balance}`,
+      );
+      return balance;
     } catch (error) {
       this.logger.warn(
         `[getTrc20Balance] direct constant call failed address=${address} contract=${contract}: ${error instanceof Error ? error.message : String(error)}`,
@@ -285,12 +297,19 @@ export class TronService {
         feeLimit: 1_000_000,
         callValue: 0,
       });
+      this.logger.verbose(
+        `[getTrc20Balance] fallback contract call address=${address} contract=${contract} payload=${JSON.stringify(res)}`,
+      );
       const raw =
         typeof res === 'object' && 'toString' in res
           ? res.toString()
           : String(res);
       const denom = 10 ** decimals;
-      return Number(raw) / denom;
+      const balance = Number(raw) / denom;
+      this.logger.verbose(
+        `[getTrc20Balance] fallback parsed address=${address} contract=${contract} raw=${raw} balance=${balance}`,
+      );
+      return balance;
     }
   }
 

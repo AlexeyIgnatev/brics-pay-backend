@@ -44,12 +44,18 @@ export class BalanceFetchService {
 
     if (allow('USDT_TRC20')) {
       try {
+        this.logger.verbose(
+          `[balance-refresh] USDT lookup start customer=${customer_id} address=${customer.address} hasPrivateKey=${Boolean(customer.private_key)}`,
+        );
         const tronAddress = this.crypto.trxAddressFromPrivateKey(
           customer.private_key,
         );
         const usdtContract =
           process.env.TRON_USDT_CONTRACT ||
           'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj';
+        this.logger.verbose(
+          `[balance-refresh] USDT lookup request customer=${customer_id} tronAddress=${tronAddress} contract=${usdtContract}`,
+        );
         const usdt = await this.tron.getTrc20Balance(tronAddress, usdtContract);
         await this.upsertBalance(customer_id, 'USDT_TRC20', usdt);
         this.logger.verbose(
