@@ -42,6 +42,12 @@ type BankCommissionPartnerConfig = {
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
+  private readonly usdtBalanceCache = new Map<
+    string,
+    { balance: number; expiresAt: number }
+  >();
+  private readonly usdtBalanceCacheTtlMs = 15_000;
+  private readonly usdtBalanceFetchTimeoutMs = 2_500;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -408,6 +414,38 @@ export class SettingsService {
     if (!contractAddress?.trim()) {
       throw new Error('USDT token contract is not configured');
     }
-    return this.tronService.getTrc20Balance(address, contractAddress.trim());
+
+    const cacheKey = `${address.trim().toLowerCase()}:${contractAddress.trim().toLowerCase()}`;
+    const cached = this.usdtBalanceCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.balance;
+    }
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error('USDT balance lookup timed out')),
+        this.usdtBalanceFetchTimeoutMs,
+      );
+    });
+
+    try {
+      const balance = await Promise.race([
+        this.tronService.getTrc20Balance(address, contractAddress.trim()),
+        timeoutPromise,
+      ]);
+      this.usdtBalanceCache.set(cacheKey, {
+        balance,
+        expiresAt: Date.now() + this.usdtBalanceCacheTtlMs,
+      });
+      return balance;
+    } catch (error) {
+      if (cached) {
+        this.logger.warn(
+          `Using cached USDT balance for ${address} after lookup failure: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return cached.balance;
+      }
+      throw error;
+    }
   }
 }

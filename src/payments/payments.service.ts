@@ -512,18 +512,28 @@ export class PaymentsService {
         `[browser-wallet-transfer] db-recorded transactionId=${transactionId} txHash=${txHash}`,
       );
 
-      await this.balanceFetchService.refreshAllBalancesForUser(
-        input.sender.customer_id,
-        ['USDT_TRC20' as Asset],
-      );
+      void this.balanceFetchService
+        .refreshAllBalancesForUser(input.sender.customer_id, [
+          'USDT_TRC20' as Asset,
+        ])
+        .catch((error) => {
+          this.logger.warn(
+            `[browser-wallet-transfer] sender balance refresh failed customer=${input.sender.customer_id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
       if (
         input.recipientCustomerId &&
         input.recipientCustomerId !== input.sender.customer_id
       ) {
-        await this.balanceFetchService.refreshAllBalancesForUser(
-          input.recipientCustomerId,
-          ['USDT_TRC20' as Asset],
-        );
+        void this.balanceFetchService
+          .refreshAllBalancesForUser(input.recipientCustomerId, [
+            'USDT_TRC20' as Asset,
+          ])
+          .catch((error) => {
+            this.logger.warn(
+              `[browser-wallet-transfer] recipient balance refresh failed customer=${input.recipientCustomerId}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
       }
 
       return new StatusOKDto(transactionId);

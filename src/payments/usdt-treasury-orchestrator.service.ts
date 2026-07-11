@@ -968,52 +968,14 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     toAddress: string,
     amount: number,
   ): Promise<{ txHash: string }> {
-    const contract = this.getTronWeb().contract(
-      [
-        {
-          constant: false,
-          inputs: [
-            { name: 'to', type: 'address' },
-            { name: 'amount', type: 'uint256' },
-          ],
-          name: 'transfer',
-          outputs: [],
-          type: 'function',
-          stateMutability: 'nonpayable',
-          payable: false,
-        },
-      ],
-      this.getRuntime().tokenAddress,
-    );
-
-    const amountSun = BigInt(Math.floor(amount * 10 ** USDT_DECIMALS));
-    if (!(amountSun > 0n)) {
-      throw new BadRequestException('USDT amount must be greater than 0');
-    }
-
-    const senderAddress = this.cryptoService.trxAddressFromPrivateKey(fromPrivateKey);
-    const senderAccount = await this.tronService.getAccount(senderAddress).catch(() => ({}));
-    if (Object.keys(senderAccount).length === 0) {
-      throw new BadRequestException(
-        `TRON sender account ${senderAddress} does not exist on chain. Run browser-wallet bootstrap first.`,
-      );
-    }
-
     try {
-      const txHash = await contract
-        .transfer(toAddress, amountSun.toString())
-        .send(
-          {
-            feeLimit: 100_000_000,
-            shouldPollResponse: false,
-          },
-          fromPrivateKey,
-        );
-
-      if (!txHash || typeof txHash !== 'string') {
-        throw new BadRequestException('Failed to broadcast TRC20 transfer');
-      }
-
+      const { txHash } = await this.tronService.sendTrc20({
+        fromPrivateKey,
+        toAddress,
+        amount,
+        tokenAddress: this.getRuntime().tokenAddress,
+        feeLimit: 100_000_000,
+      });
       return { txHash };
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
