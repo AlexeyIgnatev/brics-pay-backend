@@ -651,13 +651,16 @@ export class TransactionsService {
       (a, b) => b[1] - a[1],
     )[0]?.[0];
 
+    const roundTo2 = (value: number): number =>
+      Number.isFinite(value) ? Number(value.toFixed(2)) : 0;
+
     const summary: TransactionsStatsSummaryDto = {
-      total_sum_som: Math.round(totalSumSom),
+      total_sum_som: roundTo2(totalSumSom),
       total_count: totalCount,
       top_currency_by_sum: topBySum,
       top_currency_by_count: topByCount,
       most_active_day: mostActiveDay,
-      average_check_som: totalCount ? Math.round(totalSumSom / totalCount) : 0,
+      average_check_som: totalCount ? roundTo2(totalSumSom / totalCount) : 0,
     };
 
     const table = await this.list({
