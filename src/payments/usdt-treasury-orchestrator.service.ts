@@ -34,6 +34,7 @@ import { EthereumService } from '../config/ethereum/ethereum.service';
 import { TronService } from '../config/crypto/tron.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
+import { BalanceFetchService } from '../user-management/balance-fetch.service';
 import { BalanceCacheService } from '../user-management/balance-cache.service';
 
 const USDT_DECIMALS = 6;
@@ -93,6 +94,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     private readonly ethereumService: EthereumService,
     private readonly tronService: TronService,
     private readonly bricsService: BricsService,
+    private readonly balanceFetchService: BalanceFetchService,
     private readonly balanceCache: BalanceCacheService,
   ) {}
 
@@ -1480,7 +1482,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     });
   }
 
-  private async maybeSweepCustomerWallet(
+  async maybeSweepCustomerWallet(
     customerId: number,
     idempotencyHint: string,
   ): Promise<void> {
@@ -1573,6 +1575,13 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             snapshot,
           });
         await this.markConfirmed(op);
+        await this.balanceFetchService
+          .refreshAllBalancesForUser(customerId, ['USDT_TRC20' as Asset])
+          .catch((error) => {
+            this.logger.warn(
+              `USDT sweep balance refresh failed customer=${customerId}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
       }
     } catch (error) {
       await this.markFailed(op, error);

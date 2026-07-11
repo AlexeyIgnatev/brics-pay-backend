@@ -531,7 +531,27 @@ export class PaymentsService {
           ])
           .catch((error) => {
             this.logger.warn(
-              `[browser-wallet-transfer] recipient balance refresh failed customer=${input.recipientCustomerId}: ${error instanceof Error ? error.message : String(error)}`,
+            `[browser-wallet-transfer] recipient balance refresh failed customer=${input.recipientCustomerId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+      }
+
+      void this.usdtTreasuryOrchestrator
+        .maybeSweepCustomerWallet(input.sender.customer_id, txHash)
+        .catch((error) => {
+          this.logger.warn(
+            `[browser-wallet-transfer] sender sweep failed customer=${input.sender.customer_id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+      if (
+        input.recipientCustomerId &&
+        input.recipientCustomerId !== input.sender.customer_id
+      ) {
+        void this.usdtTreasuryOrchestrator
+          .maybeSweepCustomerWallet(input.recipientCustomerId, txHash)
+          .catch((error) => {
+            this.logger.warn(
+              `[browser-wallet-transfer] recipient sweep failed customer=${input.recipientCustomerId}: ${error instanceof Error ? error.message : String(error)}`,
             );
           });
       }
