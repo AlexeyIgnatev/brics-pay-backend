@@ -6,6 +6,7 @@ import * as TronWeb from 'tronweb';
 const TRON_SUN = 1_000_000;
 const ACCOUNT_BOOTSTRAP_SUN = 1_000_000;
 const TRON_RPC_TIMEOUT_MS = 120_000;
+const TRON_TX_EXPIRATION_MS = 15 * 60 * 1000;
 
 @Injectable()
 export class TronService {
@@ -287,13 +288,29 @@ export class TronService {
     }
 
     try {
+      const currentBlock = await tron.trx.getCurrentBlock();
+      const blockHeader = currentBlock?.block_header?.raw_data
+        ? {
+            ref_block_bytes: String(
+              currentBlock.block_header.raw_data.number.toString(16),
+            )
+              .slice(-4)
+              .padStart(4, '0'),
+            ref_block_hash: String(currentBlock.blockID).slice(16, 32),
+            timestamp: Number(currentBlock.block_header.raw_data.timestamp),
+            expiration:
+              Number(currentBlock.block_header.raw_data.timestamp) +
+              TRON_TX_EXPIRATION_MS,
+          }
+        : undefined;
+
       this.logger.verbose(
-        `[sendTrc20] build triggerSmartContract from=${fromAddress} to=${params.toAddress} amountSun=${amountSun.toString()}`,
+        `[sendTrc20] build triggerSmartContract from=${fromAddress} to=${params.toAddress} amountSun=${amountSun.toString()} expirationMs=${TRON_TX_EXPIRATION_MS} block=${String(currentBlock?.block_header?.raw_data?.number ?? 'null')}`,
       );
       const tx = await tron.transactionBuilder.triggerSmartContract(
         tokenAddress,
         'transfer(address,uint256)',
-        { feeLimit, callValue: 0 },
+        { feeLimit, callValue: 0, blockHeader },
         [
           { type: 'address', value: params.toAddress },
           { type: 'uint256', value: amountSun.toString() },
@@ -307,16 +324,11 @@ export class TronService {
         );
       }
 
-      const extendedTransaction = await tron.transactionBuilder.extendExpiration(
-        tx.transaction,
-        300,
-      );
-
       this.logger.verbose(
-        `[sendTrc20] sign transaction from=${fromAddress} txID=${extendedTransaction.txID} expiration=${String(extendedTransaction.raw_data?.expiration ?? 'null')}`,
+        `[sendTrc20] sign transaction from=${fromAddress} txID=${tx.transaction.txID} expiration=${String(tx.transaction.raw_data?.expiration ?? 'null')}`,
       );
       const signedTransaction = await tron.trx.sign(
-        extendedTransaction,
+        tx.transaction,
         privateKey,
       );
       if (!signedTransaction.signature?.length) {
@@ -341,7 +353,9 @@ export class TronService {
       }
 
       const txHash = String(signedTransaction.txID);
-      this.logger.verbose(`[sendTrc20] broadcasted txHash=${txHash}`);
+      this.logger.verbose(
+        `[sendTrc20] broadcasted txHash=${txHash} amountSun=${amountSun.toString()} token=${tokenAddress}`,
+      );
 
       return { txHash };
     } catch (error) {

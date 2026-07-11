@@ -86,6 +86,12 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private reconcileTimer?: NodeJS.Timeout;
   private reconcileRunning = false;
   private reconcileStartedAt?: number;
+  private readonly treasuryUsdtBalanceCache = new Map<
+    string,
+    { balance: number; expiresAt: number }
+  >();
+  private readonly treasuryUsdtBalanceCacheTtlMs = 10_000;
+  private readonly treasuryUsdtBalanceFetchTimeoutMs = 2_500;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -630,6 +636,16 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   }
 
   private async getUsdtBalance(address: string): Promise<number> {
+    const cacheKey = address.trim().toLowerCase();
+    const cached = this.treasuryUsdtBalanceCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      this.logger.verbose(
+        `[reserve-usdt] cache hit address=${address} balance=${cached.balance}`,
+      );
+      return cached.balance;
+    }
+
+    this.logger.verbose(`[reserve-usdt] fetch start address=${address}`);
     const contract = this.getTronWeb().contract(
       [
         {
@@ -644,8 +660,36 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       ],
       this.getRuntime().tokenAddress,
     );
-    const balance = await contract.balanceOf(address).call();
-    return Number(balance) / 10 ** USDT_DECIMALS;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error('USDT reserve lookup timed out')),
+        this.treasuryUsdtBalanceFetchTimeoutMs,
+      ),
+    );
+
+    try {
+      const balance = await Promise.race([
+        contract.balanceOf(address).call(),
+        timeoutPromise,
+      ]);
+      const resolved = Number(balance) / 10 ** USDT_DECIMALS;
+      this.treasuryUsdtBalanceCache.set(cacheKey, {
+        balance: resolved,
+        expiresAt: Date.now() + this.treasuryUsdtBalanceCacheTtlMs,
+      });
+      this.logger.verbose(
+        `[reserve-usdt] fetch done address=${address} balance=${resolved}`,
+      );
+      return resolved;
+    } catch (error) {
+      if (cached) {
+        this.logger.warn(
+          `[reserve-usdt] fetch failed, using cached value address=${address}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return cached.balance;
+      }
+      throw error;
+    }
   }
 
   private async getTreasuryAccountSnapshot(): Promise<{
@@ -827,11 +871,15 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     brics_burned_today: number;
     brics_burned_total: number;
   }> {
+    const startedAt = Date.now();
     try {
       const startOfToday = new Date();
       startOfToday.setHours(0, 0, 0, 0);
 
       const runtime = this.getRuntime();
+      this.logger.verbose(
+        `[reserve-snapshot] start treasury=${runtime.treasuryAddress}`,
+      );
       const [
         usdtBalance,
         salamBalance,
@@ -962,6 +1010,11 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         brics_burned_today: 0,
         brics_burned_total: 0,
       };
+    } finally {
+      const runtime = this.getRuntime();
+      this.logger.verbose(
+        `[reserve-snapshot] done treasury=${runtime.treasuryAddress} elapsedMs=${Date.now() - startedAt}`,
+      );
     }
   }
 

@@ -531,9 +531,9 @@ export class PaymentsService {
           ])
           .catch((error) => {
             this.logger.warn(
-            `[browser-wallet-transfer] recipient balance refresh failed customer=${input.recipientCustomerId}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        });
+              `[browser-wallet-transfer] recipient balance refresh failed customer=${input.recipientCustomerId}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
       }
 
       void this.usdtTreasuryOrchestrator
