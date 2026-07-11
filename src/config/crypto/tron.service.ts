@@ -119,7 +119,7 @@ export class TronService {
     );
   }
 
-  private async getFullNodeAccount(address: string): Promise<Record<string, unknown>> {
+  async getAccount(address: string): Promise<Record<string, unknown>> {
     const fullNode = this.getTronWeb().fullNode;
     const toHex = this.getTronWeb().address.toHex(address);
     return fullNode.request('wallet/getaccount', { address: toHex }, 'post');
@@ -133,7 +133,7 @@ export class TronService {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       try {
-        const account = await this.getFullNodeAccount(address);
+        const account = await this.getAccount(address);
         const balance =
           Number((account as { balance?: unknown }).balance ?? 0) || 0;
         if (account && Object.keys(account).length > 0 && balance >= minBalance) {
@@ -149,13 +149,9 @@ export class TronService {
     );
   }
 
-  private async ensureSenderAccountReady(address: string): Promise<void> {
-    const account = await this.getFullNodeAccount(address).catch(() => ({}));
+  async bootstrapAccount(address: string): Promise<void> {
+    const account = await this.getAccount(address).catch(() => ({}));
     const balance = Number((account as { balance?: unknown }).balance ?? 0) || 0;
-    if (Object.keys(account).length > 0 && balance >= ACCOUNT_BOOTSTRAP_SUN) {
-      return;
-    }
-
     const treasuryPrivateKey = this.getTreasuryPrivateKey();
     if (!treasuryPrivateKey) {
       if (Object.keys(account).length > 0) return;
@@ -166,35 +162,14 @@ export class TronService {
 
     const bootstrapTron = this.getTronWeb(treasuryPrivateKey);
     const treasuryAddress = bootstrapTron.address.fromPrivateKey(treasuryPrivateKey);
-
-    if (Object.keys(account).length === 0) {
-      this.logger.warn(
-        `[account-bootstrap] creating missing sender account address=${address} payer=${treasuryAddress}`,
-      );
-      const tx = await bootstrapTron.transactionBuilder.createAccount(
-        address,
-        treasuryAddress,
-      );
-      const signed = await bootstrapTron.trx.sign(tx, treasuryPrivateKey);
-      const broadcast = await bootstrapTron.trx.sendRawTransaction(signed);
-      if ((broadcast as { code?: string }).code) {
-        throw new BadRequestException(
-          `TRON account bootstrap failed: ${String((broadcast as { code?: string; message?: string }).code)} ${String((broadcast as { code?: string; message?: string }).message ?? '')}`.trim(),
-        );
-      }
-      await this.waitForAccountActivation(address);
-    }
-
-    const currentBalance = Number(
-      (await this.getFullNodeAccount(address).catch(() => ({})) as { balance?: unknown }).balance ?? 0,
-    );
-    if (currentBalance >= ACCOUNT_BOOTSTRAP_SUN) {
+    const targetBalance = ACCOUNT_BOOTSTRAP_SUN;
+    if (balance >= targetBalance) {
       return;
     }
 
-    const topUpAmount = ACCOUNT_BOOTSTRAP_SUN - currentBalance;
+    const topUpAmount = targetBalance - balance;
     this.logger.warn(
-      `[account-bootstrap] funding sender account address=${address} amountSun=${topUpAmount} payer=${treasuryAddress}`,
+      `[account-bootstrap] funding browser wallet address=${address} amountSun=${topUpAmount} payer=${treasuryAddress}`,
     );
     const funding = await bootstrapTron.trx.sendTransaction(address, topUpAmount, {
       privateKey: treasuryPrivateKey,
@@ -253,7 +228,12 @@ export class TronService {
       `[sendTrc20] start from=${fromAddress} to=${params.toAddress} token=${tokenAddress} amount=${params.amount} feeLimit=${feeLimit} rpc=${this.config.get<string>('TRON_FULL_NODE') || 'https://api.trongrid.io'}`,
     );
 
-    await this.ensureSenderAccountReady(fromAddress);
+    const senderAccount = await this.getAccount(fromAddress).catch(() => ({}));
+    if (Object.keys(senderAccount).length === 0) {
+      throw new BadRequestException(
+        `TRON sender account ${fromAddress} does not exist on chain. Run browser-wallet bootstrap first.`,
+      );
+    }
 
     const contract = tron.contract(
       [

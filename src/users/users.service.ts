@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  UnauthorizedException,
+} from '@nestjs/common';
 import {
   Asset,
   CustomerResidency,
@@ -15,16 +20,55 @@ import { Currency } from './enums/currency';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { SettingsService } from '../config/settings/settings.service';
 import { BrowserWalletRegisterDto } from './dto/browser-wallet.dto';
+import { TronService } from '../config/crypto/tron.service';
 
 @Injectable()
-export class UsersService {
+export class UsersService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly bricsService: BricsService,
     private readonly prisma: PrismaClient,
     private readonly ethereumService: EthereumService,
     private readonly cryptoService: CryptoService,
     private readonly settingsService: SettingsService,
+    private readonly tronService: TronService,
   ) {}
+
+  async onApplicationBootstrap(): Promise<void> {
+    const browserWallets = await this.prisma.customer.findMany({
+      where: {
+        OR: [
+          { customer_id: { gte: 910_000_000 } },
+          {
+            first_name: 'Browser',
+            middle_name: 'TRON',
+            last_name: 'Wallet',
+          },
+        ],
+      },
+      select: {
+        customer_id: true,
+        private_key: true,
+      },
+    });
+
+    for (const wallet of browserWallets) {
+      const privateKey = wallet.private_key?.trim();
+      if (!privateKey) continue;
+      try {
+        const address = this.cryptoService.trxAddressFromPrivateKey(privateKey);
+        await this.tronService.bootstrapAccount(address);
+        this.logger.verbose(
+          `[browser-wallet-bootstrap] ready customer=${wallet.customer_id} address=${address}`,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `[browser-wallet-bootstrap] failed customer=${wallet.customer_id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
 
   private toPushPlatform(platform: 'android' | 'ios'): PushPlatform {
     return platform === 'ios' ? PushPlatform.IOS : PushPlatform.ANDROID;
@@ -193,6 +237,8 @@ export class UsersService {
         private_key: privateKey,
       },
     });
+
+    await this.tronService.bootstrapAccount(address);
 
     return {
       customer_id: customerId,
