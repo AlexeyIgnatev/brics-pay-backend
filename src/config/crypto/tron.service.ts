@@ -279,31 +279,6 @@ export class TronService {
       `[sendTrc20] start from=${fromAddress} to=${params.toAddress} token=${tokenAddress} amount=${params.amount} feeLimit=${feeLimit} rpc=${this.config.get<string>('TRON_FULL_NODE') || 'https://api.trongrid.io'}`,
     );
 
-    const senderAccount = await this.getAccount(fromAddress).catch(() => ({}));
-    if (Object.keys(senderAccount).length === 0) {
-      throw new BadRequestException(
-        `TRON sender account ${fromAddress} does not exist on chain. Run browser-wallet bootstrap first.`,
-      );
-    }
-
-    const contract = tron.contract(
-      [
-        {
-          constant: false,
-          inputs: [
-            { name: 'to', type: 'address' },
-            { name: 'amount', type: 'uint256' },
-          ],
-          name: 'transfer',
-          outputs: [],
-          type: 'function',
-          stateMutability: 'nonpayable',
-          payable: false,
-        },
-      ],
-      tokenAddress,
-    );
-
     const amountSun = BigInt(
       Math.floor(Number(params.amount) * 10 ** this.decimalsDefault),
     );
@@ -312,20 +287,52 @@ export class TronService {
     }
 
     try {
-      const txHash = await contract
-        .transfer(params.toAddress, amountSun.toString())
-        .send(
-          {
-            feeLimit,
-            shouldPollResponse: false,
-          },
-          privateKey,
-        );
+      this.logger.verbose(
+        `[sendTrc20] build triggerSmartContract from=${fromAddress} to=${params.toAddress} amountSun=${amountSun.toString()}`,
+      );
+      const tx = await tron.transactionBuilder.triggerSmartContract(
+        tokenAddress,
+        'transfer(address,uint256)',
+        { feeLimit, callValue: 0 },
+        [
+          { type: 'address', value: params.toAddress },
+          { type: 'uint256', value: amountSun.toString() },
+        ],
+        fromAddress,
+      );
 
-      if (!txHash || typeof txHash !== 'string') {
-        throw new BadRequestException('Failed to broadcast TRC20 transfer');
+      if (!tx?.transaction || !tx?.result?.result) {
+        throw new BadRequestException(
+          `Failed to build TRC20 transfer: ${JSON.stringify(tx)}`,
+        );
       }
 
+      this.logger.verbose(
+        `[sendTrc20] sign transaction from=${fromAddress} txID=${tx.transaction.txID}`,
+      );
+      const signedTransaction = await tron.trx.sign(tx.transaction, privateKey);
+      if (!signedTransaction.signature?.length) {
+        throw new BadRequestException('Failed to sign TRC20 transfer');
+      }
+
+      this.logger.verbose(
+        `[sendTrc20] broadcast transaction from=${fromAddress} txID=${signedTransaction.txID}`,
+      );
+      const broadcast = await tron.trx.sendRawTransaction(signedTransaction);
+      if (!broadcast || typeof broadcast !== 'object') {
+        throw new BadRequestException('Failed to broadcast TRC20 transfer');
+      }
+      if ((broadcast as { code?: string }).code) {
+        const code = String((broadcast as { code?: string }).code);
+        const message = String(
+          (broadcast as { message?: string }).message ?? '',
+        );
+        throw new BadRequestException(
+          `TRC20 broadcast rejected: ${code} ${message}`.trim(),
+        );
+      }
+
+      const txHash = String(signedTransaction.txID);
       this.logger.verbose(`[sendTrc20] broadcasted txHash=${txHash}`);
 
       return { txHash };
