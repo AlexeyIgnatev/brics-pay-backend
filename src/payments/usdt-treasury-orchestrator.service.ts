@@ -211,6 +211,99 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     return this.tronWeb;
   }
 
+  private async getChainAccount(address: string): Promise<Record<string, unknown>> {
+    const runtime = this.getRuntime();
+    const rpcUrl = runtime.rpcUrl.replace(/\/+$/, '');
+    const addressHex = this.toTronHex(address);
+    const rawText = await this.postJsonRaw(`${rpcUrl}/wallet/getaccount`, {
+      address: addressHex,
+    });
+    return rawText.trim()
+      ? (JSON.parse(rawText) as Record<string, unknown>)
+      : {};
+  }
+
+  private async waitForAccountActivation(
+    address: string,
+    minBalance = 0,
+    timeoutMs = 15_000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const account = await this.getChainAccount(address);
+        const balance =
+          Number((account as { balance?: unknown }).balance ?? 0) || 0;
+        if (Object.keys(account).length > 0 && balance >= minBalance) {
+          return;
+        }
+      } catch {
+        // keep polling
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new BadRequestException(
+      `Failed to activate TRON account ${address} on chain`,
+    );
+  }
+
+  private async ensureSenderAccountReady(address: string): Promise<void> {
+    const account = await this.getChainAccount(address).catch(() => ({}));
+    const balance = Number((account as { balance?: unknown }).balance ?? 0) || 0;
+    if (Object.keys(account).length > 0 && balance >= TRON_SUN) {
+      return;
+    }
+
+    const runtime = this.getRuntime();
+    const treasuryPrivateKey = runtime.treasuryPrivateKey;
+    if (!treasuryPrivateKey) {
+      if (Object.keys(account).length > 0) return;
+      throw new BadRequestException(
+        `TRON account ${address} does not exist and treasury private key is not configured`,
+      );
+    }
+
+    const tron = this.getTronWeb();
+    const treasuryAddress = runtime.treasuryAddress;
+
+    if (Object.keys(account).length === 0) {
+      this.logger.warn(
+        `[account-bootstrap] creating missing sender account address=${address} payer=${treasuryAddress}`,
+      );
+      const tx = await tron.transactionBuilder.createAccount(address, treasuryAddress);
+      const signed = await tron.trx.sign(tx, treasuryPrivateKey);
+      const broadcast = await tron.trx.sendRawTransaction(signed);
+      if ((broadcast as { code?: string }).code) {
+        throw new BadRequestException(
+          `TRON account bootstrap failed: ${String((broadcast as { code?: string; message?: string }).code)} ${String((broadcast as { code?: string; message?: string }).message ?? '')}`.trim(),
+        );
+      }
+      await this.waitForAccountActivation(address);
+    }
+
+    const refreshed = await this.getChainAccount(address).catch(() => ({}));
+    const refreshedBalance =
+      Number((refreshed as { balance?: unknown }).balance ?? 0) || 0;
+    if (refreshedBalance >= TRON_SUN) {
+      return;
+    }
+
+    const topUpAmount = TRON_SUN - refreshedBalance;
+    this.logger.warn(
+      `[account-bootstrap] funding sender account address=${address} amountSun=${topUpAmount} payer=${treasuryAddress}`,
+    );
+    const funding = await tron.trx.sendTransaction(address, topUpAmount, {
+      privateKey: treasuryPrivateKey,
+      address: treasuryAddress,
+    });
+    if ((funding as { code?: string }).code) {
+      throw new BadRequestException(
+        `TRON account funding failed: ${String((funding as { code?: string; message?: string }).code)} ${String((funding as { code?: string; message?: string }).message ?? '')}`.trim(),
+      );
+    }
+    await this.waitForAccountActivation(address, TRON_SUN);
+  }
+
   private async safeSnapshotValue<T>(
     label: string,
     task: Promise<T>,
@@ -988,6 +1081,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     if (!(amountSun > 0n)) {
       throw new BadRequestException('USDT amount must be greater than 0');
     }
+
+    await this.ensureSenderAccountReady(this.cryptoService.trxAddressFromPrivateKey(fromPrivateKey));
 
     try {
       const txHash = await contract
