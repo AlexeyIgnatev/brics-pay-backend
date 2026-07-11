@@ -13,6 +13,44 @@ export class TronService {
   private readonly decimalsDefault: number;
   private readonly logger = new Logger(TronService.name);
 
+  private buildNodeProviders(
+    fullNode: string,
+    solidityNode: string,
+    eventServer: string,
+    headers: Record<string, string>,
+  ): {
+    fullNodeProvider: any;
+    solidityNodeProvider: any;
+    eventServerProvider: any;
+  } {
+    const HttpProvider = (TronWeb as any).providers?.HttpProvider;
+    if (!HttpProvider) {
+      return {
+        fullNodeProvider: fullNode,
+        solidityNodeProvider: solidityNode,
+        eventServerProvider: eventServer,
+      };
+    }
+
+    return {
+      fullNodeProvider: new HttpProvider(fullNode, TRON_RPC_TIMEOUT_MS, '', '', headers),
+      solidityNodeProvider: new HttpProvider(
+        solidityNode,
+        TRON_RPC_TIMEOUT_MS,
+        '',
+        '',
+        headers,
+      ),
+      eventServerProvider: new HttpProvider(
+        eventServer,
+        TRON_RPC_TIMEOUT_MS,
+        '',
+        '',
+        headers,
+      ),
+    };
+  }
+
   constructor(private readonly config: ConfigService) {
     const fullNode =
       this.config.get<string>('TRON_FULL_NODE') || 'https://api.trongrid.io';
@@ -24,13 +62,18 @@ export class TronService {
 
     const headers: any = {};
     if (apiKey) headers['TRON-PRO-API-KEY'] = apiKey;
+    const nodeProviders = this.buildNodeProviders(
+      fullNode,
+      solidityNode,
+      eventServer,
+      headers,
+    );
 
     const TronCtor = TronWeb.TronWeb || TronWeb;
     this.tron = new TronCtor({
-      fullHost: fullNode,
-      headers,
-      solidityNode,
-      eventServer,
+      fullNode: nodeProviders.fullNodeProvider,
+      solidityNode: nodeProviders.solidityNodeProvider,
+      eventServer: nodeProviders.eventServerProvider,
     });
 
     this.decimalsDefault =
@@ -38,12 +81,12 @@ export class TronService {
   }
 
   private getTronWebCtor(): new (options: {
-    fullNode?: unknown;
-    fullHost?: unknown;
+    fullNode?: any;
+    fullHost?: any;
     privateKey?: string;
     headers?: Record<string, string>;
-    solidityNode?: string;
-    eventServer?: string;
+    solidityNode?: any;
+    eventServer?: any;
   }) => any {
     const candidate =
       (TronWeb as { TronWeb?: unknown }).TronWeb ??
@@ -56,12 +99,12 @@ export class TronService {
     }
 
     return candidate as new (options: {
-      fullNode?: unknown;
-      fullHost?: unknown;
+      fullNode?: any;
+      fullHost?: any;
       privateKey?: string;
       headers?: Record<string, string>;
-      solidityNode?: string;
-      eventServer?: string;
+      solidityNode?: any;
+      eventServer?: any;
     }) => any;
   }
 
@@ -76,25 +119,19 @@ export class TronService {
 
     const headers: Record<string, string> = {};
     if (apiKey) headers['TRON-PRO-API-KEY'] = apiKey;
-
-    const HttpProvider = (TronWeb as any).providers?.HttpProvider;
-    const fullNodeProvider = HttpProvider
-      ? new HttpProvider(fullNode, TRON_RPC_TIMEOUT_MS, '', '', headers)
-      : fullNode;
-    const solidityNodeProvider = HttpProvider
-      ? new HttpProvider(solidityNode, TRON_RPC_TIMEOUT_MS, '', '', headers)
-      : solidityNode;
-    const eventServerProvider = HttpProvider
-      ? new HttpProvider(eventServer, TRON_RPC_TIMEOUT_MS, '', '', headers)
-      : eventServer;
+    const nodeProviders = this.buildNodeProviders(
+      fullNode,
+      solidityNode,
+      eventServer,
+      headers,
+    );
 
     const TronCtor = this.getTronWebCtor();
     return new TronCtor({
-      fullNode: fullNodeProvider,
-      solidityNode: solidityNodeProvider,
-      eventServer: eventServerProvider,
+      fullNode: nodeProviders.fullNodeProvider,
+      solidityNode: nodeProviders.solidityNodeProvider,
+      eventServer: nodeProviders.eventServerProvider,
       privateKey,
-      headers,
     });
   }
 
