@@ -731,6 +731,14 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     };
   }
 
+  private invalidateTreasuryUsdtBalanceCache(): void {
+    const treasuryAddress = this.getRuntime().treasuryAddress.trim().toLowerCase();
+    this.treasuryUsdtBalanceCache.delete(treasuryAddress);
+    this.logger.verbose(
+      `[reserve-usdt] cache invalidated address=${this.getRuntime().treasuryAddress}`,
+    );
+  }
+
   private async getSalamTreasurySnapshot(): Promise<number> {
     const [creditRows, debitRows] = await Promise.all([
       this.prisma.accountingPosting.findMany({
@@ -1024,6 +1032,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     amount: number,
   ): Promise<{ txHash: string }> {
     try {
+      const fromAddress = this.cryptoService.trxAddressFromPrivateKey(
+        fromPrivateKey,
+      );
       const { txHash } = await this.tronService.sendTrc20({
         fromPrivateKey,
         toAddress,
@@ -1031,6 +1042,12 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         tokenAddress: this.getRuntime().tokenAddress,
         feeLimit: 100_000_000,
       });
+      if (
+        this.sameAddress(fromAddress, this.getRuntime().treasuryAddress) ||
+        this.sameAddress(toAddress, this.getRuntime().treasuryAddress)
+      ) {
+        this.invalidateTreasuryUsdtBalanceCache();
+      }
       return { txHash };
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
@@ -1544,6 +1561,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       customer && this.resolveCustomerTronAddress(customer);
     if (!customerTronAddress || !customer?.private_key) return;
 
+    this.logger.verbose(
+      `[sweep] start customer=${customerId} address=${customerTronAddress} idempotencyHint=${idempotencyHint}`,
+    );
     let liveBalance: number;
     try {
       liveBalance = await this.getUsdtBalance(customerTronAddress);
@@ -1553,6 +1573,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       );
       return;
     }
+    this.logger.verbose(
+      `[sweep] balance customer=${customerId} address=${customerTronAddress} liveBalance=${liveBalance} threshold=${SWEEP_THRESHOLD}`,
+    );
     if (liveBalance <= SWEEP_THRESHOLD) {
       return;
     }
@@ -1596,6 +1619,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         this.getRuntime().treasuryAddress,
         liveBalance,
       );
+      this.logger.verbose(
+        `[sweep] broadcasted customer=${customerId} txHash=${txHash} amount=${liveBalance}`,
+      );
       await this.markBroadcasted(op, txHash, {
         ...((op.payload as UsdtPaymentPayload) ?? {}),
         sweep: true,
@@ -1626,8 +1652,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             status: BlockchainTransactionStatus.CONFIRMED,
             gasPayerAddress: customerTronAddress,
             snapshot,
-          });
+        });
         await this.markConfirmed(op);
+        this.invalidateTreasuryUsdtBalanceCache();
         await this.balanceFetchService
           .refreshAllBalancesForUser(customerId, ['USDT_TRC20' as Asset])
           .catch((error) => {
@@ -1635,6 +1662,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
               `USDT sweep balance refresh failed customer=${customerId}: ${error instanceof Error ? error.message : String(error)}`,
             );
           });
+        this.logger.verbose(
+          `[sweep] confirmed customer=${customerId} txHash=${txHash} amount=${liveBalance}`,
+        );
       }
     } catch (error) {
       await this.markFailed(op, error);
