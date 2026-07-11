@@ -739,6 +739,29 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     );
   }
 
+  private async adjustTreasuryUsdtBalanceCache(delta: number): Promise<void> {
+    if (!Number.isFinite(delta) || delta === 0) return;
+
+    const treasuryAddress = this.getRuntime().treasuryAddress.trim().toLowerCase();
+    const now = Date.now();
+    const cached = this.treasuryUsdtBalanceCache.get(treasuryAddress);
+    const baseBalance =
+      cached && cached.expiresAt > now
+        ? cached.balance
+        : await this.getUsdtBalance(this.getRuntime().treasuryAddress).catch(
+            () => 0,
+          );
+    const balance = Math.max(0, baseBalance + delta);
+
+    this.treasuryUsdtBalanceCache.set(treasuryAddress, {
+      balance,
+      expiresAt: now + this.treasuryUsdtBalanceCacheTtlMs,
+    });
+    this.logger.verbose(
+      `[reserve-usdt] cache adjusted address=${this.getRuntime().treasuryAddress} delta=${delta} balance=${balance}`,
+    );
+  }
+
   private async getSalamTreasurySnapshot(): Promise<number> {
     const [creditRows, debitRows] = await Promise.all([
       this.prisma.accountingPosting.findMany({
@@ -1042,11 +1065,11 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         tokenAddress: this.getRuntime().tokenAddress,
         feeLimit: 100_000_000,
       });
-      if (
-        this.sameAddress(fromAddress, this.getRuntime().treasuryAddress) ||
-        this.sameAddress(toAddress, this.getRuntime().treasuryAddress)
-      ) {
-        this.invalidateTreasuryUsdtBalanceCache();
+      if (this.sameAddress(fromAddress, this.getRuntime().treasuryAddress)) {
+        await this.adjustTreasuryUsdtBalanceCache(-amount);
+      }
+      if (this.sameAddress(toAddress, this.getRuntime().treasuryAddress)) {
+        await this.adjustTreasuryUsdtBalanceCache(amount);
       }
       return { txHash };
     } catch (error) {
@@ -1130,6 +1153,22 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           `TronWeb confirmation lookup failed for tx=${txHash}: ${message}`,
         );
       }
+    }
+
+    try {
+      const tx = (await this.getTronWeb().trx.getTransaction(
+        txHash,
+      )) as Record<string, unknown> | null;
+      if (tx && Object.keys(tx).length > 0) {
+        this.logger.verbose(
+          `Full-node transaction payload for tx=${txHash} was treated as confirmed: ${JSON.stringify(tx)}`,
+        );
+        return true;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Full-node transaction lookup failed for tx=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     return false;
@@ -1654,7 +1693,6 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             snapshot,
         });
         await this.markConfirmed(op);
-        this.invalidateTreasuryUsdtBalanceCache();
         await this.balanceFetchService
           .refreshAllBalancesForUser(customerId, ['USDT_TRC20' as Asset])
           .catch((error) => {

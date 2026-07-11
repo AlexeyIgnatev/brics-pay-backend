@@ -253,14 +253,45 @@ export class TronService {
     contract: string,
     decimals = this.decimalsDefault,
   ): Promise<number> {
-    const ctr = await this.tron.contract().at(contract);
-    const res = await ctr.balanceOf(address).call();
-    const raw =
-      typeof res === 'object' && 'toString' in res
-        ? res.toString()
-        : String(res);
-    const denom = 10 ** decimals;
-    return Number(raw) / denom;
+    try {
+      const response = await this.tron.transactionBuilder.triggerConstantContract(
+        contract,
+        'balanceOf(address)',
+        {
+          feeLimit: 1_000_000,
+          callValue: 0,
+        },
+        [{ type: 'address', value: address }],
+        address,
+      );
+      const rawResult =
+        (response as { constant_result?: unknown[] }).constant_result?.[0] ??
+        null;
+      if (rawResult == null) {
+        throw new Error(`Invalid TRC20 constant response: ${JSON.stringify(response)}`);
+      }
+      const raw =
+        typeof rawResult === 'object' && rawResult && 'toString' in rawResult
+          ? rawResult.toString()
+          : String(rawResult);
+      return Number(BigInt(`0x${raw.replace(/^0x/, '')}`)) / 10 ** decimals;
+    } catch (error) {
+      this.logger.warn(
+        `[getTrc20Balance] direct constant call failed address=${address} contract=${contract}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      const ctr = await this.tron.contract().at(contract);
+      const res = await ctr.balanceOf(address).call({
+        from: address,
+        feeLimit: 1_000_000,
+        callValue: 0,
+      });
+      const raw =
+        typeof res === 'object' && 'toString' in res
+          ? res.toString()
+          : String(res);
+      const denom = 10 ** decimals;
+      return Number(raw) / denom;
+    }
   }
 
   async sendTrc20(params: {
@@ -398,6 +429,22 @@ export class TronService {
         this.logger.verbose(
           `[waitForTransaction] pending txHash=${txHash} payload=${JSON.stringify(info)}`,
         );
+      } catch {
+        // keep polling
+      }
+
+      try {
+        const acceptedTx = await this.getTronWeb().trx.getTransaction(txHash);
+        if (
+          acceptedTx &&
+          typeof acceptedTx === 'object' &&
+          Object.keys(acceptedTx).length > 0
+        ) {
+          this.logger.verbose(
+            `[waitForTransaction] accepted txHash=${txHash} payload=${JSON.stringify(acceptedTx)}`,
+          );
+          return acceptedTx as Record<string, unknown>;
+        }
       } catch {
         // keep polling
       }
