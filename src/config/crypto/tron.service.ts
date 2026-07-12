@@ -171,6 +171,21 @@ export class TronService {
     );
   }
 
+  getTreasuryAddress(): string | undefined {
+    const treasuryPrivateKey = this.getTreasuryPrivateKey();
+    if (!treasuryPrivateKey) return undefined;
+
+    try {
+      const bootstrapTron = this.getTronWeb(treasuryPrivateKey);
+      return bootstrapTron.address.fromPrivateKey(treasuryPrivateKey);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to derive treasury address: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return undefined;
+    }
+  }
+
   async getAccount(address: string): Promise<Record<string, unknown>> {
     const fullNode = this.getTronWeb().fullNode;
     const toHex = this.getTronWeb().address.toHex(address);

@@ -31,24 +31,6 @@ const SUPPORTED_TARIFF_OPERATION_SET = new Set<TariffOperation>(
   SUPPORTED_TARIFF_OPERATIONS,
 );
 
-const TEMPORARY_BANK_COMMISSION_DEFAULTS = {
-  central_bank_som_account: '910000001',
-  central_bank_salam_wallet: '0x1111111111111111111111111111111111111111',
-  central_bank_usdt_wallet: 'TH6v4FYhVPEE39oYLd7roSfGj2H49pkRUX',
-  bank_som_account: '910000002',
-  bank_salam_wallet: '0x2222222222222222222222222222222222222222',
-  bank_usdt_wallet: 'TRVh3EuuWTkCfECfXM77SGZZZQwJT49WBm',
-  bank_commission_partners_json: JSON.stringify([
-    {
-      id: 'partner-1',
-      title: 'Partner 1',
-      som_account: '910000003',
-      salam_wallet: '0x3333333333333333333333333333333333333333',
-      usdt_wallet: 'TQYvtaMVomk4BFgGPNjnEadrnVaLAqS5Kj',
-    },
-  ]),
-};
-
 type BankCommissionPartnerConfig = {
   id?: string;
   title?: string;
@@ -75,12 +57,41 @@ export class SettingsService {
     private readonly tronService: TronService,
   ) {}
 
+  private getBankCommissionDefaults(): Record<string, string> {
+    return {
+      central_bank_som_account:
+        this.configService.get<string>('CENTRAL_BANK_SOM_ACCOUNT')?.trim() || '',
+      central_bank_salam_wallet:
+        this.configService.get<string>('CENTRAL_BANK_SALAM_WALLET')?.trim() ||
+        '',
+      central_bank_usdt_wallet:
+        this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
+        '',
+      bank_som_account:
+        this.configService.get<string>('BANK_SOM_ACCOUNT')?.trim() ||
+        this.configService.get<string>('CT_ACCOUNT_NO')?.trim() ||
+        '',
+      bank_salam_wallet:
+        this.configService.get<string>('BANK_SALAM_WALLET')?.trim() ||
+        this.configService.get<string>('ADMIN_ADDRESS')?.trim() ||
+        '',
+      bank_usdt_wallet:
+        this.configService.get<string>('BANK_USDT_WALLET')?.trim() ||
+        this.tronService.getTreasuryAddress() ||
+        '',
+      bank_commission_partners_json:
+        this.configService.get<string>('BANK_COMMISSION_PARTNERS_JSON')?.trim() ||
+        '',
+    };
+  }
+
   private async getOrCreateSettingsRow() {
     let s = await this.prisma.settings.findUnique({ where: { id: 1 } });
     if (!s) {
       s = await this.prisma.settings.findFirst({ orderBy: { id: 'asc' } });
     }
     if (!s) {
+      const defaults = this.getBankCommissionDefaults();
       s = await this.prisma.settings.create({
         data: {
           id: 1,
@@ -99,13 +110,13 @@ export class SettingsService {
           bank_commission_central_bank_pct: '20',
           bank_commission_bank_pct: '40',
           bank_commission_partners_pct: '40',
-          ...TEMPORARY_BANK_COMMISSION_DEFAULTS,
+          ...defaults,
         },
       });
     } else {
       const bankCommissionPatch: Record<string, string> = {};
       for (const [key, value] of Object.entries(
-        TEMPORARY_BANK_COMMISSION_DEFAULTS,
+        this.getBankCommissionDefaults(),
       )) {
         const current = (s as Record<string, unknown>)[key];
         if (current == null || String(current).trim() === '') {
