@@ -1565,7 +1565,9 @@ export class PaymentsService {
         const netEsom = netUsdt * esomPerUsd;
 
         try {
-          await this.ethereumService.transferFromFiat(user.address, netEsom);
+          if (netEsom > 0) {
+            await this.ethereumService.transferFromFiat(user.address, netEsom);
+          }
           await addBalance(from, -amountFrom);
 
           const createdTransaction = await this.prisma.transaction.create({
@@ -1885,7 +1887,7 @@ export class PaymentsService {
     );
     const conversionFee = tariff.fee;
     const netAmount = Math.max(amount - conversionFee, 0);
-    if (netAmount <= 0) {
+    if (netAmount < 0) {
       throw new BadRequestException(
         'Amount is too low after conversion commission',
       );
@@ -1928,10 +1930,13 @@ export class PaymentsService {
         throw new BadRequestException('Brics transaction failed');
       }
 
-      const ethTransaction = await this.ethereumService.transferFromFiat(
-        customer.address,
-        netAmount,
-      );
+      const ethTransaction =
+        netAmount > 0
+          ? await this.ethereumService.transferFromFiat(
+              customer.address,
+              netAmount,
+            )
+          : { success: true as const, txHash: null };
       await this.balanceFetchService.refreshAllBalancesForUser(
         customer.customer_id,
         ['ESOM' as Asset],
@@ -2071,7 +2076,7 @@ export class PaymentsService {
     );
     const conversionFee = tariff.fee;
     const netAmount = Math.max(amount - conversionFee, 0);
-    if (netAmount <= 0) {
+    if (netAmount < 0) {
       throw new BadRequestException(
         'Amount is too low after conversion commission',
       );
@@ -2214,10 +2219,13 @@ export class PaymentsService {
 
       let ethTransaction: { success: boolean; txHash?: string };
       try {
-        ethTransaction = await this.ethereumService.transferToFiat(
-          amount,
-          customer.private_key,
-        );
+        ethTransaction =
+          netAmount > 0
+            ? await this.ethereumService.transferToFiat(
+                amount,
+                customer.private_key,
+              )
+            : { success: true as const, txHash: undefined };
       } catch (error) {
         const details = this.errorDetails(error);
         throw new BadRequestException(
