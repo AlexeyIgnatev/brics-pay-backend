@@ -591,6 +591,14 @@ export class BricsService {
 
   async getCustomerAccount(customerId: string): Promise<BricsAccountDto> {
     try {
+      const callerStack = new Error()
+        .stack?.split('\n')
+        .slice(2, 6)
+        .map((line) => line.trim())
+        .join(' | ');
+      this.logger.verbose(
+        `[getCustomerAccount] customer=${customerId} caller=${callerStack || 'unknown'}`,
+      );
       this.logger.verbose('Send getCustomerAccounts request');
       const response = await this.axiosInstance.get(
         `${this.INTEGRATION_API_ROOT}/OnlineBank.IntegrationService/api/Deposits/GetCurrentAccounts?customerID=${customerId}`,
