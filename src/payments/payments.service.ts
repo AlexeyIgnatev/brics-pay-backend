@@ -1462,21 +1462,23 @@ export class PaymentsService {
           );
         }
 
-        const usdtAmount = amountFrom / esomPerUsd;
-        const grossOut = usdtAmount;
+        const tradeFee = await tradeFeeFor(from, to, amountFrom);
+        const { net: netEsom, fee: feeEsom } = applyFee(
+          amountFrom,
+          tradeFee.fee,
+        );
+        const usdtAmount = netEsom / esomPerUsd;
         const priceUsd = '1';
         const notionalUsdt = usdtAmount.toString();
-        const tradeFee = await tradeFeeFor(from, to, grossOut);
-        const { net, fee } = applyFee(grossOut, tradeFee.fee);
 
         try {
           await this.ethereumService.transferToFiat(
             amountFrom,
             user.private_key,
           );
-          await addBalance(to, net);
+          await addBalance(to, usdtAmount);
           this.logger.verbose(
-            `[convert ESOM->${to}] feePct=${tradeFee.percent}% fixed=${tradeFee.fixed} fee=${fee} net_out=${net}`,
+            `[convert ESOM->${to}] feePct=${tradeFee.percent}% fixed=${tradeFee.fixed} fee_esom=${feeEsom} net_esom=${netEsom} net_out=${usdtAmount}`,
           );
 
           const createdTransaction = await this.prisma.transaction.create({
@@ -1485,11 +1487,11 @@ export class PaymentsService {
               status: TransactionStatus.SUCCESS,
               amount_in: amountFrom.toString(),
               asset_in: 'ESOM',
-              amount_out: net.toString(),
+              amount_out: usdtAmount.toString(),
               asset_out: to,
               price_usd: priceUsd,
               notional_usd: notionalUsdt,
-              fee_amount: fee.toString(),
+              fee_amount: feeEsom.toString(),
               sender_customer_id: customer_id,
               comment: `Convert ESOM->${to}`,
             },
@@ -1511,16 +1513,16 @@ export class PaymentsService {
               kind: TransactionKind.CONVERSION,
               amountIn: amountFrom,
               assetIn: 'ESOM',
-              amountOut: net,
+              amountOut: usdtAmount,
               assetOut: to,
-              feeAmount: fee,
+              feeAmount: feeEsom,
               senderCustomerId: customer_id,
               priceUsd,
               notionalUsd: notionalUsdt,
               comment: `Convert ESOM->${to}`,
             });
 
-          await addBalance(to, net);
+          await addBalance(to, usdtAmount);
           await this.balanceFetchService.refreshAllBalancesForUser(
             customer_id,
             ['ESOM' as Asset],
@@ -1555,11 +1557,12 @@ export class PaymentsService {
 
         const notionalUsdt = amountFrom;
         const grossEsom = notionalUsdt * esomPerUsd;
-        const tradeFee = await tradeFeeFor(from, to, grossEsom);
-        const { net: netEsom, fee: feeEsom } = applyFee(
-          grossEsom,
+        const tradeFee = await tradeFeeFor(from, to, amountFrom);
+        const { net: netUsdt, fee: feeUsdt } = applyFee(
+          amountFrom,
           tradeFee.fee,
         );
+        const netEsom = netUsdt * esomPerUsd;
 
         try {
           await this.ethereumService.transferFromFiat(user.address, netEsom);
@@ -1575,7 +1578,7 @@ export class PaymentsService {
               asset_out: 'ESOM',
               price_usd: '1',
               notional_usd: notionalUsdt.toString(),
-              fee_amount: feeEsom.toString(),
+              fee_amount: feeUsdt.toString(),
               sender_customer_id: customer_id,
               comment: `Convert ${from}->ESOM`,
             },
@@ -1599,7 +1602,7 @@ export class PaymentsService {
               assetIn: from,
               amountOut: netEsom,
               assetOut: 'ESOM',
-              feeAmount: feeEsom,
+              feeAmount: feeUsdt,
               senderCustomerId: customer_id,
               priceUsd: '1',
               notionalUsd: notionalUsdt.toString(),
