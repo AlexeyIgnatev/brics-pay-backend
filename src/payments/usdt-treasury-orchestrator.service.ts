@@ -1676,19 +1676,36 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     );
     const partnerTargets = partnerConfigs
       .map((partner, index) => ({
-        reference: partner.usdt_wallet?.trim() || '',
+        reference:
+          input.asset === 'SOM'
+            ? partner.som_account?.trim() || ''
+            : input.asset === 'ESOM'
+              ? partner.salam_wallet?.trim() || ''
+              : partner.usdt_wallet?.trim() || '',
         title: partner.title || `Партнер ${index + 1}`,
       }))
       .filter((item) => Boolean(item.reference));
+    const centralBankReference =
+      input.asset === 'SOM'
+        ? adminSettings.central_bank_som_account?.trim() || ''
+        : input.asset === 'ESOM'
+          ? adminSettings.central_bank_salam_wallet?.trim() || ''
+          : adminSettings.central_bank_usdt_wallet?.trim() || '';
+    const bankReference =
+      input.asset === 'SOM'
+        ? adminSettings.bank_som_account?.trim() || ''
+        : input.asset === 'ESOM'
+          ? adminSettings.bank_salam_wallet?.trim() || ''
+          : adminSettings.bank_usdt_wallet?.trim() || '';
 
     const targets = [
       {
-        reference: adminSettings.central_bank_usdt_wallet?.trim() || '',
+        reference: centralBankReference,
         title: 'ЦБ',
         amount: split.centralBankShare,
       },
       {
-        reference: adminSettings.bank_usdt_wallet?.trim() || '',
+        reference: bankReference,
         title: 'Банк',
         amount: split.bankShare,
       },
