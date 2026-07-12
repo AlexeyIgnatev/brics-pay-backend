@@ -578,11 +578,26 @@ export class BricsService {
         !Array.isArray(responseData)
           ? Object.keys(responseData as Record<string, unknown>).slice(0, 20)
           : [];
+      const rawResult = (responseData as { Result?: unknown })?.Result;
+      const resultType = Array.isArray(rawResult) ? 'array' : typeof rawResult;
+      const resultKeys =
+        rawResult && typeof rawResult === 'object' && !Array.isArray(rawResult)
+          ? Object.keys(rawResult as Record<string, unknown>).slice(0, 20)
+          : [];
+      const resultPreview =
+        typeof rawResult === 'string'
+          ? rawResult.slice(0, 500)
+          : rawResult && typeof rawResult === 'object'
+            ? JSON.stringify(rawResult).slice(0, 500)
+            : String(rawResult ?? '');
       this.logger.verbose(
         `[getCustomerAccount] customer=${customerId} responseType=${Array.isArray(responseData) ? 'array' : typeof responseData} topKeys=${topKeys.join(',') || 'none'}`,
       );
+      this.logger.verbose(
+        `[getCustomerAccount] customer=${customerId} resultType=${resultType} resultKeys=${resultKeys.join(',') || 'none'} resultPreview=${resultPreview || 'empty'}`,
+      );
       const normalizedAccounts = this.extractAccountRecords(
-        (responseData as { Result?: unknown })?.Result ?? responseData,
+        rawResult ?? responseData,
       ).map((item) => ({
         ...item,
         AccountNo: String(
