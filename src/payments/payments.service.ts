@@ -1861,7 +1861,7 @@ export class PaymentsService {
       }
 
       if (from === 'SOM' && to === 'USDT_TRC20') {
-        await this.fiatToCrypto({ amount: amountFrom }, customer_id, {
+        const somToEsomResult = await this.fiatToCrypto({ amount: amountFrom }, customer_id, {
           internalBridge: true,
           bridgeTarget: to,
         });
@@ -1878,7 +1878,10 @@ export class PaymentsService {
         });
         const esomAmount = Number(somToEsomTx?.amount_out ?? 0);
         if (esomAmount <= 0) {
-          throw new BadRequestException('SOM->ESOM bridge failed');
+          this.logger.warn(
+            `[convert SOM->${to}] bridge completed with zero net ESOM after fee; skipping second leg`,
+          );
+          return somToEsomResult;
         }
 
         return await this.convert(
@@ -1893,7 +1896,7 @@ export class PaymentsService {
       }
 
       if (from === 'USDT_TRC20' && to === 'SOM') {
-        await this.convert(
+        const usdtToEsomResult = await this.convert(
           {
             asset_from: from as unknown as Currency,
             asset_to: Currency.ESOM,
@@ -1915,7 +1918,10 @@ export class PaymentsService {
         });
         const esomAmount = Number(cryptoToEsomTx?.amount_out ?? 0);
         if (esomAmount <= 0) {
-          throw new BadRequestException(`${from}->ESOM bridge failed`);
+          this.logger.warn(
+            `[convert ${from}->SOM] bridge completed with zero net ESOM after fee; skipping second leg`,
+          );
+          return usdtToEsomResult;
         }
 
         return await this.cryptoToFiat(
