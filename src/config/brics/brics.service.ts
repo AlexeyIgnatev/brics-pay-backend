@@ -220,6 +220,19 @@ export class BricsService {
         visited.has(value) ||
         collected.length > 256
       ) {
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (
+            (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'))
+          ) {
+            try {
+              visit(JSON.parse(trimmed));
+            } catch {
+              // ignore non-JSON strings
+            }
+          }
+        }
         return;
       }
       visited.add(value);
