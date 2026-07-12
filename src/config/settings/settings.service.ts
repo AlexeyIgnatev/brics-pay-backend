@@ -449,12 +449,13 @@ export class SettingsService {
 
     try {
       const balance = await loader(normalized);
-      const fallbackBalance = await this.getAccountingPostingBalance(
+      const accountingBalance = await this.getAccountingPostingBalance(
         normalized,
         asset,
       );
-      const resolvedBalance =
-        balance !== 0 || fallbackBalance === 0 ? balance : fallbackBalance;
+      const resolvedBalance = accountingBalance.hasActivity
+        ? accountingBalance.balance
+        : balance;
       return {
         reference: normalized,
         balance: resolvedBalance,
@@ -466,11 +467,13 @@ export class SettingsService {
       this.logger.warn(
         `Failed to load ${asset} balance for ${normalized}: ${details}`,
       );
+      const accountingBalance = await this.getAccountingPostingBalance(
+        normalized,
+        asset,
+      ).catch(() => ({ balance: null, hasActivity: false }));
       return {
         reference: normalized,
-        balance: await this.getAccountingPostingBalance(normalized, asset).catch(
-          () => null,
-        ),
+        balance: accountingBalance.balance,
         asset,
         error: details,
       };
@@ -493,11 +496,11 @@ export class SettingsService {
   private async getAccountingPostingBalance(
     reference: string,
     asset: string,
-  ): Promise<number> {
+  ): Promise<{ balance: number; hasActivity: boolean }> {
     const mappedAsset = this.mapBalanceAsset(asset);
-    if (!mappedAsset) return 0;
+    if (!mappedAsset) return { balance: 0, hasActivity: false };
 
-    const [credits, debits] = await Promise.all([
+    const [credits, debits, creditCount, debitCount] = await Promise.all([
       this.prisma.accountingPosting.findMany({
         where: {
           asset: mappedAsset,
@@ -512,6 +515,18 @@ export class SettingsService {
         },
         select: { amount: true },
       }),
+      this.prisma.accountingPosting.count({
+        where: {
+          asset: mappedAsset,
+          credit_account_no: reference,
+        },
+      }),
+      this.prisma.accountingPosting.count({
+        where: {
+          asset: mappedAsset,
+          debit_account_no: reference,
+        },
+      }),
     ]);
 
     const sum = (rows: { amount: unknown }[]) =>
@@ -521,7 +536,10 @@ export class SettingsService {
       }, 0);
 
     const balance = sum(credits) - sum(debits);
-    return Number.isFinite(balance) ? balance : 0;
+    return {
+      balance: Number.isFinite(balance) ? balance : 0,
+      hasActivity: creditCount + debitCount > 0,
+    };
   }
 
   private async getSomAccountBalance(accountNo: string): Promise<number> {
