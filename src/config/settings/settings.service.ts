@@ -76,7 +76,7 @@ export class SettingsService {
     return {
       central_bank_som_account:
         this.configService.get<string>('CENTRAL_BANK_SOM_ACCOUNT')?.trim() ||
-        this.configService.get<string>('CT_ACCOUNT_NO')?.trim() ||
+        TEMP_CENTRAL_SOM_ACCOUNT ||
         '',
       central_bank_salam_wallet:
         this.configService.get<string>('CENTRAL_BANK_SALAM_WALLET')?.trim() ||
@@ -199,13 +199,20 @@ export class SettingsService {
 
   mapToAdminDto(s: any): AdminSettingsDto {
     const defaults = this.getBankCommissionDefaults();
-    const bankSomAccount = this.normalizeString(s.bank_som_account) || defaults.bank_som_account;
-    const bankSalamWallet = this.normalizeString(s.bank_salam_wallet) || defaults.bank_salam_wallet;
-    const bankUsdtWallet = this.normalizeString(s.bank_usdt_wallet) || defaults.bank_usdt_wallet;
+    const bankSomAccount =
+      this.normalizeString(s.bank_som_account) || defaults.bank_som_account;
+    const bankSalamWallet =
+      this.normalizeString(s.bank_salam_wallet) || defaults.bank_salam_wallet;
+    const bankUsdtWallet =
+      this.normalizeString(s.bank_usdt_wallet) || defaults.bank_usdt_wallet;
     const centralBankSomAccount =
-      this.normalizeString(s.central_bank_som_account) || bankSomAccount;
+      this.normalizeString(s.central_bank_som_account) ||
+      defaults.central_bank_som_account ||
+      TEMP_CENTRAL_SOM_ACCOUNT;
     const centralBankSalamWallet =
-      this.normalizeString(s.central_bank_salam_wallet) || bankSalamWallet;
+      this.normalizeString(s.central_bank_salam_wallet) ||
+      defaults.central_bank_salam_wallet ||
+      TEMP_CENTRAL_SALAM_WALLET;
     const centralBankUsdtWallet =
       this.normalizeString(s.central_bank_usdt_wallet) ||
       defaults.central_bank_usdt_wallet ||
