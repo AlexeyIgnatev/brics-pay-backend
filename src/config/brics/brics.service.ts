@@ -436,7 +436,28 @@ export class BricsService {
       );
       this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose(`Received getAccount response ${response.status}`);
-      const accounts = this.extractAccountRecords(response.data).map(
+      const responseData = response.data as unknown;
+      const topKeys =
+        responseData &&
+        typeof responseData === 'object' &&
+        !Array.isArray(responseData)
+          ? Object.keys(responseData as Record<string, unknown>).slice(0, 20)
+          : [];
+      const rawResult = (responseData as { Result?: unknown })?.Result;
+      const resultType = Array.isArray(rawResult) ? 'array' : typeof rawResult;
+      const resultPreview =
+        typeof rawResult === 'string'
+          ? rawResult.slice(0, 500)
+          : rawResult && typeof rawResult === 'object'
+            ? JSON.stringify(rawResult).slice(0, 500)
+            : String(rawResult ?? '');
+      this.logger.verbose(
+        `[getAccount] responseType=${Array.isArray(responseData) ? 'array' : typeof responseData} topKeys=${topKeys.join(',') || 'none'}`,
+      );
+      this.logger.verbose(
+        `[getAccount] resultType=${resultType} resultPreview=${resultPreview || 'empty'}`,
+      );
+      const accounts = this.extractAccountRecords(rawResult ?? responseData).map(
         (item) => ({
           ...item,
           AccountNo: String(
@@ -471,6 +492,12 @@ export class BricsService {
             this.pickRecordValue(item, ['Balance', 'balance']) ?? 0,
           ),
         }),
+      );
+      const extractedCurrencies = accounts
+        .map((item) => item.CurrencyID)
+        .filter((value) => Number.isFinite(value));
+      this.logger.verbose(
+        `[getAccount] extracted_accounts=${accounts.length} currencies=${extractedCurrencies.join(',') || 'none'}`,
       );
       return accounts.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,

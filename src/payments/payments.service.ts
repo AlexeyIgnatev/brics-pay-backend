@@ -2382,57 +2382,42 @@ export class PaymentsService {
         throw new BadRequestException('Admin authentication failed');
       }
 
-      let resolvedSomAccount: { AccountNo?: string } | null = null;
-      let destinationResolveError: unknown;
-      try {
-        resolvedSomAccount = await adminBricsService.resolveCustomerSomAccount(
-          customer.customer_id.toString(),
-          customer.phone ?? undefined,
-        );
-      } catch (error) {
-        destinationResolveError = error;
-        const details = error instanceof Error ? error.message : 'unknown';
-        this.logger.warn(
-          `[cryptoToFiat] resolveCustomerSomAccount failed for customer=${customer.customer_id}: ${details}`,
+      if (!authContext?.username || !authContext?.password) {
+        throw new BadRequestException(
+          'User authentication is required to resolve destination SOM account',
         );
       }
 
-      if (
-        !resolvedSomAccount?.AccountNo &&
-        authContext?.username &&
-        authContext?.password
-      ) {
-        try {
-          const userBricsService = await this.moduleRef.create(BricsService);
-          const authOk = await userBricsService.auth(
-            authContext.username,
-            authContext.password,
-          );
-          if (authOk) {
-            const userSomAccount = await userBricsService.getAccount();
-            if (userSomAccount?.AccountNo) {
-              resolvedSomAccount = userSomAccount;
-              this.logger.warn(
-                `[cryptoToFiat] destination account fallback via IB session succeeded for customer=${customer.customer_id}, account=${userSomAccount.AccountNo}`,
-              );
-            }
-          } else {
-            this.logger.warn(
-              `[cryptoToFiat] destination account fallback via IB session auth failed for customer=${customer.customer_id}, login=${authContext.username}`,
-            );
-          }
-        } catch (error) {
-          const details = error instanceof Error ? error.message : 'unknown';
-          this.logger.warn(
-            `[cryptoToFiat] destination account fallback via IB session failed for customer=${customer.customer_id}: ${details}`,
-          );
+      let resolvedSomAccount: {
+        AccountNo?: string;
+        CurrencyID?: number;
+        Balance?: number;
+      } | null = null;
+      try {
+        const userBricsService = await this.moduleRef.create(BricsService);
+        const userAuthOk = await userBricsService.auth(
+          authContext.username,
+          authContext.password,
+        );
+        this.logger.verbose(
+          `[cryptoToFiat] destination session auth customer=${customer.customer_id} login=${authContext.username} ok=${userAuthOk}`,
+        );
+        if (!userAuthOk) {
+          throw new BadRequestException('User ABS authentication failed');
         }
+
+        resolvedSomAccount = await userBricsService.getAccount();
+        this.logger.verbose(
+          `[cryptoToFiat] destination session account customer=${customer.customer_id} account=${resolvedSomAccount?.AccountNo ?? 'none'} currency=${resolvedSomAccount?.CurrencyID ?? 'n/a'} balance=${resolvedSomAccount?.Balance ?? 'n/a'}`,
+        );
+      } catch (error) {
+        const details = error instanceof Error ? error.message : 'unknown';
+        this.logger.warn(
+          `[cryptoToFiat] destination session account resolve failed for customer=${customer.customer_id}: ${details}`,
+        );
       }
 
       if (!resolvedSomAccount?.AccountNo) {
-        if (destinationResolveError) {
-          throw destinationResolveError;
-        }
         throw new BadRequestException(
           `ABS SOM account not found for customer ${customer.customer_id}`,
         );
