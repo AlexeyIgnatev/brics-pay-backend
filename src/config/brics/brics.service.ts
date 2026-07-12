@@ -172,6 +172,59 @@ export class BricsService {
     return `ABS transfer ${txRef}`;
   }
 
+  private isAccountRecord(value: unknown): value is Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+
+    const record = value as Record<string, unknown>;
+    return (
+      'CurrencyID' in record ||
+      'currencyId' in record ||
+      'currency_id' in record ||
+      'AccountNo' in record ||
+      'accountNo' in record ||
+      'AccountNumber' in record ||
+      'account_number' in record ||
+      'Iban' in record ||
+      'IBAN' in record
+    );
+  }
+
+  private extractAccountRecords(payload: unknown): Array<Record<string, unknown>> {
+    const collected: Array<Record<string, unknown>> = [];
+    const visited = new Set<unknown>();
+
+    const visit = (value: unknown): void => {
+      if (
+        value == null ||
+        typeof value !== 'object' ||
+        visited.has(value) ||
+        collected.length > 256
+      ) {
+        return;
+      }
+      visited.add(value);
+
+      if (Array.isArray(value)) {
+        value.forEach((item) => visit(item));
+        return;
+      }
+
+      const record = value as Record<string, unknown>;
+      if (this.isAccountRecord(record)) {
+        collected.push(record);
+      }
+
+      for (const nested of Object.values(record)) {
+        visit(nested);
+      }
+    };
+
+    visit(payload);
+    return collected;
+  }
+
   private async sendCreateTransferRequest(
     token: string,
     transactionBody: {
@@ -352,7 +405,27 @@ export class BricsService {
       );
       this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose(`Received getAccount response ${response.status}`);
-      const accounts: BricsAccountDto[] = Object.values(response.data);
+      const accounts = this.extractAccountRecords(response.data).map(
+        (item) => ({
+          ...item,
+          AccountNo: String(
+            item?.AccountNo ??
+              item?.accountNo ??
+              item?.AccountNumber ??
+              item?.account_number ??
+              item?.Iban ??
+              item?.IBAN ??
+              '',
+          ),
+          CurrencyID: Number(
+            item?.CurrencyID ?? item?.currencyId ?? item?.currency_id,
+          ),
+          CustomerID: Number(
+            item?.CustomerID ?? item?.customerId ?? item?.customer_id,
+          ),
+          Balance: Number(item?.Balance ?? item?.balance ?? 0),
+        }),
+      );
       return accounts.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
       )!!;
@@ -379,7 +452,27 @@ export class BricsService {
       );
       this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose(`Received findAccount response ${response.status}`);
-      const accounts: BricsAccountDto[] = Object.values(response.data);
+      const accounts = this.extractAccountRecords(response.data).map(
+        (item) => ({
+          ...item,
+          AccountNo: String(
+            item?.AccountNo ??
+              item?.accountNo ??
+              item?.AccountNumber ??
+              item?.account_number ??
+              item?.Iban ??
+              item?.IBAN ??
+              '',
+          ),
+          CurrencyID: Number(
+            item?.CurrencyID ?? item?.currencyId ?? item?.currency_id,
+          ),
+          CustomerID: Number(
+            item?.CustomerID ?? item?.customerId ?? item?.customer_id,
+          ),
+          Balance: Number(item?.Balance ?? item?.balance ?? 0),
+        }),
+      );
       return accounts.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
       )!!;
@@ -417,13 +510,9 @@ export class BricsService {
       this.logger.verbose(
         `Received getCustomerAccounts response ${response.status}`,
       );
-      const rawResult = response.data?.Result;
-      const accounts: Array<Record<string, unknown>> = Array.isArray(rawResult)
-        ? rawResult
-        : Array.isArray(response.data)
-          ? response.data
-          : Object.values(rawResult ?? {});
-      const normalizedAccounts: BricsAccountDto[] = accounts.map((item) => ({
+      const normalizedAccounts = this.extractAccountRecords(
+        response.data?.Result ?? response.data,
+      ).map((item) => ({
         ...item,
         AccountNo: String(
           item?.AccountNo ??
@@ -457,11 +546,8 @@ export class BricsService {
         );
       }
       if (!account.AccountNo) {
-        const matchedRawAccount = accounts.find(
-          (item) =>
-            Number(
-              item?.CurrencyID ?? item?.currencyId ?? item?.currency_id,
-            ) === 417,
+        const matchedRawAccount = normalizedAccounts.find(
+          (item) => Number(item?.CurrencyID) === 417,
         );
         const rawKeys = matchedRawAccount
           ? Object.keys(matchedRawAccount).join(',')
@@ -549,7 +635,27 @@ export class BricsService {
       );
       this.updateCookies(response.headers['set-cookie']);
       this.logger.verbose(`Received getSomBalance response ${response.status}`);
-      const accounts: BricsAccountDto[] = Object.values(response.data);
+      const accounts = this.extractAccountRecords(response.data).map(
+        (item) => ({
+          ...item,
+          AccountNo: String(
+            item?.AccountNo ??
+              item?.accountNo ??
+              item?.AccountNumber ??
+              item?.account_number ??
+              item?.Iban ??
+              item?.IBAN ??
+              '',
+          ),
+          CurrencyID: Number(
+            item?.CurrencyID ?? item?.currencyId ?? item?.currency_id,
+          ),
+          CustomerID: Number(
+            item?.CustomerID ?? item?.customerId ?? item?.customer_id,
+          ),
+          Balance: Number(item?.Balance ?? item?.balance ?? 0),
+        }),
+      );
       const account = accounts.find(
         (account: BricsAccountDto) => account.CurrencyID === 417,
       );
