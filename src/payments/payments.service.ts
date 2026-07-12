@@ -320,6 +320,7 @@ export class PaymentsService {
     feeAmountRaw?: string | null;
     energyUsed?: number | null;
     bandwidthUsed?: number | null;
+    feeAmount?: number;
     comment?: string;
   }): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
@@ -389,6 +390,7 @@ export class PaymentsService {
           asset_in: 'USDT_TRC20',
           amount_out: input.amount.toString(),
           asset_out: 'USDT_TRC20',
+          fee_amount: (input.feeAmount ?? 0) > 0 ? String(input.feeAmount) : null,
           tx_hash: input.txHash,
           sender_customer_id: input.sender.customer_id,
           receiver_customer_id: input.recipientCustomerId ?? null,
@@ -445,6 +447,16 @@ export class PaymentsService {
     try {
       this.logger.verbose(
         `[browser-wallet-transfer] start sender=${input.sender.customer_id} from=${input.sender.address} to=${input.recipientAddress} amount=${input.amount} recipientCustomerId=${input.recipientCustomerId ?? 'null'}`,
+      );
+
+      const tariffFee = await this.getCustomerTariffFee(
+        input.sender.customer_id,
+        this.tariffOperationForWalletTransfer('USDT_TRC20'),
+        input.amount,
+      );
+      const feeAmount = tariffFee.fee > 0 ? tariffFee.fee : 0;
+      this.logger.verbose(
+        `[browser-wallet-transfer] tariff fee sender=${input.sender.customer_id} gross=${input.amount} fee=${feeAmount}`,
       );
 
       const { txHash } = await this.tronService.sendTrc20({
@@ -505,6 +517,7 @@ export class PaymentsService {
         feeAmountRaw: feeAmountRaw != null ? String(feeAmountRaw) : null,
         energyUsed: Number.isFinite(energyUsed) ? energyUsed : null,
         bandwidthUsed: Number.isFinite(bandwidthUsed) ? bandwidthUsed : null,
+        feeAmount,
         comment: input.comment,
       });
 
@@ -1867,17 +1880,15 @@ export class PaymentsService {
       this.tariffOperationForConversion('SOM' as Asset, 'ESOM' as Asset),
       amount,
     );
-    const conversionFee = isInternalBridge ? 0 : tariff.fee;
-    const netAmount = isInternalBridge
-      ? amount
-      : Math.max(amount - conversionFee, 0);
+    const conversionFee = tariff.fee;
+    const netAmount = Math.max(amount - conversionFee, 0);
     if (netAmount <= 0) {
       throw new BadRequestException(
         'Amount is too low after conversion commission',
       );
     }
     this.logger.verbose(
-      `[fiatToCrypto] conversion_fee pct=${isInternalBridge ? 0 : tariff.percent}% fixed=${isInternalBridge ? 0 : tariff.fixed}` +
+      `[fiatToCrypto] conversion_fee pct=${tariff.percent}% fixed=${tariff.fixed}` +
         ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
     );
 
@@ -1961,18 +1972,16 @@ export class PaymentsService {
           update: { balance: { decrement: amount.toString() } },
         });
 
-        if (!isInternalBridge) {
-          await this.createSomPurchaseAccountingPostings(tx, {
-            transactionId: transaction.id,
-            postingGroupKey: `som-purchase-${transaction.id}`,
-            grossAmount: amount,
-            commissionAmount: conversionFee,
-            netAmount,
-            bankOperationId: bricsTransaction,
-            transactionRef,
-            internalBridge: false,
-          });
-        }
+        await this.createSomPurchaseAccountingPostings(tx, {
+          transactionId: transaction.id,
+          postingGroupKey: `som-purchase-${transaction.id}`,
+          grossAmount: amount,
+          commissionAmount: conversionFee,
+          netAmount,
+          bankOperationId: bricsTransaction,
+          transactionRef,
+          internalBridge: isInternalBridge,
+        });
 
         return transaction;
       });
@@ -2014,18 +2023,16 @@ export class PaymentsService {
         update: { balance: { decrement: amount.toString() } },
       });
 
-      if (!isInternalBridge) {
-        await this.createSomPurchaseAccountingPostings(this.prisma, {
-          transactionId: createdTransaction.id,
-          postingGroupKey: `som-purchase-${createdTransaction.id}`,
-          grossAmount: amount,
-          commissionAmount: conversionFee,
-          netAmount,
-          bankOperationId: null,
-          transactionRef,
-          internalBridge: false,
-        });
-      }
+      await this.createSomPurchaseAccountingPostings(this.prisma, {
+        transactionId: createdTransaction.id,
+        postingGroupKey: `som-purchase-${createdTransaction.id}`,
+        grossAmount: amount,
+        commissionAmount: conversionFee,
+        netAmount,
+        bankOperationId: null,
+        transactionRef,
+        internalBridge: isInternalBridge,
+      });
 
       await this.balanceFetchService.refreshAllBalancesForUser(
         customer.customer_id,
@@ -2059,17 +2066,15 @@ export class PaymentsService {
       this.tariffOperationForConversion('ESOM' as Asset, 'SOM' as Asset),
       amount,
     );
-    const conversionFee = isInternalBridge ? 0 : tariff.fee;
-    const netAmount = isInternalBridge
-      ? amount
-      : Math.max(amount - conversionFee, 0);
+    const conversionFee = tariff.fee;
+    const netAmount = Math.max(amount - conversionFee, 0);
     if (netAmount <= 0) {
       throw new BadRequestException(
         'Amount is too low after conversion commission',
       );
     }
     this.logger.verbose(
-      `[cryptoToFiat] conversion_fee pct=${isInternalBridge ? 0 : tariff.percent}% fixed=${isInternalBridge ? 0 : tariff.fixed}` +
+      `[cryptoToFiat] conversion_fee pct=${tariff.percent}% fixed=${tariff.fixed}` +
         ` fee=${conversionFee} net=${netAmount} internal_bridge=${isInternalBridge}`,
     );
 
@@ -2347,17 +2352,15 @@ export class PaymentsService {
         update: { balance: { increment: netAmount.toString() } },
       });
 
-      if (!isInternalBridge) {
-        await this.createSomRedemptionAccountingPostings(this.prisma, {
-          transactionId: createdTransaction.id,
-          postingGroupKey: `som-redemption-${createdTransaction.id}`,
-          grossAmount: amount,
-          commissionAmount: conversionFee,
-          netAmount,
-          bankOperationId: bricsTransaction,
-          transactionRef,
-        });
-      }
+      await this.createSomRedemptionAccountingPostings(this.prisma, {
+        transactionId: createdTransaction.id,
+        postingGroupKey: `som-redemption-${createdTransaction.id}`,
+        grossAmount: amount,
+        commissionAmount: conversionFee,
+        netAmount,
+        bankOperationId: bricsTransaction,
+        transactionRef,
+      });
 
       return new StatusOKDto(createdTransaction.id);
     } catch (error) {
@@ -2397,17 +2400,15 @@ export class PaymentsService {
         update: { balance: { increment: netAmount.toString() } },
       });
 
-      if (!isInternalBridge) {
-        await this.createSomRedemptionAccountingPostings(this.prisma, {
-          transactionId: createdTransaction.id,
-          postingGroupKey: `som-redemption-${createdTransaction.id}`,
-          grossAmount: amount,
-          commissionAmount: conversionFee,
-          netAmount,
-          bankOperationId: null,
-          transactionRef,
-        });
-      }
+      await this.createSomRedemptionAccountingPostings(this.prisma, {
+        transactionId: createdTransaction.id,
+        postingGroupKey: `som-redemption-${createdTransaction.id}`,
+        grossAmount: amount,
+        commissionAmount: conversionFee,
+        netAmount,
+        bankOperationId: null,
+        transactionRef,
+      });
 
       await this.balanceFetchService.refreshAllBalancesForUser(
         customer.customer_id,
