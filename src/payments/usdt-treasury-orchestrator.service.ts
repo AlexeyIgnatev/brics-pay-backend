@@ -1574,6 +1574,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     amount: number,
     address: string,
     txHash: string,
+    feeAmount = 0,
   ) {
     return client.transaction.create({
       data: {
@@ -1583,6 +1584,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         asset_in: 'USDT_TRC20',
         amount_out: amount.toString(),
         asset_out: 'USDT_TRC20',
+        fee_amount: feeAmount > 0 ? feeAmount.toString() : null,
         tx_hash: txHash,
         external_address: address,
         sender_customer_id: customerId,
@@ -2200,6 +2202,17 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         status: PaymentOperationStatus.NEW,
       }));
 
+    const tariffFee = await this.getCustomerTariffFee(
+      input.customerId,
+      this.tariffOperationForWalletTransfer('USDT_TRC20'),
+      input.amount,
+    );
+    const feeAmount = tariffFee.fee > 0 ? tariffFee.fee : 0;
+    const totalDebit = input.amount + feeAmount;
+    this.logger.verbose(
+      `[withdraw] fee customer=${input.customerId} gross=${input.amount} fee=${feeAmount} total_debit=${totalDebit}`,
+    );
+
     let broadcastBlockchainTransaction: { id: number } | null = null;
     try {
       const debitLedgerEntryId = await this.prisma.$transaction(async (tx) => {
@@ -2207,11 +2220,13 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           paymentOperationId: op.id,
           customerId: input.customerId,
           asset: 'USDT_TRC20',
-          delta: -input.amount,
+          delta: -totalDebit,
           entryType: LedgerEntryType.DEBIT,
           metadata: {
             side: 'withdraw',
             destination_address: input.address,
+            fee_amount: feeAmount,
+            gross_amount: input.amount,
             ...(input.payload ?? {}),
           },
         });
@@ -2222,6 +2237,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             status: PaymentOperationStatus.DB_COMMITTED,
             payload: {
               ...(input.payload ?? {}),
+              fee_amount: feeAmount,
+              gross_amount: input.amount,
               db_committed: true,
               debit_ledger_entry_id: debitEntry.id,
             },
@@ -2240,6 +2257,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       await this.markBroadcasted(op, txHash, {
         ...(input.payload ?? {}),
         tx_hash: txHash,
+        fee_amount: feeAmount,
+        gross_amount: input.amount,
       });
       broadcastBlockchainTransaction = await this.upsertBlockchainTransaction(
         this.prisma,
@@ -2281,6 +2300,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
               input.amount,
               input.address,
               txHash,
+              feeAmount,
             );
             if (debitLedgerEntryId > 0) {
               await tx.ledgerEntry.update({
@@ -2304,6 +2324,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
                   transaction_id: transaction.id,
                   blockchain_transaction_id: blockchainTransaction.id,
                   debit_ledger_entry_id: debitLedgerEntryId || undefined,
+                  fee_amount: feeAmount,
+                  gross_amount: input.amount,
                 },
                 last_error_code: null,
                 last_error_message: null,
@@ -2327,7 +2349,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       await this.compensateWithdraw(
         op,
         input.customerId,
-        input.amount,
+        totalDebit,
         input.payload,
       );
       throw error;
@@ -2450,6 +2472,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           Number(op.amount),
           op.to_address,
           op.tx_hash!,
+          Number((op.payload as UsdtPaymentPayload | undefined)?.fee_amount ?? 0),
         ));
 
       const debitLedgerEntryId = Number(
