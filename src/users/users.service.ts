@@ -389,7 +389,13 @@ export class UsersService implements OnApplicationBootstrap {
         row.residency === user.residency,
     );
     const tariffPercentFor = (operation: string): number => {
-      const row = tariffRows.find((item) => item.operation === operation);
+      const aliasOperation =
+        operation === 'SOM_TO_USDT_TRC20'
+          ? 'ESOM_TO_USDT_TRC20'
+          : operation === 'USDT_TRC20_TO_SOM'
+            ? 'USDT_TRC20_TO_ESOM'
+            : operation;
+      const row = tariffRows.find((item) => item.operation === aliasOperation);
       return Number(row?.percent_fee ?? 0) / 100;
     };
 

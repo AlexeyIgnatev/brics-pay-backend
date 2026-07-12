@@ -177,8 +177,10 @@ export class TransactionsService {
       case 'ESOM_TO_SOM':
         return TariffOperation.ESOM_TO_SOM;
       case 'ESOM_TO_USDT_TRC20':
+      case 'SOM_TO_USDT_TRC20':
         return TariffOperation.ESOM_TO_USDT_TRC20;
       case 'USDT_TRC20_TO_ESOM':
+      case 'USDT_TRC20_TO_SOM':
         return TariffOperation.USDT_TRC20_TO_ESOM;
       case 'ESOM_TO_ESOM':
       case 'USDT_TRC20_TO_USDT_TRC20':
