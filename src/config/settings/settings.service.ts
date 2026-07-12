@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaClient, TariffOperation } from '@prisma/client';
+import { Asset, PrismaClient, TariffOperation } from '@prisma/client';
 import { BricsService } from '../brics/brics.service';
 import { EthereumService } from '../ethereum/ethereum.service';
 import { TronService } from '../crypto/tron.service';
@@ -397,6 +397,12 @@ export class SettingsService {
     }
   }
 
+  parsePartnersJsonForCommission(
+    raw: string | null | undefined,
+  ): BankCommissionPartnerConfig[] {
+    return this.parsePartnersJson(raw);
+  }
+
   private async buildPartnerBalances(
     partner: BankCommissionPartnerConfig,
     index: number,
@@ -443,9 +449,15 @@ export class SettingsService {
 
     try {
       const balance = await loader(normalized);
+      const fallbackBalance = await this.getAccountingPostingBalance(
+        normalized,
+        asset,
+      );
+      const resolvedBalance =
+        balance !== 0 || fallbackBalance === 0 ? balance : fallbackBalance;
       return {
         reference: normalized,
-        balance,
+        balance: resolvedBalance,
         asset,
         error: null,
       };
@@ -456,11 +468,60 @@ export class SettingsService {
       );
       return {
         reference: normalized,
-        balance: null,
+        balance: await this.getAccountingPostingBalance(normalized, asset).catch(
+          () => null,
+        ),
         asset,
         error: details,
       };
     }
+  }
+
+  private mapBalanceAsset(asset: string): Asset | null {
+    switch (asset) {
+      case 'SOM':
+        return 'SOM';
+      case 'SALAM':
+        return 'ESOM';
+      case 'USDT TRC20':
+        return 'USDT_TRC20';
+      default:
+        return null;
+    }
+  }
+
+  private async getAccountingPostingBalance(
+    reference: string,
+    asset: string,
+  ): Promise<number> {
+    const mappedAsset = this.mapBalanceAsset(asset);
+    if (!mappedAsset) return 0;
+
+    const [credits, debits] = await Promise.all([
+      this.prisma.accountingPosting.findMany({
+        where: {
+          asset: mappedAsset,
+          credit_account_no: reference,
+        },
+        select: { amount: true },
+      }),
+      this.prisma.accountingPosting.findMany({
+        where: {
+          asset: mappedAsset,
+          debit_account_no: reference,
+        },
+        select: { amount: true },
+      }),
+    ]);
+
+    const sum = (rows: { amount: unknown }[]) =>
+      rows.reduce((total, row) => {
+        const value = Number(row.amount ?? 0);
+        return total + (Number.isFinite(value) ? value : 0);
+      }, 0);
+
+    const balance = sum(credits) - sum(debits);
+    return Number.isFinite(balance) ? balance : 0;
   }
 
   private async getSomAccountBalance(accountNo: string): Promise<number> {

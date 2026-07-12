@@ -36,6 +36,7 @@ import { BricsService } from 'src/config/brics/brics.service';
 import { StatusOKDto } from 'src/common/dto/status.dto';
 import { BalanceFetchService } from '../user-management/balance-fetch.service';
 import { BalanceCacheService } from '../user-management/balance-cache.service';
+import { SettingsService } from '../config/settings/settings.service';
 
 const USDT_DECIMALS = 6;
 const TRON_SUN = 1_000_000;
@@ -102,6 +103,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     private readonly bricsService: BricsService,
     private readonly balanceFetchService: BalanceFetchService,
     private readonly balanceCache: BalanceCacheService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   onModuleInit(): void {
@@ -1593,6 +1595,141 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     });
   }
 
+  private clampPercent(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(100, Math.max(0, value));
+  }
+
+  private splitCommission(
+    amount: number,
+    centralBankPercent: number,
+    bankPercent?: number,
+    partnerPercent?: number,
+  ): {
+    centralBankShare: number;
+    bankShare: number;
+    partnerShare: number;
+  } {
+    const centralPercent = this.clampPercent(centralBankPercent);
+    const bank = bankPercent != null ? this.clampPercent(bankPercent) : null;
+    const partner =
+      partnerPercent != null ? this.clampPercent(partnerPercent) : null;
+    const explicitTotal =
+      bank != null && partner != null ? centralPercent + bank + partner : 0;
+    const remainingPercent = Math.max(100 - centralPercent, 0);
+    const bankSharePercent =
+      bank != null && partner != null
+        ? explicitTotal > 0
+          ? (bank / explicitTotal) * 100
+          : 0
+        : remainingPercent / 2;
+    const partnerSharePercent =
+      bank != null && partner != null
+        ? explicitTotal > 0
+          ? (partner / explicitTotal) * 100
+          : 0
+        : remainingPercent / 2;
+
+    return {
+      centralBankShare: (amount * centralPercent) / 100,
+      bankShare: (amount * bankSharePercent) / 100,
+      partnerShare: (amount * partnerSharePercent) / 100,
+    };
+  }
+
+  private async createCommissionDistributionPostings(
+    client:
+      | PrismaClient
+      | {
+          accountingPosting: PrismaClient['accountingPosting'];
+        },
+    input: {
+      transactionId?: number | null;
+      paymentOperationId?: number | null;
+      postingGroupKey: string;
+      feeAmount: number;
+      sourceLabel: string;
+      transactionRef?: string | null;
+      asset?: Asset;
+    },
+  ): Promise<void> {
+    if (!(Number.isFinite(input.feeAmount) && input.feeAmount > 0)) return;
+
+    const adminSettings = await this.settingsService.getAdmin();
+    const centralBankPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_central_bank_pct),
+    );
+    const bankPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_bank_pct),
+    );
+    const partnerPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_partners_pct),
+    );
+    const split = this.splitCommission(
+      input.feeAmount,
+      centralBankPercent,
+      bankPercent,
+      partnerPercent,
+    );
+    const partnerConfigs = this.settingsService.parsePartnersJsonForCommission(
+      adminSettings.bank_commission_partners_json,
+    );
+    const partnerTargets = partnerConfigs
+      .map((partner, index) => ({
+        reference: partner.usdt_wallet?.trim() || '',
+        title: partner.title || `Партнер ${index + 1}`,
+      }))
+      .filter((item) => Boolean(item.reference));
+
+    const targets = [
+      {
+        reference: adminSettings.central_bank_usdt_wallet?.trim() || '',
+        title: 'ЦБ',
+        amount: split.centralBankShare,
+      },
+      {
+        reference: adminSettings.bank_usdt_wallet?.trim() || '',
+        title: 'Банк',
+        amount: split.bankShare,
+      },
+      ...(partnerTargets.length
+        ? partnerTargets.map((partner) => ({
+            reference: partner.reference,
+            title: partner.title,
+            amount: split.partnerShare / partnerTargets.length,
+          }))
+        : []),
+    ].filter((item) => item.reference && item.amount > 0);
+
+    if (!targets.length) return;
+
+    await client.accountingPosting.createMany({
+      data: targets.map((target, index) => ({
+        posting_group_key: input.postingGroupKey,
+        sequence: index + 1,
+        transaction_id: input.transactionId ?? null,
+        payment_operation_id: input.paymentOperationId ?? null,
+        debit_account_no: '21113',
+        debit_account_name: 'Транзитный счет комиссий',
+        credit_account_no: target.reference,
+        credit_account_name: target.title,
+        asset: input.asset ?? 'USDT_TRC20',
+        amount: target.amount.toString(),
+        comment: `${input.sourceLabel}: комиссия`,
+        metadata: {
+          source_label: input.sourceLabel,
+          transaction_ref: input.transactionRef ?? null,
+          fee_amount: input.feeAmount,
+          fee_split: {
+            centralBankPercent,
+            bankPercent,
+            partnerPercent,
+          },
+        } as any,
+      })),
+    });
+  }
+
   async maybeSweepCustomerWallet(
     customerId: number,
     idempotencyHint: string,
@@ -1785,6 +1922,17 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           input.receiverAddress,
           input.senderAddress,
         );
+        if (feeAmount > 0) {
+          await this.createCommissionDistributionPostings(tx, {
+            transactionId: transaction.id,
+            paymentOperationId: op.id,
+            postingGroupKey: `usdt-internal-commission-${transaction.id}`,
+            feeAmount,
+            sourceLabel: 'USDT internal transfer',
+            transactionRef: `TX-${transaction.id}`,
+            asset: 'USDT_TRC20',
+          });
+        }
 
         await this.applyLedgerDelta(tx, {
           paymentOperationId: op.id,
@@ -2012,6 +2160,17 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           chainDestinationAddress,
           chainSourceAddress,
         );
+        if (feeAmount > 0) {
+          await this.createCommissionDistributionPostings(tx, {
+            transactionId: transaction.id,
+            paymentOperationId: op.id,
+            postingGroupKey: `usdt-browser-bridge-commission-${transaction.id}`,
+            feeAmount,
+            sourceLabel: 'USDT browser bridge',
+            transactionRef: txHash,
+            asset: 'USDT_TRC20',
+          });
+        }
         this.logger.verbose(
           `[browser-bridge] transaction row created tx=${transaction.id} txHash=${txHash}`,
         );
@@ -2302,6 +2461,17 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
               txHash,
               feeAmount,
             );
+            if (feeAmount > 0) {
+              await this.createCommissionDistributionPostings(tx, {
+                transactionId: transaction.id,
+                paymentOperationId: op.id,
+                postingGroupKey: `usdt-withdraw-commission-${transaction.id}`,
+                feeAmount,
+                sourceLabel: 'USDT withdraw',
+                transactionRef: txHash,
+                asset: 'USDT_TRC20',
+              });
+            }
             if (debitLedgerEntryId > 0) {
               await tx.ledgerEntry.update({
                 where: { id: debitLedgerEntryId },

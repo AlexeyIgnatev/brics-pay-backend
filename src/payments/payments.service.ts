@@ -405,6 +405,17 @@ export class PaymentsService {
         },
       });
 
+      if ((input.feeAmount ?? 0) > 0) {
+        await this.createCommissionDistributionPostings(tx, {
+          transactionId: transaction.id,
+          postingGroupKey: `browser-onchain-commission-${transaction.id}`,
+          feeAmount: input.feeAmount ?? 0,
+          asset: 'USDT_TRC20',
+          sourceLabel: 'Browser wallet on-chain transfer',
+          transactionRef: input.txHash,
+        });
+      }
+
       await tx.paymentOperation.update({
         where: { id: paymentOperation.id },
         data: {
@@ -617,20 +628,231 @@ export class PaymentsService {
   private splitSomPurchaseCommission(
     amount: number,
     centralBankPercent: number,
+    bankPercent?: number,
+    partnerPercent?: number,
   ): {
     centralBankShare: number;
     bankShare: number;
     partnerShare: number;
   } {
     const centralPercent = this.clampPercent(centralBankPercent);
+    const bank = bankPercent != null ? this.clampPercent(bankPercent) : null;
+    const partner =
+      partnerPercent != null ? this.clampPercent(partnerPercent) : null;
+    const explicitTotal =
+      bank != null && partner != null ? centralPercent + bank + partner : 0;
     const remainingPercent = Math.max(100 - centralPercent, 0);
-    const sharedPercent = remainingPercent / 2;
+    const bankSharePercent =
+      bank != null && partner != null
+        ? explicitTotal > 0
+          ? (bank / explicitTotal) * 100
+          : 0
+        : remainingPercent / 2;
+    const partnerSharePercent =
+      bank != null && partner != null
+        ? explicitTotal > 0
+          ? (partner / explicitTotal) * 100
+          : 0
+        : remainingPercent / 2;
 
     return {
       centralBankShare: (amount * centralPercent) / 100,
-      bankShare: (amount * sharedPercent) / 100,
-      partnerShare: (amount * sharedPercent) / 100,
+      bankShare: (amount * bankSharePercent) / 100,
+      partnerShare: (amount * partnerSharePercent) / 100,
     };
+  }
+
+  private getCommissionTargetRef(
+    adminSettings: {
+      central_bank_som_account: string;
+      central_bank_salam_wallet: string;
+      central_bank_usdt_wallet: string;
+      bank_som_account: string;
+      bank_salam_wallet: string;
+      bank_usdt_wallet: string;
+    bank_commission_partners_json: string;
+    },
+    kind: 'central' | 'bank' | 'partner',
+    asset: Asset,
+    partner?: {
+      title?: string;
+      som_account?: string;
+      salam_wallet?: string;
+      usdt_wallet?: string;
+    },
+  ): { reference: string; title: string } | null {
+    const central = {
+      SOM: adminSettings.central_bank_som_account,
+      ESOM: adminSettings.central_bank_salam_wallet,
+      USDT_TRC20: adminSettings.central_bank_usdt_wallet,
+    }[asset];
+    const bank = {
+      SOM: adminSettings.bank_som_account,
+      ESOM: adminSettings.bank_salam_wallet,
+      USDT_TRC20: adminSettings.bank_usdt_wallet,
+    }[asset];
+    const partnerRef = partner
+      ? {
+          SOM: partner.som_account || '',
+          ESOM: partner.salam_wallet || '',
+          USDT_TRC20: partner.usdt_wallet || '',
+        }[asset]
+      : '';
+    const reference =
+      kind === 'central' ? central : kind === 'bank' ? bank : partnerRef;
+    if (!reference?.trim()) return null;
+    return {
+      reference: reference.trim(),
+      title:
+        kind === 'central'
+          ? 'ЦБ'
+          : kind === 'bank'
+            ? 'Банк'
+            : partner?.title || 'Партнер',
+    };
+  }
+
+  private async createCommissionDistributionPostings(
+    client:
+      | PrismaClient
+      | {
+          accountingPosting: PrismaClient['accountingPosting'];
+        },
+    input: {
+      transactionId?: number | null;
+      paymentOperationId?: number | null;
+      postingGroupKey: string;
+      feeAmount: number;
+      asset: Asset;
+      sourceLabel: string;
+      transactionRef?: string | null;
+      bankOperationId?: number | null;
+    },
+  ): Promise<void> {
+    if (!(Number.isFinite(input.feeAmount) && input.feeAmount > 0)) return;
+
+    const adminSettings = await this.settingsService.getAdmin();
+    const centralBankPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_central_bank_pct),
+    );
+    const bankPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_bank_pct),
+    );
+    const partnerPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_partners_pct),
+    );
+    const split = this.splitSomPurchaseCommission(
+      input.feeAmount,
+      centralBankPercent,
+      bankPercent,
+      partnerPercent,
+    );
+    const partnerConfigs = this.settingsService
+      .parsePartnersJsonForCommission(
+        adminSettings.bank_commission_partners_json,
+      );
+    const partnerTargets = partnerConfigs
+      .map((partner, index) =>
+        this.getCommissionTargetRef(adminSettings, 'partner', input.asset, {
+          ...partner,
+          title: partner.title || `Партнер ${index + 1}`,
+        }),
+      )
+      .filter((item): item is { reference: string; title: string } => Boolean(item));
+    const fallbackPartnerTarget = this.getCommissionTargetRef(
+      adminSettings,
+      'bank',
+      input.asset,
+    );
+    const targets = [
+      this.getCommissionTargetRef(adminSettings, 'central', input.asset),
+      this.getCommissionTargetRef(adminSettings, 'bank', input.asset),
+    ].filter((item): item is { reference: string; title: string } => Boolean(item));
+
+    const partnerPerTarget =
+      partnerTargets.length > 0
+        ? split.partnerShare / partnerTargets.length
+        : split.partnerShare;
+
+    const postings = [
+      ...(targets[0]
+        ? [
+            {
+              sequence: 1,
+              debit_account_no: '21113',
+              debit_account_name: 'Транзитный счет комиссий',
+              credit_account_no: targets[0].reference,
+              credit_account_name: targets[0].title,
+              amount: split.centralBankShare,
+              comment: `${input.sourceLabel}: доля ЦБ`,
+            },
+          ]
+        : []),
+      ...(targets[1]
+        ? [
+            {
+              sequence: 2,
+              debit_account_no: '21113',
+              debit_account_name: 'Транзитный счет комиссий',
+              credit_account_no: targets[1].reference,
+              credit_account_name: targets[1].title,
+              amount: split.bankShare,
+              comment: `${input.sourceLabel}: доля банка`,
+            },
+          ]
+        : []),
+      ...(partnerTargets.length
+        ? partnerTargets.map((partner, index) => ({
+            sequence: 3 + index,
+            debit_account_no: '21113',
+            debit_account_name: 'Транзитный счет комиссий',
+            credit_account_no: partner.reference,
+            credit_account_name: partner.title,
+            amount: partnerPerTarget,
+            comment: `${input.sourceLabel}: доля партнера`,
+          }))
+        : split.partnerShare > 0 && fallbackPartnerTarget
+          ? [
+              {
+                sequence: 3,
+                debit_account_no: '21113',
+                debit_account_name: 'Транзитный счет комиссий',
+                credit_account_no: fallbackPartnerTarget.reference,
+                credit_account_name: fallbackPartnerTarget.title,
+                amount: split.partnerShare,
+                comment: `${input.sourceLabel}: доля партнера`,
+              },
+            ]
+          : []),
+    ].filter((item) => Number(item.amount) > 0);
+
+    if (!postings.length) return;
+
+    await client.accountingPosting.createMany({
+      data: postings.map((posting) => ({
+        posting_group_key: input.postingGroupKey,
+        sequence: posting.sequence,
+        transaction_id: input.transactionId ?? null,
+        payment_operation_id: input.paymentOperationId ?? null,
+        debit_account_no: posting.debit_account_no,
+        debit_account_name: posting.debit_account_name,
+        credit_account_no: posting.credit_account_no,
+        credit_account_name: posting.credit_account_name,
+        asset: input.asset,
+        amount: posting.amount.toString(),
+        comment: posting.comment,
+        metadata: {
+          source_label: input.sourceLabel,
+          transaction_ref: input.transactionRef ?? null,
+          fee_amount: input.feeAmount,
+          fee_split: {
+            centralBankPercent,
+            bankPercent,
+            partnerPercent,
+          },
+        } as any,
+      })),
+    });
   }
 
   private async createSomPurchaseAccountingPostings(
@@ -655,9 +877,11 @@ export class PaymentsService {
     const centralBankPercent = this.clampPercent(
       Number.parseFloat(adminSettings.bank_commission_central_bank_pct),
     );
-    const split = this.splitSomPurchaseCommission(
-      input.commissionAmount,
-      centralBankPercent,
+    const bankPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_bank_pct),
+    );
+    const partnerPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_partners_pct),
     );
     const metadataBase: AccountingMetadata = {
       flow: 'SOM_PURCHASE',
@@ -669,8 +893,8 @@ export class PaymentsService {
       internal_bridge: input.internalBridge ?? false,
       fee_split: {
         centralBankPercent,
-        bankPercent: (100 - centralBankPercent) / 2,
-        partnerPercent: (100 - centralBankPercent) / 2,
+        bankPercent,
+        partnerPercent,
       },
       account_catalog: SOM_PURCHASE_ACCOUNTS,
     };
@@ -699,38 +923,6 @@ export class PaymentsService {
       },
       {
         sequence: 3,
-        debit_account_no: SOM_PURCHASE_ACCOUNTS.commissionTransit.account_no,
-        debit_account_name:
-          SOM_PURCHASE_ACCOUNTS.commissionTransit.account_name,
-        credit_account_no: SOM_PURCHASE_ACCOUNTS.bankFeeIncome.account_no,
-        credit_account_name: SOM_PURCHASE_ACCOUNTS.bankFeeIncome.account_name,
-        amount: split.bankShare,
-        comment: 'Доля банка',
-      },
-      {
-        sequence: 4,
-        debit_account_no: SOM_PURCHASE_ACCOUNTS.commissionTransit.account_no,
-        debit_account_name:
-          SOM_PURCHASE_ACCOUNTS.commissionTransit.account_name,
-        credit_account_no: SOM_PURCHASE_ACCOUNTS.partnerSettlement.account_no,
-        credit_account_name:
-          SOM_PURCHASE_ACCOUNTS.partnerSettlement.account_name,
-        amount: split.partnerShare,
-        comment: 'Доля партнера',
-      },
-      {
-        sequence: 5,
-        debit_account_no: SOM_PURCHASE_ACCOUNTS.commissionTransit.account_no,
-        debit_account_name:
-          SOM_PURCHASE_ACCOUNTS.commissionTransit.account_name,
-        credit_account_no: SOM_PURCHASE_ACCOUNTS.govCryptoReserve.account_no,
-        credit_account_name:
-          SOM_PURCHASE_ACCOUNTS.govCryptoReserve.account_name,
-        amount: split.centralBankShare,
-        comment: 'Доля ЦБ',
-      },
-      {
-        sequence: 6,
         debit_account_no: SOM_PURCHASE_ACCOUNTS.offBalanceAsset.account_no,
         debit_account_name: SOM_PURCHASE_ACCOUNTS.offBalanceAsset.account_name,
         credit_account_no: SOM_PURCHASE_ACCOUNTS.offBalanceCounter.account_no,
@@ -765,6 +957,17 @@ export class PaymentsService {
         } as any,
       })),
     });
+
+    await this.createCommissionDistributionPostings(client, {
+      transactionId: input.transactionId ?? null,
+      paymentOperationId: input.paymentOperationId ?? null,
+      postingGroupKey: `${input.postingGroupKey}:commission`,
+      feeAmount: input.commissionAmount,
+      asset: 'SOM',
+      sourceLabel: 'SOM purchase commission',
+      transactionRef: input.transactionRef,
+      bankOperationId: input.bankOperationId ?? null,
+    });
   }
 
   private async createSomRedemptionAccountingPostings(
@@ -788,9 +991,11 @@ export class PaymentsService {
     const centralBankPercent = this.clampPercent(
       Number.parseFloat(adminSettings.bank_commission_central_bank_pct),
     );
-    const split = this.splitSomPurchaseCommission(
-      input.commissionAmount,
-      centralBankPercent,
+    const bankPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_bank_pct),
+    );
+    const partnerPercent = this.clampPercent(
+      Number.parseFloat(adminSettings.bank_commission_partners_pct),
     );
     const metadataBase: AccountingMetadata = {
       flow: 'SOM_REDEMPTION',
@@ -801,8 +1006,8 @@ export class PaymentsService {
       bank_operation_id: input.bankOperationId ?? null,
       fee_split: {
         centralBankPercent,
-        bankPercent: (100 - centralBankPercent) / 2,
-        partnerPercent: (100 - centralBankPercent) / 2,
+        bankPercent,
+        partnerPercent,
       },
       account_catalog: SOM_REDEMPTION_ACCOUNTS,
     };
@@ -831,38 +1036,6 @@ export class PaymentsService {
       },
       {
         sequence: 3,
-        debit_account_no: SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_no,
-        debit_account_name:
-          SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_name,
-        credit_account_no: SOM_REDEMPTION_ACCOUNTS.bankFeeIncome.account_no,
-        credit_account_name: SOM_REDEMPTION_ACCOUNTS.bankFeeIncome.account_name,
-        amount: split.bankShare,
-        comment: 'Доля банка',
-      },
-      {
-        sequence: 4,
-        debit_account_no: SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_no,
-        debit_account_name:
-          SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_name,
-        credit_account_no: SOM_REDEMPTION_ACCOUNTS.partnerSettlement.account_no,
-        credit_account_name:
-          SOM_REDEMPTION_ACCOUNTS.partnerSettlement.account_name,
-        amount: split.partnerShare,
-        comment: 'Доля партнера',
-      },
-      {
-        sequence: 5,
-        debit_account_no: SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_no,
-        debit_account_name:
-          SOM_REDEMPTION_ACCOUNTS.commissionTransit.account_name,
-        credit_account_no: SOM_REDEMPTION_ACCOUNTS.govCryptoReserve.account_no,
-        credit_account_name:
-          SOM_REDEMPTION_ACCOUNTS.govCryptoReserve.account_name,
-        amount: split.centralBankShare,
-        comment: 'Доля ЦБ',
-      },
-      {
-        sequence: 6,
         debit_account_no: SOM_REDEMPTION_ACCOUNTS.offBalanceCounter.account_no,
         debit_account_name:
           SOM_REDEMPTION_ACCOUNTS.offBalanceCounter.account_name,
@@ -897,6 +1070,17 @@ export class PaymentsService {
           posting_comment: posting.comment,
         } as any,
       })),
+    });
+
+    await this.createCommissionDistributionPostings(client, {
+      transactionId: input.transactionId ?? null,
+      paymentOperationId: input.paymentOperationId ?? null,
+      postingGroupKey: `${input.postingGroupKey}:commission`,
+      feeAmount: input.commissionAmount,
+      asset: 'SOM',
+      sourceLabel: 'SOM redemption commission',
+      transactionRef: input.transactionRef,
+      bankOperationId: input.bankOperationId ?? null,
     });
   }
 
@@ -1401,6 +1585,7 @@ export class PaymentsService {
       if (!Number.isFinite(amountFrom) || amountFrom <= 0) {
         throw new BadRequestException('Amount must be positive');
       }
+      const transactionRef = this.buildAbsTransactionRef();
       const s = await this.settingsService.get();
       const esomPerUsd = Number(s.esom_per_usd);
       this.logger.verbose(`[convert] settings esom_per_usd=${esomPerUsd}`);
@@ -1497,6 +1682,17 @@ export class PaymentsService {
             },
           });
 
+          if (feeEsom > 0) {
+            await this.createCommissionDistributionPostings(this.prisma, {
+              transactionId: createdTransaction.id,
+              postingGroupKey: `conversion-commission-${createdTransaction.id}`,
+              feeAmount: feeEsom,
+              asset: 'ESOM',
+              sourceLabel: `Convert ESOM->${to}`,
+              transactionRef,
+            });
+          }
+
           await this.balanceFetchService.refreshAllBalancesForUser(
             customer_id,
             ['ESOM' as Asset],
@@ -1521,6 +1717,17 @@ export class PaymentsService {
               notionalUsd: notionalUsdt,
               comment: `Convert ESOM->${to}`,
             });
+
+          if (feeEsom > 0) {
+            await this.createCommissionDistributionPostings(this.prisma, {
+              transactionId: createdTransaction.id,
+              postingGroupKey: `conversion-commission-${createdTransaction.id}`,
+              feeAmount: feeEsom,
+              asset: 'ESOM',
+              sourceLabel: `Convert ESOM->${to}`,
+              transactionRef,
+            });
+          }
 
           await addBalance(to, usdtAmount);
           await this.balanceFetchService.refreshAllBalancesForUser(
@@ -1586,6 +1793,17 @@ export class PaymentsService {
             },
           });
 
+          if (feeUsdt > 0) {
+            await this.createCommissionDistributionPostings(this.prisma, {
+              transactionId: createdTransaction.id,
+              postingGroupKey: `conversion-commission-${createdTransaction.id}`,
+              feeAmount: feeUsdt,
+              asset: 'USDT_TRC20',
+              sourceLabel: `Convert ${from}->ESOM`,
+              transactionRef,
+            });
+          }
+
           await this.balanceFetchService.refreshAllBalancesForUser(
             customer_id,
             ['ESOM' as Asset],
@@ -1610,6 +1828,17 @@ export class PaymentsService {
               notionalUsd: notionalUsdt.toString(),
               comment: `Convert ${from}->ESOM`,
             });
+
+          if (feeUsdt > 0) {
+            await this.createCommissionDistributionPostings(this.prisma, {
+              transactionId: createdTransaction.id,
+              postingGroupKey: `conversion-commission-${createdTransaction.id}`,
+              feeAmount: feeUsdt,
+              asset: 'USDT_TRC20',
+              sourceLabel: `Convert ${from}->ESOM`,
+              transactionRef,
+            });
+          }
 
           await addBalance(from, -amountFrom);
           await this.balanceFetchService.refreshAllBalancesForUser(
@@ -1856,6 +2085,16 @@ export class PaymentsService {
           comment: `Withdraw ${amount} ${asset}`,
         },
       });
+      if (feeFixed > 0) {
+        await this.createCommissionDistributionPostings(tx, {
+          transactionId: createdTransaction.id,
+          postingGroupKey: `withdraw-commission-${createdTransaction.id}`,
+          feeAmount: feeFixed,
+          asset,
+          sourceLabel: `Withdraw ${asset}`,
+          transactionRef: txid,
+        });
+      }
       transactionId = createdTransaction.id;
     });
 
@@ -2615,6 +2854,16 @@ export class PaymentsService {
           comment,
         },
       });
+      if (fee > 0) {
+        await this.createCommissionDistributionPostings(tx, {
+          transactionId: createdTransaction.id,
+          postingGroupKey: `wallet-transfer-commission-${createdTransaction.id}`,
+          feeAmount: fee,
+          asset,
+          sourceLabel: `Wallet transfer ${asset}`,
+          transactionRef: `TX-${createdTransaction.id}`,
+        });
+      }
       transactionId = createdTransaction.id;
     });
 
