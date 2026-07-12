@@ -50,6 +50,8 @@ type BankCommissionPartnerConfig = {
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
+  private readonly fallbackCentralUsdtWallet: string;
+  private readonly fallbackPartnerUsdtWallet: string;
   private readonly usdtBalanceCache = new Map<
     string,
     { balance: number; expiresAt: number }
@@ -63,13 +65,14 @@ export class SettingsService {
     private readonly bricsService: BricsService,
     private readonly ethereumService: EthereumService,
     private readonly tronService: TronService,
-  ) {}
+  ) {
+    this.fallbackCentralUsdtWallet =
+      this.tronService.generateAccount().address || '';
+    this.fallbackPartnerUsdtWallet =
+      this.tronService.generateAccount().address || '';
+  }
 
   private getBankCommissionDefaults(): Record<string, string> {
-    const generatedPartnerUsdt =
-      this.tronService.generateAccount().address || '';
-    const generatedCentralUsdt = this.getGeneratedCentralBankUsdtWallet();
-
     return {
       central_bank_som_account:
         this.configService.get<string>('CENTRAL_BANK_SOM_ACCOUNT')?.trim() ||
@@ -81,7 +84,7 @@ export class SettingsService {
         '',
       central_bank_usdt_wallet:
         this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
-        generatedCentralUsdt ||
+        this.fallbackCentralUsdtWallet ||
         '',
       bank_som_account:
         this.configService.get<string>('BANK_SOM_ACCOUNT')?.trim() ||
@@ -101,14 +104,10 @@ export class SettingsService {
             title: 'Partner 1',
             som_account: '',
             salam_wallet: '',
-            usdt_wallet: generatedPartnerUsdt,
+            usdt_wallet: this.fallbackPartnerUsdtWallet,
           },
         ]),
     };
-  }
-
-  private getGeneratedCentralBankUsdtWallet(): string {
-    return this.tronService.generateAccount().address || '';
   }
 
   private async getOrCreateSettingsRow() {
@@ -141,104 +140,6 @@ export class SettingsService {
           bank_usdt_wallet: defaults.bank_usdt_wallet || treasuryAddress || '',
         },
       });
-    } else {
-      const bankCommissionPatch: Record<string, string> = {};
-      const defaults = this.getBankCommissionDefaults();
-      const treasuryAddress = this.tronService.getTreasuryAddress() || '';
-      const generatedPartnerUsdtWallet = this.tronService.generateAccount().address || '';
-
-      const currentCentralSom = this.normalizeString(s.central_bank_som_account);
-      if (!currentCentralSom.trim() || currentCentralSom === TEMP_CENTRAL_SOM_ACCOUNT) {
-        bankCommissionPatch.central_bank_som_account =
-          defaults.central_bank_som_account;
-      }
-
-      const currentCentralSalam = this.normalizeString(
-        s.central_bank_salam_wallet,
-      );
-      if (
-        !currentCentralSalam.trim() ||
-        currentCentralSalam === TEMP_CENTRAL_SALAM_WALLET
-      ) {
-        bankCommissionPatch.central_bank_salam_wallet =
-          defaults.central_bank_salam_wallet;
-      }
-
-      const currentCentralUsdt = this.normalizeString(
-        s.central_bank_usdt_wallet,
-      );
-      if (
-        !currentCentralUsdt.trim() ||
-        currentCentralUsdt === TEMP_CENTRAL_USDT_WALLET ||
-        currentCentralUsdt === this.normalizeString(s.bank_usdt_wallet) ||
-        currentCentralUsdt === TEMP_BANK_USDT_WALLET
-      ) {
-        bankCommissionPatch.central_bank_usdt_wallet = defaults.central_bank_usdt_wallet;
-      }
-
-      const currentBankSom = this.normalizeString(s.bank_som_account);
-      if (!currentBankSom.trim() || currentBankSom === TEMP_BANK_SOM_ACCOUNT) {
-        bankCommissionPatch.bank_som_account =
-          defaults.bank_som_account;
-      }
-
-      const currentBankSalam = this.normalizeString(s.bank_salam_wallet);
-      if (
-        !currentBankSalam.trim() ||
-        currentBankSalam === TEMP_BANK_SALAM_WALLET
-      ) {
-        bankCommissionPatch.bank_salam_wallet =
-          defaults.bank_salam_wallet;
-      }
-
-      const currentBankUsdt = this.normalizeString(s.bank_usdt_wallet);
-      if (!currentBankUsdt.trim() || currentBankUsdt === TEMP_BANK_USDT_WALLET) {
-        bankCommissionPatch.bank_usdt_wallet =
-          this.configService.get<string>('BANK_USDT_WALLET')?.trim() ||
-          treasuryAddress ||
-          defaults.bank_usdt_wallet;
-      }
-
-      const partnerJson = this.normalizeString(s.bank_commission_partners_json);
-      if (!partnerJson.trim()) {
-        bankCommissionPatch.bank_commission_partners_json =
-          defaults.bank_commission_partners_json;
-      } else {
-        try {
-          const parsed = JSON.parse(partnerJson);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            let changed = false;
-            const normalized = parsed.map((item) => {
-              if (!item || typeof item !== 'object') return item;
-              const next = { ...(item as Record<string, unknown>) };
-              const currentPartnerUsdt = this.normalizeString(next.usdt_wallet);
-              if (
-                !currentPartnerUsdt.trim() ||
-                currentPartnerUsdt === TEMP_PARTNER_USDT_WALLET ||
-                currentPartnerUsdt === currentBankUsdt
-              ) {
-                next.usdt_wallet = generatedPartnerUsdtWallet;
-                changed = true;
-              }
-              return next;
-            });
-            if (changed) {
-              bankCommissionPatch.bank_commission_partners_json =
-                JSON.stringify(normalized);
-            }
-          }
-        } catch {
-          bankCommissionPatch.bank_commission_partners_json =
-            defaults.bank_commission_partners_json;
-        }
-      }
-
-      if (Object.keys(bankCommissionPatch).length > 0) {
-        s = await this.prisma.settings.update({
-          where: { id: s.id },
-          data: bankCommissionPatch,
-        });
-      }
     }
     return s;
   }
@@ -297,6 +198,22 @@ export class SettingsService {
   }
 
   mapToAdminDto(s: any): AdminSettingsDto {
+    const defaults = this.getBankCommissionDefaults();
+    const bankSomAccount = this.normalizeString(s.bank_som_account) || defaults.bank_som_account;
+    const bankSalamWallet = this.normalizeString(s.bank_salam_wallet) || defaults.bank_salam_wallet;
+    const bankUsdtWallet = this.normalizeString(s.bank_usdt_wallet) || defaults.bank_usdt_wallet;
+    const centralBankSomAccount =
+      this.normalizeString(s.central_bank_som_account) || bankSomAccount;
+    const centralBankSalamWallet =
+      this.normalizeString(s.central_bank_salam_wallet) || bankSalamWallet;
+    const centralBankUsdtWallet =
+      this.normalizeString(s.central_bank_usdt_wallet) ||
+      defaults.central_bank_usdt_wallet ||
+      this.fallbackCentralUsdtWallet;
+    const partnerJson =
+      this.normalizeString(s.bank_commission_partners_json) ||
+      defaults.bank_commission_partners_json;
+
     return {
       ...this.mapToDto(s),
       rates_change_reasons_json: this.normalizeString(
@@ -305,15 +222,9 @@ export class SettingsService {
       bank_fee_posting_time_bishkek: this.normalizeString(
         s.bank_fee_posting_time_bishkek,
       ),
-      central_bank_som_account: this.normalizeString(
-        s.central_bank_som_account,
-      ),
-      central_bank_salam_wallet: this.normalizeString(
-        s.central_bank_salam_wallet,
-      ),
-      central_bank_usdt_wallet: this.normalizeString(
-        s.central_bank_usdt_wallet,
-      ),
+      central_bank_som_account: centralBankSomAccount,
+      central_bank_salam_wallet: centralBankSalamWallet,
+      central_bank_usdt_wallet: centralBankUsdtWallet,
       bank_commission_central_bank_pct: this.toDecimalString(
         s.bank_commission_central_bank_pct,
         '20',
@@ -326,12 +237,10 @@ export class SettingsService {
         s.bank_commission_partners_pct,
         '40',
       ),
-      bank_som_account: this.normalizeString(s.bank_som_account),
-      bank_salam_wallet: this.normalizeString(s.bank_salam_wallet),
-      bank_usdt_wallet: this.normalizeString(s.bank_usdt_wallet),
-      bank_commission_partners_json: this.normalizeString(
-        s.bank_commission_partners_json,
-      ),
+      bank_som_account: bankSomAccount,
+      bank_salam_wallet: bankSalamWallet,
+      bank_usdt_wallet: bankUsdtWallet,
+      bank_commission_partners_json: partnerJson,
     };
   }
 
