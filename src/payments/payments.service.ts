@@ -1101,7 +1101,7 @@ export class PaymentsService {
       paymentOperationId: input.paymentOperationId ?? null,
       postingGroupKey: `${input.postingGroupKey}:commission`,
       feeAmount: input.commissionAmount,
-      asset: 'SOM',
+      asset: 'ESOM',
       sourceLabel: 'SOM redemption commission',
       transactionRef: input.transactionRef,
       bankOperationId: input.bankOperationId ?? null,
