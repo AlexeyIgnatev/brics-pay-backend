@@ -558,8 +558,18 @@ export class BricsService {
       this.logger.verbose(
         `Received getCustomerAccounts response ${response.status}`,
       );
+      const responseData = response.data as unknown;
+      const topKeys =
+        responseData &&
+        typeof responseData === 'object' &&
+        !Array.isArray(responseData)
+          ? Object.keys(responseData as Record<string, unknown>).slice(0, 20)
+          : [];
+      this.logger.verbose(
+        `[getCustomerAccount] customer=${customerId} responseType=${Array.isArray(responseData) ? 'array' : typeof responseData} topKeys=${topKeys.join(',') || 'none'}`,
+      );
       const normalizedAccounts = this.extractAccountRecords(
-        response.data?.Result ?? response.data,
+        (responseData as { Result?: unknown })?.Result ?? responseData,
       ).map((item) => ({
         ...item,
         AccountNo: String(
@@ -579,6 +589,12 @@ export class BricsService {
         ),
         Balance: Number(item?.Balance ?? item?.balance ?? 0),
       }));
+      const extractedCurrencies = normalizedAccounts
+        .map((item) => item.CurrencyID)
+        .filter((value) => Number.isFinite(value));
+      this.logger.verbose(
+        `[getCustomerAccount] customer=${customerId} extracted_accounts=${normalizedAccounts.length} currencies=${extractedCurrencies.join(',') || 'none'}`,
+      );
 
       const account = normalizedAccounts.find(
         (item: BricsAccountDto) => Number(item?.CurrencyID) === 417,
