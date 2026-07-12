@@ -19,6 +19,14 @@ import {
   TariffSettingsUpdateDto,
 } from '../../blockchain-config/dto/tariff-settings.dto';
 
+const TEMP_BANK_SOM_ACCOUNT = '910000002';
+const TEMP_BANK_SALAM_WALLET = '0x2222222222222222222222222222222222222222';
+const TEMP_BANK_USDT_WALLET = 'TRVh3EuuWTkCfECfXM77SGZZZQwJT49WBm';
+const TEMP_CENTRAL_SOM_ACCOUNT = '910000001';
+const TEMP_CENTRAL_SALAM_WALLET = '0x1111111111111111111111111111111111111111';
+const TEMP_CENTRAL_USDT_WALLET = 'TH6v4FYhVPEE39oYLd7roSfGj2H49pkRUX';
+const TEMP_PARTNER_USDT_WALLET = 'TQYvtaMVomk4BFgGPNjnEadrnVaLAqS5Kj';
+
 const SUPPORTED_TARIFF_OPERATIONS: TariffOperation[] = [
   TariffOperation.SOM_TO_ESOM,
   TariffOperation.ESOM_TO_SOM,
@@ -58,6 +66,9 @@ export class SettingsService {
   ) {}
 
   private getBankCommissionDefaults(): Record<string, string> {
+    const generatedPartnerUsdt =
+      this.tronService.generateAccount().address || '';
+
     return {
       central_bank_som_account:
         this.configService.get<string>('CENTRAL_BANK_SOM_ACCOUNT')?.trim() || '',
@@ -76,13 +87,23 @@ export class SettingsService {
         this.configService.get<string>('ADMIN_ADDRESS')?.trim() ||
         '',
       bank_usdt_wallet:
-        this.configService.get<string>('BANK_USDT_WALLET')?.trim() ||
-        this.tronService.getTreasuryAddress() ||
-        '',
+        this.configService.get<string>('BANK_USDT_WALLET')?.trim() || '',
       bank_commission_partners_json:
         this.configService.get<string>('BANK_COMMISSION_PARTNERS_JSON')?.trim() ||
-        '',
+        JSON.stringify([
+          {
+            id: 'partner-1',
+            title: 'Partner 1',
+            som_account: '',
+            salam_wallet: '',
+            usdt_wallet: generatedPartnerUsdt,
+          },
+        ]),
     };
+  }
+
+  private getGeneratedCentralBankUsdtWallet(): string {
+    return this.tronService.generateAccount().address || '';
   }
 
   private async getOrCreateSettingsRow() {
@@ -92,6 +113,7 @@ export class SettingsService {
     }
     if (!s) {
       const defaults = this.getBankCommissionDefaults();
+      const treasuryAddress = this.tronService.getTreasuryAddress() || '';
       s = await this.prisma.settings.create({
         data: {
           id: 1,
@@ -111,16 +133,107 @@ export class SettingsService {
           bank_commission_bank_pct: '40',
           bank_commission_partners_pct: '40',
           ...defaults,
+          bank_usdt_wallet:
+            defaults.bank_usdt_wallet || treasuryAddress || defaults.bank_usdt_wallet,
+          central_bank_usdt_wallet:
+            this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
+            this.getGeneratedCentralBankUsdtWallet(),
         },
       });
     } else {
       const bankCommissionPatch: Record<string, string> = {};
-      for (const [key, value] of Object.entries(
-        this.getBankCommissionDefaults(),
-      )) {
-        const current = (s as Record<string, unknown>)[key];
-        if (current == null || String(current).trim() === '') {
-          bankCommissionPatch[key] = value;
+      const defaults = this.getBankCommissionDefaults();
+      const treasuryAddress = this.tronService.getTreasuryAddress() || '';
+      const generatedCentralUsdtWallet = this.getGeneratedCentralBankUsdtWallet();
+      const generatedPartnerUsdtWallet = this.tronService.generateAccount().address || '';
+
+      const currentCentralSom = this.normalizeString(s.central_bank_som_account);
+      if (!currentCentralSom.trim() || currentCentralSom === TEMP_CENTRAL_SOM_ACCOUNT) {
+        bankCommissionPatch.central_bank_som_account =
+          defaults.central_bank_som_account;
+      }
+
+      const currentCentralSalam = this.normalizeString(
+        s.central_bank_salam_wallet,
+      );
+      if (
+        !currentCentralSalam.trim() ||
+        currentCentralSalam === TEMP_CENTRAL_SALAM_WALLET
+      ) {
+        bankCommissionPatch.central_bank_salam_wallet =
+          defaults.central_bank_salam_wallet;
+      }
+
+      const currentCentralUsdt = this.normalizeString(
+        s.central_bank_usdt_wallet,
+      );
+      if (
+        !currentCentralUsdt.trim() ||
+        currentCentralUsdt === TEMP_CENTRAL_USDT_WALLET ||
+        currentCentralUsdt === this.normalizeString(s.bank_usdt_wallet) ||
+        currentCentralUsdt === TEMP_BANK_USDT_WALLET
+      ) {
+        bankCommissionPatch.central_bank_usdt_wallet =
+          this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
+          generatedCentralUsdtWallet;
+      }
+
+      const currentBankSom = this.normalizeString(s.bank_som_account);
+      if (!currentBankSom.trim() || currentBankSom === TEMP_BANK_SOM_ACCOUNT) {
+        bankCommissionPatch.bank_som_account =
+          defaults.bank_som_account;
+      }
+
+      const currentBankSalam = this.normalizeString(s.bank_salam_wallet);
+      if (
+        !currentBankSalam.trim() ||
+        currentBankSalam === TEMP_BANK_SALAM_WALLET
+      ) {
+        bankCommissionPatch.bank_salam_wallet =
+          defaults.bank_salam_wallet;
+      }
+
+      const currentBankUsdt = this.normalizeString(s.bank_usdt_wallet);
+      if (!currentBankUsdt.trim() || currentBankUsdt === TEMP_BANK_USDT_WALLET) {
+        bankCommissionPatch.bank_usdt_wallet =
+          this.configService.get<string>('BANK_USDT_WALLET')?.trim() ||
+          treasuryAddress ||
+          defaults.bank_usdt_wallet;
+      }
+
+      const partnerJson = this.normalizeString(s.bank_commission_partners_json);
+      if (!partnerJson.trim()) {
+        bankCommissionPatch.bank_commission_partners_json =
+          defaults.bank_commission_partners_json;
+      } else {
+        try {
+          const parsed = JSON.parse(partnerJson);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            let changed = false;
+            const normalized = parsed.map((item) => {
+              if (!item || typeof item !== 'object') return item;
+              const next = { ...(item as Record<string, unknown>) };
+              const currentPartnerUsdt = this.normalizeString(next.usdt_wallet);
+              if (
+                !currentPartnerUsdt.trim() ||
+                currentPartnerUsdt === TEMP_PARTNER_USDT_WALLET ||
+                currentPartnerUsdt === currentBankUsdt
+              ) {
+                next.usdt_wallet =
+                  this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
+                  generatedPartnerUsdtWallet;
+                changed = true;
+              }
+              return next;
+            });
+            if (changed) {
+              bankCommissionPatch.bank_commission_partners_json =
+                JSON.stringify(normalized);
+            }
+          }
+        } catch {
+          bankCommissionPatch.bank_commission_partners_json =
+            defaults.bank_commission_partners_json;
         }
       }
 

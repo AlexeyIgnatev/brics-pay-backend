@@ -186,6 +186,24 @@ export class TronService {
     }
   }
 
+  generateAccount(): { address: string; privateKey: string } {
+    const account = TronWeb.utils.accounts.generateAccount() as {
+      privateKey?: string;
+      address?: { base58?: string } | string;
+    };
+
+    const address =
+      typeof account.address === 'string'
+        ? account.address
+        : account.address?.base58;
+    const privateKey = account.privateKey?.replace(/^0x/, '');
+    if (!address || !privateKey) {
+      throw new BadRequestException('Failed to generate TRON account');
+    }
+
+    return { address, privateKey };
+  }
+
   async getAccount(address: string): Promise<Record<string, unknown>> {
     const fullNode = this.getTronWeb().fullNode;
     const toHex = this.getTronWeb().address.toHex(address);
