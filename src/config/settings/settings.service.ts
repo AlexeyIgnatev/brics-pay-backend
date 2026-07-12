@@ -19,12 +19,11 @@ import {
   TariffSettingsUpdateDto,
 } from '../../blockchain-config/dto/tariff-settings.dto';
 
-const TEMP_BANK_SOM_ACCOUNT = '910000002';
-const TEMP_BANK_SALAM_WALLET = '0x2222222222222222222222222222222222222222';
-const TEMP_BANK_USDT_WALLET = 'TRVh3EuuWTkCfECfXM77SGZZZQwJT49WBm';
 const TEMP_CENTRAL_SOM_ACCOUNT = '910000001';
 const TEMP_CENTRAL_SALAM_WALLET = '0x1111111111111111111111111111111111111111';
 const TEMP_CENTRAL_USDT_WALLET = 'TH6v4FYhVPEE39oYLd7roSfGj2H49pkRUX';
+const TEMP_PARTNER_SOM_ACCOUNT = '910000003';
+const TEMP_PARTNER_SALAM_WALLET = '0x3333333333333333333333333333333333333333';
 const TEMP_PARTNER_USDT_WALLET = 'TQYvtaMVomk4BFgGPNjnEadrnVaLAqS5Kj';
 
 const SUPPORTED_TARIFF_OPERATIONS: TariffOperation[] = [
@@ -50,8 +49,6 @@ type BankCommissionPartnerConfig = {
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
-  private readonly fallbackCentralUsdtWallet: string;
-  private readonly fallbackPartnerUsdtWallet: string;
   private readonly usdtBalanceCache = new Map<
     string,
     { balance: number; expiresAt: number }
@@ -65,46 +62,36 @@ export class SettingsService {
     private readonly bricsService: BricsService,
     private readonly ethereumService: EthereumService,
     private readonly tronService: TronService,
-  ) {
-    this.fallbackCentralUsdtWallet =
-      this.tronService.generateAccount().address || '';
-    this.fallbackPartnerUsdtWallet =
-      this.tronService.generateAccount().address || '';
-  }
+  ) {}
 
   private getBankCommissionDefaults(): Record<string, string> {
     return {
       central_bank_som_account:
         this.configService.get<string>('CENTRAL_BANK_SOM_ACCOUNT')?.trim() ||
-        TEMP_CENTRAL_SOM_ACCOUNT ||
-        '',
+        TEMP_CENTRAL_SOM_ACCOUNT,
       central_bank_salam_wallet:
         this.configService.get<string>('CENTRAL_BANK_SALAM_WALLET')?.trim() ||
-        this.configService.get<string>('ADMIN_ADDRESS')?.trim() ||
-        '',
+        TEMP_CENTRAL_SALAM_WALLET,
       central_bank_usdt_wallet:
         this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
-        this.fallbackCentralUsdtWallet ||
-        '',
+        TEMP_CENTRAL_USDT_WALLET,
       bank_som_account:
-        this.configService.get<string>('BANK_SOM_ACCOUNT')?.trim() ||
-        this.configService.get<string>('CT_ACCOUNT_NO')?.trim() ||
-        '',
+        this.configService.get<string>('BANK_SOM_ACCOUNT')?.trim() || '',
       bank_salam_wallet:
-        this.configService.get<string>('BANK_SALAM_WALLET')?.trim() ||
-        this.configService.get<string>('ADMIN_ADDRESS')?.trim() ||
-        '',
+        this.configService.get<string>('BANK_SALAM_WALLET')?.trim() || '',
       bank_usdt_wallet:
-        this.configService.get<string>('BANK_USDT_WALLET')?.trim() || '',
+        this.configService.get<string>('BANK_USDT_WALLET')?.trim() ||
+        this.tronService.getTreasuryAddress() ||
+        '',
       bank_commission_partners_json:
         this.configService.get<string>('BANK_COMMISSION_PARTNERS_JSON')?.trim() ||
         JSON.stringify([
           {
             id: 'partner-1',
             title: 'Partner 1',
-            som_account: '',
-            salam_wallet: '',
-            usdt_wallet: this.fallbackPartnerUsdtWallet,
+            som_account: TEMP_PARTNER_SOM_ACCOUNT,
+            salam_wallet: TEMP_PARTNER_SALAM_WALLET,
+            usdt_wallet: TEMP_PARTNER_USDT_WALLET,
           },
         ]),
     };
@@ -215,8 +202,7 @@ export class SettingsService {
       TEMP_CENTRAL_SALAM_WALLET;
     const centralBankUsdtWallet =
       this.normalizeString(s.central_bank_usdt_wallet) ||
-      defaults.central_bank_usdt_wallet ||
-      this.fallbackCentralUsdtWallet;
+      defaults.central_bank_usdt_wallet;
     const partnerJson =
       this.normalizeString(s.bank_commission_partners_json) ||
       defaults.bank_commission_partners_json;
