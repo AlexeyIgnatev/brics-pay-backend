@@ -823,10 +823,34 @@ export class PaymentsService {
                 comment: `${input.sourceLabel}: доля партнера`,
               },
             ]
-          : []),
+      : []),
     ].filter((item) => Number(item.amount) > 0);
 
     if (!postings.length) return;
+
+    this.logger.verbose(
+      [
+        `[commission-distribution] source=${input.sourceLabel}`,
+        `asset=${input.asset}`,
+        `fee=${input.feeAmount}`,
+        `central=${split.centralBankShare}`,
+        `bank=${split.bankShare}`,
+        `partners=${split.partnerShare}`,
+        `postingGroup=${input.postingGroupKey}`,
+        input.transactionId != null ? `transactionId=${input.transactionId}` : null,
+        input.paymentOperationId != null
+          ? `paymentOperationId=${input.paymentOperationId}`
+          : null,
+        input.transactionRef ? `transactionRef=${input.transactionRef}` : null,
+      ]
+        .filter((item): item is string => Boolean(item))
+        .join(' '),
+    );
+    postings.forEach((posting) => {
+      this.logger.verbose(
+        `[commission-distribution] target sequence=${posting.sequence} account=${posting.credit_account_no} title=${posting.credit_account_name} amount=${posting.amount}`,
+      );
+    });
 
     await client.accountingPosting.createMany({
       data: postings.map((posting) => ({

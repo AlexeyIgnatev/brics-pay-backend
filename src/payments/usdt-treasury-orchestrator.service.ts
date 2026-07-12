@@ -1720,6 +1720,30 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
 
     if (!targets.length) return;
 
+    this.logger.verbose(
+      [
+        `[commission-distribution] source=${input.sourceLabel}`,
+        `asset=${input.asset ?? 'USDT_TRC20'}`,
+        `fee=${input.feeAmount}`,
+        `central=${split.centralBankShare}`,
+        `bank=${split.bankShare}`,
+        `partners=${split.partnerShare}`,
+        `postingGroup=${input.postingGroupKey}`,
+        input.transactionId != null ? `transactionId=${input.transactionId}` : null,
+        input.paymentOperationId != null
+          ? `paymentOperationId=${input.paymentOperationId}`
+          : null,
+        input.transactionRef ? `transactionRef=${input.transactionRef}` : null,
+      ]
+        .filter((item): item is string => Boolean(item))
+        .join(' '),
+    );
+    targets.forEach((target, index) => {
+      this.logger.verbose(
+        `[commission-distribution] target sequence=${index + 1} account=${target.reference} title=${target.title} amount=${target.amount}`,
+      );
+    });
+
     await client.accountingPosting.createMany({
       data: targets.map((target, index) => ({
         posting_group_key: input.postingGroupKey,
