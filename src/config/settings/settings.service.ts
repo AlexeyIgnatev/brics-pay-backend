@@ -68,15 +68,20 @@ export class SettingsService {
   private getBankCommissionDefaults(): Record<string, string> {
     const generatedPartnerUsdt =
       this.tronService.generateAccount().address || '';
+    const generatedCentralUsdt = this.getGeneratedCentralBankUsdtWallet();
 
     return {
       central_bank_som_account:
-        this.configService.get<string>('CENTRAL_BANK_SOM_ACCOUNT')?.trim() || '',
+        this.configService.get<string>('CENTRAL_BANK_SOM_ACCOUNT')?.trim() ||
+        this.configService.get<string>('CT_ACCOUNT_NO')?.trim() ||
+        '',
       central_bank_salam_wallet:
         this.configService.get<string>('CENTRAL_BANK_SALAM_WALLET')?.trim() ||
+        this.configService.get<string>('ADMIN_ADDRESS')?.trim() ||
         '',
       central_bank_usdt_wallet:
         this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
+        generatedCentralUsdt ||
         '',
       bank_som_account:
         this.configService.get<string>('BANK_SOM_ACCOUNT')?.trim() ||
@@ -133,18 +138,13 @@ export class SettingsService {
           bank_commission_bank_pct: '40',
           bank_commission_partners_pct: '40',
           ...defaults,
-          bank_usdt_wallet:
-            defaults.bank_usdt_wallet || treasuryAddress || defaults.bank_usdt_wallet,
-          central_bank_usdt_wallet:
-            this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
-            this.getGeneratedCentralBankUsdtWallet(),
+          bank_usdt_wallet: defaults.bank_usdt_wallet || treasuryAddress || '',
         },
       });
     } else {
       const bankCommissionPatch: Record<string, string> = {};
       const defaults = this.getBankCommissionDefaults();
       const treasuryAddress = this.tronService.getTreasuryAddress() || '';
-      const generatedCentralUsdtWallet = this.getGeneratedCentralBankUsdtWallet();
       const generatedPartnerUsdtWallet = this.tronService.generateAccount().address || '';
 
       const currentCentralSom = this.normalizeString(s.central_bank_som_account);
@@ -173,9 +173,7 @@ export class SettingsService {
         currentCentralUsdt === this.normalizeString(s.bank_usdt_wallet) ||
         currentCentralUsdt === TEMP_BANK_USDT_WALLET
       ) {
-        bankCommissionPatch.central_bank_usdt_wallet =
-          this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
-          generatedCentralUsdtWallet;
+        bankCommissionPatch.central_bank_usdt_wallet = defaults.central_bank_usdt_wallet;
       }
 
       const currentBankSom = this.normalizeString(s.bank_som_account);
@@ -219,9 +217,7 @@ export class SettingsService {
                 currentPartnerUsdt === TEMP_PARTNER_USDT_WALLET ||
                 currentPartnerUsdt === currentBankUsdt
               ) {
-                next.usdt_wallet =
-                  this.configService.get<string>('CENTRAL_BANK_USDT_WALLET')?.trim() ||
-                  generatedPartnerUsdtWallet;
+                next.usdt_wallet = generatedPartnerUsdtWallet;
                 changed = true;
               }
               return next;
