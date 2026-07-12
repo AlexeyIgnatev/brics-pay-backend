@@ -172,22 +172,40 @@ export class BricsService {
     return `ABS transfer ${txRef}`;
   }
 
+  private normalizeBricsKey(key: string): string {
+    return key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  }
+
+  private pickRecordValue(
+    record: Record<string, unknown>,
+    candidates: string[],
+  ): unknown {
+    const normalizedCandidates = new Set(
+      candidates.map((candidate) => this.normalizeBricsKey(candidate)),
+    );
+    for (const [key, value] of Object.entries(record)) {
+      if (normalizedCandidates.has(this.normalizeBricsKey(key))) {
+        return value;
+      }
+    }
+    return undefined;
+  }
+
   private isAccountRecord(value: unknown): value is Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return false;
     }
 
     const record = value as Record<string, unknown>;
+    const normalizedKeys = new Set(
+      Object.keys(record).map((key) => this.normalizeBricsKey(key)),
+    );
     return (
-      'CurrencyID' in record ||
-      'currencyId' in record ||
-      'currency_id' in record ||
-      'AccountNo' in record ||
-      'accountNo' in record ||
-      'AccountNumber' in record ||
-      'account_number' in record ||
-      'Iban' in record ||
-      'IBAN' in record
+      normalizedKeys.has(this.normalizeBricsKey('CurrencyID')) ||
+      normalizedKeys.has(this.normalizeBricsKey('AccountNo')) ||
+      normalizedKeys.has(this.normalizeBricsKey('AccountNumber')) ||
+      normalizedKeys.has(this.normalizeBricsKey('Iban')) ||
+      normalizedKeys.has(this.normalizeBricsKey('IBAN'))
     );
   }
 
@@ -409,21 +427,36 @@ export class BricsService {
         (item) => ({
           ...item,
           AccountNo: String(
-            item?.AccountNo ??
-              item?.accountNo ??
-              item?.AccountNumber ??
-              item?.account_number ??
-              item?.Iban ??
-              item?.IBAN ??
-              '',
+            this.pickRecordValue(item, [
+              'AccountNo',
+              'accountNo',
+              'AccountNumber',
+              'account_number',
+              'Iban',
+              'IBAN',
+            ]) ?? '',
           ),
           CurrencyID: Number(
-            item?.CurrencyID ?? item?.currencyId ?? item?.currency_id,
+            this.pickRecordValue(item, [
+              'CurrencyID',
+              'currencyId',
+              'currency_id',
+              'currencyID',
+              'CurrencyId',
+            ]),
           ),
           CustomerID: Number(
-            item?.CustomerID ?? item?.customerId ?? item?.customer_id,
+            this.pickRecordValue(item, [
+              'CustomerID',
+              'customerId',
+              'customer_id',
+              'customerID',
+              'CustomerId',
+            ]),
           ),
-          Balance: Number(item?.Balance ?? item?.balance ?? 0),
+          Balance: Number(
+            this.pickRecordValue(item, ['Balance', 'balance']) ?? 0,
+          ),
         }),
       );
       return accounts.find(
@@ -456,21 +489,36 @@ export class BricsService {
         (item) => ({
           ...item,
           AccountNo: String(
-            item?.AccountNo ??
-              item?.accountNo ??
-              item?.AccountNumber ??
-              item?.account_number ??
-              item?.Iban ??
-              item?.IBAN ??
-              '',
+            this.pickRecordValue(item, [
+              'AccountNo',
+              'accountNo',
+              'AccountNumber',
+              'account_number',
+              'Iban',
+              'IBAN',
+            ]) ?? '',
           ),
           CurrencyID: Number(
-            item?.CurrencyID ?? item?.currencyId ?? item?.currency_id,
+            this.pickRecordValue(item, [
+              'CurrencyID',
+              'currencyId',
+              'currency_id',
+              'currencyID',
+              'CurrencyId',
+            ]),
           ),
           CustomerID: Number(
-            item?.CustomerID ?? item?.customerId ?? item?.customer_id,
+            this.pickRecordValue(item, [
+              'CustomerID',
+              'customerId',
+              'customer_id',
+              'customerID',
+              'CustomerId',
+            ]),
           ),
-          Balance: Number(item?.Balance ?? item?.balance ?? 0),
+          Balance: Number(
+            this.pickRecordValue(item, ['Balance', 'balance']) ?? 0,
+          ),
         }),
       );
       return accounts.find(
@@ -639,21 +687,36 @@ export class BricsService {
         (item) => ({
           ...item,
           AccountNo: String(
-            item?.AccountNo ??
-              item?.accountNo ??
-              item?.AccountNumber ??
-              item?.account_number ??
-              item?.Iban ??
-              item?.IBAN ??
-              '',
+            this.pickRecordValue(item, [
+              'AccountNo',
+              'accountNo',
+              'AccountNumber',
+              'account_number',
+              'Iban',
+              'IBAN',
+            ]) ?? '',
           ),
           CurrencyID: Number(
-            item?.CurrencyID ?? item?.currencyId ?? item?.currency_id,
+            this.pickRecordValue(item, [
+              'CurrencyID',
+              'currencyId',
+              'currency_id',
+              'currencyID',
+              'CurrencyId',
+            ]),
           ),
           CustomerID: Number(
-            item?.CustomerID ?? item?.customerId ?? item?.customer_id,
+            this.pickRecordValue(item, [
+              'CustomerID',
+              'customerId',
+              'customer_id',
+              'customerID',
+              'CustomerId',
+            ]),
           ),
-          Balance: Number(item?.Balance ?? item?.balance ?? 0),
+          Balance: Number(
+            this.pickRecordValue(item, ['Balance', 'balance']) ?? 0,
+          ),
         }),
       );
       const account = accounts.find(
