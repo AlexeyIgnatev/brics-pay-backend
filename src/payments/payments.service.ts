@@ -3277,6 +3277,21 @@ export class PaymentsService {
     if (!bricsRecipient) {
       throw new BadRequestException('Recipient not found');
     }
+    if (!bricsRecipient.AccountNo) {
+      throw new BadRequestException(
+        `Recipient account number is missing for customer ${bricsRecipient.CustomerID}`,
+      );
+    }
+
+    const senderAccount = await this.bricsService.getAccount();
+    if (!senderAccount?.AccountNo) {
+      throw new BadRequestException(
+        `Sender SOM account not found for customer ${customer.customer_id}`,
+      );
+    }
+    this.logger.verbose(
+      `[transferSom] senderAccount=${senderAccount.AccountNo} senderCurrency=${senderAccount.CurrencyID ?? 'n/a'} receiverAccount=${bricsRecipient.AccountNo} receiverCurrency=${bricsRecipient.CurrencyID ?? 'n/a'}`,
+    );
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
       kind: TransactionKind.BANK_TO_BANK,
@@ -3294,10 +3309,10 @@ export class PaymentsService {
       transactionRef,
       requestedAt,
     );
-    const bricsTransaction = await this.bricsService.createTransferFiatToFiat(
+    const bricsTransaction = await this.bricsService.createTransfer(
+      senderAccount.AccountNo,
+      bricsRecipient.AccountNo,
       transferDto.amount,
-      customer.customer_id.toString(),
-      bricsRecipient.CustomerID.toString(),
       paymentPurpose,
     );
     if (!bricsTransaction) {
