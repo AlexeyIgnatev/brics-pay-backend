@@ -375,34 +375,20 @@ export class TronService {
       const blockTimestamp = Number(
         currentBlock?.block_header?.raw_data?.timestamp ?? 0,
       );
-      const localTimestamp = Date.now();
-      const txTimestamp = Math.max(
-        Number.isFinite(blockTimestamp) && blockTimestamp > 0
-          ? blockTimestamp
-          : 0,
-        localTimestamp,
+      const blockNumber = Number(
+        currentBlock?.block_header?.raw_data?.number ?? 0,
       );
-      const txExpiration = txTimestamp + TRON_TX_EXPIRATION_MS;
-      const blockHeader = currentBlock?.block_header?.raw_data
-        ? {
-            ref_block_bytes: String(
-              currentBlock.block_header.raw_data.number.toString(16),
-            )
-              .slice(-4)
-              .padStart(4, '0'),
-            ref_block_hash: String(currentBlock.blockID).slice(16, 32),
-            timestamp: txTimestamp,
-            expiration: txExpiration,
-          }
-        : undefined;
+      const txTimestamp = Number.isFinite(blockTimestamp) && blockTimestamp > 0
+        ? blockTimestamp
+        : Date.now();
 
       this.logger.verbose(
-        `[sendTrc20] build triggerSmartContract from=${fromAddress} to=${params.toAddress} amountSun=${amountSun.toString()} expirationMs=${TRON_TX_EXPIRATION_MS} block=${String(currentBlock?.block_header?.raw_data?.number ?? 'null')} localTimestamp=${String(localTimestamp)} blockTimestamp=${String(blockTimestamp || 'null')} txTimestamp=${String(txTimestamp)} txExpiration=${String(txExpiration)}`,
+        `[sendTrc20] build triggerSmartContract from=${fromAddress} to=${params.toAddress} amountSun=${amountSun.toString()} expirationMs=${TRON_TX_EXPIRATION_MS} block=${String(blockNumber || 'null')} blockTimestamp=${String(blockTimestamp || 'null')} txTimestamp=${String(txTimestamp)}`,
       );
       const tx = await tron.transactionBuilder.triggerSmartContract(
         tokenAddress,
         'transfer(address,uint256)',
-        { feeLimit, callValue: 0, blockHeader },
+        { feeLimit, callValue: 0 },
         [
           { type: 'address', value: params.toAddress },
           { type: 'uint256', value: amountSun.toString() },
@@ -417,8 +403,30 @@ export class TronService {
       }
 
       if (tx.transaction.raw_data) {
-        tx.transaction.raw_data.timestamp = txTimestamp;
+        const originalExpiration = Number(
+          tx.transaction.raw_data.expiration ?? 0,
+        );
+        const txExpiration =
+          (Number.isFinite(originalExpiration) && originalExpiration > 0
+            ? originalExpiration
+            : txTimestamp) + TRON_TX_EXPIRATION_MS;
         tx.transaction.raw_data.expiration = txExpiration;
+
+        const txBuilder = tron.transactionBuilder as typeof tron.transactionBuilder & {
+          newTxID?: (
+            transaction: typeof tx.transaction,
+            options?: { txLocal?: boolean },
+          ) => Promise<typeof tx.transaction>;
+        };
+        if (typeof txBuilder.newTxID === 'function') {
+          tx.transaction = await txBuilder.newTxID(tx.transaction, {
+            txLocal: true,
+          });
+        }
+
+        this.logger.verbose(
+          `[sendTrc20] prepared transaction from=${fromAddress} txID=${tx.transaction.txID} originalExpiration=${String(originalExpiration || 'null')} newExpiration=${String(tx.transaction.raw_data?.expiration ?? 'null')}`,
+        );
       }
 
       this.logger.verbose(
