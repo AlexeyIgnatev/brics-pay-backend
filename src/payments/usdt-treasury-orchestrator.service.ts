@@ -2182,7 +2182,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         fee_amount: feeAmount,
       });
 
-      const snapshot = await this.fetchChainTransactionSnapshot(txHash).catch(
+      const snapshotPromise = this.fetchChainTransactionSnapshot(txHash).catch(
         () => null,
       );
 
@@ -2265,7 +2265,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           amount: input.amount,
           status: BlockchainTransactionStatus.CONFIRMED,
           gasPayerAddress: chainSourceAddress,
-          snapshot,
+          snapshot: null,
         });
 
         await tx.paymentOperation.update({
@@ -2290,6 +2290,30 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       this.logger.verbose(
         `[browser-bridge] db transaction committed tx=${result} txHash=${txHash}`,
       );
+
+      void snapshotPromise.then(async (snapshot) => {
+        if (!snapshot) return;
+        await this.prisma
+          .$transaction(async (tx) => {
+            await this.upsertBlockchainTransaction(tx, {
+              paymentOperationId: op.id,
+              direction: BlockchainTransactionDirection.OUTBOUND,
+              asset: 'USDT_TRC20',
+              txHash,
+              fromAddress: chainSourceAddress,
+              toAddress: chainDestinationAddress,
+              amount: input.amount,
+              status: BlockchainTransactionStatus.CONFIRMED,
+              gasPayerAddress: chainSourceAddress,
+              snapshot,
+            });
+          })
+          .catch((error) => {
+            this.logger.warn(
+              `[browser-bridge] snapshot enrichment failed tx=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
+      });
 
       void this.waitForConfirmation(txHash, 12, 1000)
         .then(async (confirmed) => {

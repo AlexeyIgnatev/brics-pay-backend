@@ -5,7 +5,7 @@ import * as TronWeb from 'tronweb';
 
 const TRON_SUN = 1_000_000;
 const ACCOUNT_BOOTSTRAP_SUN = 1_000_000;
-const TRON_RPC_TIMEOUT_MS = 120_000;
+const TRON_RPC_TIMEOUT_MS = 20_000;
 const TRON_TX_EXPIRATION_MS = 60 * 60 * 1000;
 
 @Injectable()
@@ -462,7 +462,7 @@ export class TronService {
 
   async waitForTransaction(
     txHash: string,
-    timeoutMs = 120_000,
+    timeoutMs = 20_000,
     pollMs = 2_000,
   ): Promise<Record<string, unknown> | null> {
     const deadline = Date.now() + timeoutMs;
