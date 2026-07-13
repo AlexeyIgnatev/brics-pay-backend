@@ -441,9 +441,44 @@ export class TronService {
       }
 
       this.logger.verbose(
+        `[sendTrc20] signed payload from=${fromAddress} txID=${signedTransaction.txID} rawDataBytes=${String(
+          signedTransaction.raw_data_hex?.length ?? 0,
+        )} signatures=${String(signedTransaction.signature?.length ?? 0)} feeLimit=${String(
+          signedTransaction.raw_data?.fee_limit ?? 'null',
+        )} expiration=${String(signedTransaction.raw_data?.expiration ?? 'null')}`,
+      );
+      this.logger.verbose(
         `[sendTrc20] broadcast transaction from=${fromAddress} txID=${signedTransaction.txID}`,
       );
+      const broadcastStartedAt = Date.now();
+      const preBroadcastNodeInfo = await this.getTronWeb()
+        .trx.getNodeInfo()
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `[sendTrc20] nodeinfo before broadcast failed txID=${signedTransaction.txID}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return null;
+        });
+      if (preBroadcastNodeInfo) {
+        this.logger.verbose(
+          `[sendTrc20] nodeinfo before broadcast txID=${signedTransaction.txID} block=${String(
+            (preBroadcastNodeInfo as { block?: string }).block ?? 'null',
+          )} peerList=${String(
+            Array.isArray((preBroadcastNodeInfo as { peerList?: unknown[] }).peerList)
+              ? (preBroadcastNodeInfo as { peerList?: unknown[] }).peerList!.length
+              : 0,
+          )} solidityBlock=${String(
+            (preBroadcastNodeInfo as { solidityBlock?: string }).solidityBlock ?? 'null',
+          )} beginSyncNum=${String(
+            (preBroadcastNodeInfo as { beginSyncNum?: number }).beginSyncNum ?? 'null',
+          )}`,
+        );
+      }
+
       const broadcast = await tron.trx.sendRawTransaction(signedTransaction);
+      this.logger.verbose(
+        `[sendTrc20] broadcast response txID=${signedTransaction.txID} elapsedMs=${Date.now() - broadcastStartedAt} payload=${JSON.stringify(broadcast)}`,
+      );
       if (!broadcast || typeof broadcast !== 'object') {
         throw new BadRequestException('Failed to broadcast TRC20 transfer');
       }
@@ -452,12 +487,33 @@ export class TronService {
         const message = String(
           (broadcast as { message?: string }).message ?? '',
         );
+        this.logger.warn(
+          `[sendTrc20] broadcast rejected txID=${signedTransaction.txID} code=${code} message=${message}`,
+        );
         throw new BadRequestException(
           `TRC20 broadcast rejected: ${code} ${message}`.trim(),
         );
       }
 
       const txHash = String(signedTransaction.txID);
+      const postBroadcastNodeInfo = await this.getTronWeb()
+        .trx.getNodeInfo()
+        .catch(() => null);
+      if (postBroadcastNodeInfo) {
+        this.logger.verbose(
+          `[sendTrc20] nodeinfo after broadcast txID=${txHash} block=${String(
+            (postBroadcastNodeInfo as { block?: string }).block ?? 'null',
+          )} peerList=${String(
+            Array.isArray((postBroadcastNodeInfo as { peerList?: unknown[] }).peerList)
+              ? (postBroadcastNodeInfo as { peerList?: unknown[] }).peerList!.length
+              : 0,
+          )} solidityBlock=${String(
+            (postBroadcastNodeInfo as { solidityBlock?: string }).solidityBlock ?? 'null',
+          )} beginSyncNum=${String(
+            (postBroadcastNodeInfo as { beginSyncNum?: number }).beginSyncNum ?? 'null',
+          )}`,
+        );
+      }
       this.logger.verbose(
         `[sendTrc20] broadcasted txHash=${txHash} amountSun=${amountSun.toString()} token=${tokenAddress}`,
       );
