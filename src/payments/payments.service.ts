@@ -476,42 +476,54 @@ export class PaymentsService {
         amount: input.amount,
       });
 
-      const info = await this.tronService.waitForTransaction(txHash);
-      if (!info) {
-        throw new BadRequestException(
-          `TRC20 transfer confirmation timeout: ${txHash}`,
-        );
-      }
-
-      const receipt =
-        (info?.receipt as Record<string, unknown> | undefined) ?? {};
-      const blockNumber = Number(info?.blockNumber ?? 0) || null;
-      const blockTimestamp = Number(info?.blockTimeStamp ?? 0) || null;
-      const receiptStatus =
-        typeof receipt.result === 'string'
-          ? receipt.result
-          : typeof info?.result === 'string'
-            ? (info.result as string)
-            : null;
-      const feeAmountRaw =
-        receipt.energy_fee ??
-        receipt.net_fee ??
-        receipt.fee ??
-        receipt.other_fee ??
-        null;
-      const energyUsed = Number(
-        receipt.energy_usage_total ??
-          receipt.energy_usage ??
-          receipt.energy_used ??
-          0,
-      );
-      const bandwidthUsed = Number(
-        receipt.net_usage ?? receipt.bandwidth_used ?? 0,
-      );
-
       this.logger.verbose(
-        `[browser-wallet-transfer] confirmed txHash=${txHash} blockNumber=${String(blockNumber ?? 0)} blockTimestamp=${String(blockTimestamp ?? 0)} receiptStatus=${receiptStatus ?? 'null'} feeAmountRaw=${String(feeAmountRaw ?? 'null')} energyUsed=${String(Number.isFinite(energyUsed) ? energyUsed : 0)} bandwidthUsed=${String(Number.isFinite(bandwidthUsed) ? bandwidthUsed : 0)}`,
+        `[browser-wallet-transfer] broadcasted txHash=${txHash} sender=${input.sender.customer_id} recipientCustomerId=${input.recipientCustomerId ?? 'null'} amount=${input.amount}`,
       );
+
+      void this.tronService
+        .waitForTransaction(txHash, 15_000, 1_000)
+        .then((info) => {
+          if (!info) {
+            this.logger.warn(
+              `[browser-wallet-transfer] confirmation watcher timeout txHash=${txHash}`,
+            );
+            return;
+          }
+          const receipt =
+            (info?.receipt as Record<string, unknown> | undefined) ?? {};
+          const blockNumber = Number(info?.blockNumber ?? 0) || null;
+          const blockTimestamp = Number(info?.blockTimeStamp ?? 0) || null;
+          const receiptStatus =
+            typeof receipt.result === 'string'
+              ? receipt.result
+              : typeof info?.result === 'string'
+                ? (info.result as string)
+                : null;
+          const feeAmountRaw =
+            receipt.energy_fee ??
+            receipt.net_fee ??
+            receipt.fee ??
+            receipt.other_fee ??
+            null;
+          const energyUsed = Number(
+            receipt.energy_usage_total ??
+              receipt.energy_usage ??
+              receipt.energy_used ??
+              0,
+          );
+          const bandwidthUsed = Number(
+            receipt.net_usage ?? receipt.bandwidth_used ?? 0,
+          );
+
+          this.logger.verbose(
+            `[browser-wallet-transfer] confirmed txHash=${txHash} blockNumber=${String(blockNumber ?? 0)} blockTimestamp=${String(blockTimestamp ?? 0)} receiptStatus=${receiptStatus ?? 'null'} feeAmountRaw=${String(feeAmountRaw ?? 'null')} energyUsed=${String(Number.isFinite(energyUsed) ? energyUsed : 0)} bandwidthUsed=${String(Number.isFinite(bandwidthUsed) ? bandwidthUsed : 0)}`,
+          );
+        })
+        .catch((error) => {
+          this.logger.warn(
+            `[browser-wallet-transfer] confirmation watcher failed txHash=${txHash}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
 
       const transactionId = await this.createOnChainUsdtWalletTransferRecord({
         sender: {
@@ -522,12 +534,12 @@ export class PaymentsService {
         recipientCustomerId: input.recipientCustomerId,
         amount: input.amount,
         txHash,
-        blockNumber,
-        blockTimestamp,
-        receiptStatus,
-        feeAmountRaw: feeAmountRaw != null ? String(feeAmountRaw) : null,
-        energyUsed: Number.isFinite(energyUsed) ? energyUsed : null,
-        bandwidthUsed: Number.isFinite(bandwidthUsed) ? bandwidthUsed : null,
+        blockNumber: null,
+        blockTimestamp: null,
+        receiptStatus: 'BROADCASTED',
+        feeAmountRaw: null,
+        energyUsed: null,
+        bandwidthUsed: null,
         feeAmount,
         comment: input.comment,
       });
