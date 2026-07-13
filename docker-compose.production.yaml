@@ -1,32 +1,24 @@
 services:
-  tron-node:
-    container_name: brics_tron_node
-    image: tronprotocol/java-tron:latest
-    restart: unless-stopped
-    ports:
-      - 8090:8090
-      - 18888:18888
-      - 50051:50051
-    volumes:
-      - tron_data:/java-tron/data
-    networks:
-      - postgres
-
   brics:
     build:
       context: .
       dockerfile: Dockerfile
     env_file: .env.production
+    environment:
+      TRON_FULL_NODE: http://tron-node1:8090
+      TRON_SOLIDITY_NODE: http://tron-node1:8090
+      TRON_EVENT_SERVER: http://tron-node1:8090
+      USDT_RPC_URL: http://tron-node1:8090
     ports:
       - 8000:8000
     depends_on:
       - postgres
-      - tron-node
     secrets:
       - usdt_treasury_private_key
       - usdt_webhook_secret
     networks:
       - postgres
+      - tron-private
 
   postgres:
     container_name: brics_postgres
@@ -53,7 +45,6 @@ services:
 
 volumes:
   postgres_data:
-  tron_data:
 
 secrets:
   usdt_treasury_private_key:
@@ -64,3 +55,6 @@ secrets:
 networks:
   postgres:
     driver: bridge
+  tron-private:
+    external: true
+    name: private_net_tron_private_network
