@@ -416,6 +416,11 @@ export class TronService {
         );
       }
 
+      if (tx.transaction.raw_data) {
+        tx.transaction.raw_data.timestamp = txTimestamp;
+        tx.transaction.raw_data.expiration = txExpiration;
+      }
+
       this.logger.verbose(
         `[sendTrc20] sign transaction from=${fromAddress} txID=${tx.transaction.txID} expiration=${String(tx.transaction.raw_data?.expiration ?? 'null')}`,
       );
