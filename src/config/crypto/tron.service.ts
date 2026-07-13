@@ -6,7 +6,7 @@ import * as TronWeb from 'tronweb';
 const TRON_SUN = 1_000_000;
 const ACCOUNT_BOOTSTRAP_SUN = 1_000_000;
 const TRON_RPC_TIMEOUT_MS = 120_000;
-const TRON_TX_EXPIRATION_MS = 15 * 60 * 1000;
+const TRON_TX_EXPIRATION_MS = 60 * 60 * 1000;
 
 @Injectable()
 export class TronService {
@@ -372,6 +372,17 @@ export class TronService {
 
     try {
       const currentBlock = await tron.trx.getCurrentBlock();
+      const blockTimestamp = Number(
+        currentBlock?.block_header?.raw_data?.timestamp ?? 0,
+      );
+      const localTimestamp = Date.now();
+      const txTimestamp = Math.max(
+        Number.isFinite(blockTimestamp) && blockTimestamp > 0
+          ? blockTimestamp
+          : 0,
+        localTimestamp,
+      );
+      const txExpiration = txTimestamp + TRON_TX_EXPIRATION_MS;
       const blockHeader = currentBlock?.block_header?.raw_data
         ? {
             ref_block_bytes: String(
@@ -380,15 +391,13 @@ export class TronService {
               .slice(-4)
               .padStart(4, '0'),
             ref_block_hash: String(currentBlock.blockID).slice(16, 32),
-            timestamp: Number(currentBlock.block_header.raw_data.timestamp),
-            expiration:
-              Number(currentBlock.block_header.raw_data.timestamp) +
-              TRON_TX_EXPIRATION_MS,
+            timestamp: txTimestamp,
+            expiration: txExpiration,
           }
         : undefined;
 
       this.logger.verbose(
-        `[sendTrc20] build triggerSmartContract from=${fromAddress} to=${params.toAddress} amountSun=${amountSun.toString()} expirationMs=${TRON_TX_EXPIRATION_MS} block=${String(currentBlock?.block_header?.raw_data?.number ?? 'null')}`,
+        `[sendTrc20] build triggerSmartContract from=${fromAddress} to=${params.toAddress} amountSun=${amountSun.toString()} expirationMs=${TRON_TX_EXPIRATION_MS} block=${String(currentBlock?.block_header?.raw_data?.number ?? 'null')} localTimestamp=${String(localTimestamp)} blockTimestamp=${String(blockTimestamp || 'null')} txTimestamp=${String(txTimestamp)} txExpiration=${String(txExpiration)}`,
       );
       const tx = await tron.transactionBuilder.triggerSmartContract(
         tokenAddress,
