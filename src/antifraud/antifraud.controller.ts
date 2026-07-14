@@ -13,6 +13,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { TariffCategory } from '@prisma/client';
@@ -36,16 +37,28 @@ export class AntiFraudController {
   constructor(private readonly antiFraud: AntiFraudService) {}
 
   @Get('rules')
+  @ApiQuery({
+    name: 'category',
+    required: false,
+    enum: ['K1', 'K2', 'K3'],
+    description: 'Категория финконтроля',
+  })
   @ApiOperation({
     summary: 'Список правил антифрода',
     description: 'Возвращает все правила с текущими параметрами',
   })
   @ApiOkResponse({ type: [AntiFraudRuleDto] })
-  async listRules(@Query('category') category?: TariffCategory) {
-    return this.antiFraud.listRules(category);
+  async listRules(@Query('category') category?: string) {
+    return this.antiFraud.listRules(category as TariffCategory | undefined);
   }
 
   @Put('rules/:key')
+  @ApiQuery({
+    name: 'category',
+    required: false,
+    enum: ['K1', 'K2', 'K3'],
+    description: 'Категория финконтроля',
+  })
   @ApiOperation({
     summary: 'Обновить параметры правила',
     description: 'Частичное обновление полей правила по ключу',
@@ -78,9 +91,13 @@ export class AntiFraudController {
       | 'AFTER_INACTIVITY_6M'
       | 'MANY_SENDERS_TO_ONE_10_PER_MONTH',
     @Body() dto: UpdateRuleDto,
-    @Query('category') category?: TariffCategory,
+    @Query('category') category?: string,
   ) {
-    return this.antiFraud.updateRule(category || 'K1', key, dto);
+    return this.antiFraud.updateRule(
+      (category as TariffCategory | undefined) || 'K1',
+      key,
+      dto,
+    );
   }
 
   @Get('cases')
