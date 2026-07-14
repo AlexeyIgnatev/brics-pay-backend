@@ -16,6 +16,7 @@ import {
 } from '@prisma/client';
 
 const SUPPORTED_ASSET_ENUM = ['SOM', 'ESOM', 'USDT_TRC20'] as const;
+const CONTROL_TARIFF_CATEGORIES = ['K1', 'K2', 'K3'] as const;
 
 export class UpdateRuleDto {
   @ApiPropertyOptional({ description: 'Включено ли правило', example: true })
@@ -68,7 +69,7 @@ export class UpdateRuleDto {
 
 export class AntiFraudRuleDto {
   @ApiProperty({ example: 1 }) id!: number;
-  @ApiProperty({ enum: TariffCategory, example: 'K1' })
+  @ApiProperty({ enum: CONTROL_TARIFF_CATEGORIES, example: 'K1' })
   category!: TariffCategory;
   @ApiProperty({ enum: AntiFraudRuleKey }) key!: AntiFraudRuleKey;
   @ApiProperty({ example: true }) enabled!: boolean;
