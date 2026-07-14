@@ -10,6 +10,7 @@ import {
 import {
   AntiFraudCaseStatus,
   AntiFraudRuleKey,
+  TariffCategory,
   TransactionKind,
   TransactionStatus,
 } from '@prisma/client';
@@ -55,10 +56,20 @@ export class UpdateRuleDto {
   @IsOptional()
   @IsNumberString()
   percent_threshold?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Комментарий к изменению',
+    example: 'Обновление параметров контроля',
+  })
+  @IsOptional()
+  @IsString()
+  comment?: string;
 }
 
 export class AntiFraudRuleDto {
   @ApiProperty({ example: 1 }) id!: number;
+  @ApiProperty({ enum: TariffCategory, example: 'K1' })
+  category!: TariffCategory;
   @ApiProperty({ enum: AntiFraudRuleKey }) key!: AntiFraudRuleKey;
   @ApiProperty({ example: true }) enabled!: boolean;
   @ApiPropertyOptional({ example: 30 }) period_days?: number | null;

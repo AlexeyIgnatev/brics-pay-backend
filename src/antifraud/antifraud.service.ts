@@ -4,12 +4,14 @@ import {
   AntiFraudRuleKey,
   Asset,
   PrismaClient,
+  TariffCategory,
   TransactionKind,
 } from '@prisma/client';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 
 const ALLOWED_ASSETS = ['SOM', 'ESOM', 'USDT_TRC20'] as const;
+const CONTROL_CATEGORIES: TariffCategory[] = ['K1', 'K2', 'K3'];
 
 export interface AntiFraudContext {
   kind: TransactionKind;
@@ -29,13 +31,48 @@ export interface AntiFraudDecision {
 
 @Injectable()
 export class AntiFraudService {
-  async listRules() {
-    await this.ensureDefaults();
-    return this.prisma.antiFraudRule.findMany({ orderBy: { key: 'asc' } });
+  private normalizeCategory(category?: TariffCategory | null): TariffCategory {
+    if (category === 'K1' || category === 'K2') return category;
+    return 'K3';
   }
 
-  async updateRule(key: AntiFraudRuleKey, data: any) {
-    return this.prisma.antiFraudRule.update({ where: { key }, data });
+  private async resolveCustomerCategory(plan: {
+    sender_customer_id?: number;
+    receiver_customer_id?: number;
+  }): Promise<TariffCategory> {
+    const customerId = plan.sender_customer_id ?? plan.receiver_customer_id;
+    if (!customerId) return 'K1';
+    const customer = await this.prisma.customer.findUnique({
+      where: { customer_id: customerId },
+      select: { tariff_category: true },
+    });
+    return this.normalizeCategory(customer?.tariff_category);
+  }
+
+  async listRules(category?: TariffCategory) {
+    await this.ensureDefaults();
+    const normalizedCategory = category
+      ? this.normalizeCategory(category)
+      : null;
+    return this.prisma.antiFraudRule.findMany({
+      where: normalizedCategory ? { category: normalizedCategory } : undefined,
+      orderBy: [{ category: 'asc' }, { key: 'asc' }],
+    });
+  }
+
+  async updateRule(
+    category: TariffCategory,
+    key: AntiFraudRuleKey,
+    data: any,
+  ) {
+    const normalizedCategory = this.normalizeCategory(category);
+    return this.prisma.antiFraudRule.upsert({
+      where: {
+        category_key: { category: normalizedCategory, key },
+      },
+      create: { category: normalizedCategory, key, ...data },
+      update: data,
+    });
   }
 
   async listCases(
@@ -283,47 +320,65 @@ export class AntiFraudService {
   }
 
   async ensureDefaults(): Promise<void> {
-    const upsert = async (key: AntiFraudRuleKey, data: any) => {
+    const upsert = async (
+      category: TariffCategory,
+      key: AntiFraudRuleKey,
+      data: any,
+    ) => {
       await this.prisma.antiFraudRule.upsert({
-        where: { key },
-        create: { key, ...data },
+        where: {
+          category_key: {
+            category: this.normalizeCategory(category),
+            key,
+          },
+        },
+        create: { category: this.normalizeCategory(category), key, ...data },
         update: {},
       });
     };
-    await upsert('FIAT_ANY_GE_1M', { threshold_som: '1000000' });
-    await upsert('ONE_TIME_GE_8M', { threshold_som: '8000000' });
-    await upsert('FREQUENT_OPS_3_30D_EACH_GE_100K', {
-      period_days: 30,
-      min_count: 3,
-      threshold_som: '100000',
-    });
-    await upsert('WITHDRAW_AFTER_LARGE_INFLOW', {
-      period_days: 7,
-      percent_threshold: '50',
-      threshold_som: '1000000',
-    });
-    await upsert('SPLITTING_TOTAL_14D_GE_1M', {
-      period_days: 14,
-      threshold_som: '1000000',
-    });
-    await upsert('THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M', {
-      period_days: 30,
-      min_count: 3,
-      threshold_som: '1000000',
-    });
-    await upsert('AFTER_INACTIVITY_6M', { period_days: 180 });
-    await upsert('MANY_SENDERS_TO_ONE_10_PER_MONTH', {
-      period_days: 30,
-      min_count: 10,
-    });
+    for (const category of CONTROL_CATEGORIES) {
+      await upsert(category, 'FIAT_ANY_GE_1M', { threshold_som: '1000000' });
+      await upsert(category, 'ONE_TIME_GE_8M', { threshold_som: '8000000' });
+      await upsert(category, 'FREQUENT_OPS_3_30D_EACH_GE_100K', {
+        period_days: 30,
+        min_count: 3,
+        threshold_som: '100000',
+      });
+      await upsert(category, 'WITHDRAW_AFTER_LARGE_INFLOW', {
+        period_days: 7,
+        percent_threshold: '50',
+        threshold_som: '1000000',
+      });
+      await upsert(category, 'SPLITTING_TOTAL_14D_GE_1M', {
+        period_days: 14,
+        threshold_som: '1000000',
+      });
+      await upsert(category, 'THIRD_PARTY_DEPOSITS_3_30D_TOTAL_GE_1M', {
+        period_days: 30,
+        min_count: 3,
+        threshold_som: '1000000',
+      });
+      await upsert(category, 'AFTER_INACTIVITY_6M', { period_days: 180 });
+      await upsert(category, 'MANY_SENDERS_TO_ONE_10_PER_MONTH', {
+        period_days: 30,
+        min_count: 10,
+      });
+    }
   }
 
   async evaluateTriggeredDetailed(
     ctx: AntiFraudContext,
   ): Promise<{ key: AntiFraudRuleKey; reason: string } | null> {
     await this.ensureDefaults();
+    const category = this.normalizeCategory(
+      await this.resolveCustomerCategory({
+        sender_customer_id: ctx.sender_customer_id,
+        receiver_customer_id: ctx.receiver_customer_id,
+      }),
+    );
     const rules = await this.prisma.antiFraudRule.findMany({
-      where: { enabled: true },
+      where: { enabled: true, category },
+      orderBy: { key: 'asc' },
     });
     const amountSom = await this.toSom(ctx.asset, ctx.amount);
 

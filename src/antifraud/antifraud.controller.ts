@@ -15,6 +15,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { TariffCategory } from '@prisma/client';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 import {
   UpdateRuleDto,
@@ -40,8 +41,8 @@ export class AntiFraudController {
     description: 'Возвращает все правила с текущими параметрами',
   })
   @ApiOkResponse({ type: [AntiFraudRuleDto] })
-  async listRules() {
-    return this.antiFraud.listRules();
+  async listRules(@Query('category') category?: TariffCategory) {
+    return this.antiFraud.listRules(category);
   }
 
   @Put('rules/:key')
@@ -77,8 +78,9 @@ export class AntiFraudController {
       | 'AFTER_INACTIVITY_6M'
       | 'MANY_SENDERS_TO_ONE_10_PER_MONTH',
     @Body() dto: UpdateRuleDto,
+    @Query('category') category?: TariffCategory,
   ) {
-    return this.antiFraud.updateRule(key, dto).then((r) => r);
+    return this.antiFraud.updateRule(category || 'K1', key, dto);
   }
 
   @Get('cases')

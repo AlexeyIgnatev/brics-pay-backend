@@ -217,7 +217,8 @@ enum AntiFraudCaseStatus {
 
 model AntiFraudRule {
   id                Int              @id @default(autoincrement())
-  key               AntiFraudRuleKey @unique
+  category          TariffCategory   @default(K1)
+  key               AntiFraudRuleKey
   enabled           Boolean          @default(true)
   period_days       Int?
   threshold_som     Decimal?         @db.Decimal(38, 18)
@@ -225,6 +226,7 @@ model AntiFraudRule {
   percent_threshold Decimal?         @db.Decimal(5, 2)
   updatedAt         DateTime         @updatedAt
 
+  @@unique([category, key])
   @@map("antifraud_rules")
 }
 
