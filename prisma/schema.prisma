@@ -245,6 +245,8 @@ model AntiFraudCase {
 model Settings {
   id                          Int     @id @default(1)
   esom_per_usd                Decimal @db.Decimal(38, 18)
+  usd_buy_rate                Decimal @default(1) @db.Decimal(38, 18)
+  usd_sell_rate               Decimal @default(1) @db.Decimal(38, 18)
   esom_som_conversion_fee_pct Decimal @db.Decimal(5, 2)
   esom_som_conversion_fee_min Decimal @default(0) @db.Decimal(38, 18)
 
@@ -267,6 +269,10 @@ model Settings {
   bank_commission_central_bank_pct Decimal @default(20) @db.Decimal(5, 2)
   bank_commission_bank_pct      Decimal @default(40) @db.Decimal(5, 2)
   bank_commission_partners_pct  Decimal @default(40) @db.Decimal(5, 2)
+  bank_commission_distribution_mode String @default("PERCENT")
+  bank_commission_central_bank_fixed Decimal @default(0) @db.Decimal(38, 18)
+  bank_commission_bank_fixed    Decimal @default(0) @db.Decimal(38, 18)
+  bank_commission_partners_fixed Decimal @default(0) @db.Decimal(38, 18)
   bank_som_account              String?
   bank_salam_wallet             String?
   bank_usdt_wallet              String?

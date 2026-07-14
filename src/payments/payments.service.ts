@@ -642,11 +642,33 @@ export class PaymentsService {
     centralBankPercent: number,
     bankPercent?: number,
     partnerPercent?: number,
+    distributionMode?: string,
+    centralBankFixed?: number,
+    bankFixed?: number,
+    partnerFixed?: number,
   ): {
     centralBankShare: number;
     bankShare: number;
     partnerShare: number;
   } {
+    const fixedMode = (distributionMode || '').toUpperCase() === 'FIXED';
+    const fixedCentral = Number.isFinite(centralBankFixed ?? NaN)
+      ? Math.max(0, centralBankFixed ?? 0)
+      : 0;
+    const fixedBank = Number.isFinite(bankFixed ?? NaN)
+      ? Math.max(0, bankFixed ?? 0)
+      : 0;
+    const fixedPartner = Number.isFinite(partnerFixed ?? NaN)
+      ? Math.max(0, partnerFixed ?? 0)
+      : 0;
+    if (fixedMode && (fixedCentral > 0 || fixedBank > 0 || fixedPartner > 0)) {
+      return {
+        centralBankShare: fixedCentral,
+        bankShare: fixedBank,
+        partnerShare: fixedPartner,
+      };
+    }
+
     const centralPercent = this.clampPercent(centralBankPercent);
     const bank = bankPercent != null ? this.clampPercent(bankPercent) : null;
     const partner =
@@ -753,11 +775,24 @@ export class PaymentsService {
     const partnerPercent = this.clampPercent(
       Number.parseFloat(adminSettings.bank_commission_partners_pct),
     );
+    const centralFixed = Number.parseFloat(
+      adminSettings.bank_commission_central_bank_fixed,
+    );
+    const bankFixed = Number.parseFloat(
+      adminSettings.bank_commission_bank_fixed,
+    );
+    const partnerFixed = Number.parseFloat(
+      adminSettings.bank_commission_partners_fixed,
+    );
     const split = this.splitSomPurchaseCommission(
       input.feeAmount,
       centralBankPercent,
       bankPercent,
       partnerPercent,
+      adminSettings.bank_commission_distribution_mode,
+      centralFixed,
+      bankFixed,
+      partnerFixed,
     );
     const partnerConfigs = this.settingsService
       .parsePartnersJsonForCommission(
@@ -845,9 +880,13 @@ export class PaymentsService {
         `[commission-distribution] source=${input.sourceLabel}`,
         `asset=${input.asset}`,
         `fee=${input.feeAmount}`,
+        `mode=${adminSettings.bank_commission_distribution_mode || 'PERCENT'}`,
         `central=${split.centralBankShare}`,
         `bank=${split.bankShare}`,
         `partners=${split.partnerShare}`,
+        `centralFixed=${Number.isFinite(centralFixed) ? centralFixed : 0}`,
+        `bankFixed=${Number.isFinite(bankFixed) ? bankFixed : 0}`,
+        `partnersFixed=${Number.isFinite(partnerFixed) ? partnerFixed : 0}`,
         `postingGroup=${input.postingGroupKey}`,
         input.transactionId != null ? `transactionId=${input.transactionId}` : null,
         input.paymentOperationId != null

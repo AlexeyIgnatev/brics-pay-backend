@@ -109,6 +109,8 @@ export class SettingsService {
         data: {
           id: 1,
           esom_per_usd: '1',
+          usd_buy_rate: '1',
+          usd_sell_rate: '1',
           esom_som_conversion_fee_pct: '0',
           esom_som_conversion_fee_min: '0',
           btc_trade_fee_pct: '0.5',
@@ -123,6 +125,10 @@ export class SettingsService {
           bank_commission_central_bank_pct: '20',
           bank_commission_bank_pct: '40',
           bank_commission_partners_pct: '40',
+          bank_commission_distribution_mode: 'PERCENT',
+          bank_commission_central_bank_fixed: '0',
+          bank_commission_bank_fixed: '0',
+          bank_commission_partners_fixed: '0',
           ...defaults,
           bank_usdt_wallet: defaults.bank_usdt_wallet || treasuryAddress || '',
         },
@@ -157,13 +163,16 @@ export class SettingsService {
     partial: AdminSettingsPartialDto,
   ): Promise<AdminSettingsDto> {
     const current = await this.getOrCreateSettingsRow();
+    const { comment: _comment, ...data } = partial as AdminSettingsPartialDto & {
+      comment?: string;
+    };
 
     this.logger.debug(
       `Update admin settings ${JSON.stringify(partial, null, 2)}`,
     );
     const s = await this.prisma.settings.update({
       where: { id: current.id },
-      data: partial,
+      data,
     });
 
     return this.mapToAdminDto(s);
@@ -206,9 +215,13 @@ export class SettingsService {
     const partnerJson =
       this.normalizeString(s.bank_commission_partners_json) ||
       defaults.bank_commission_partners_json;
+    const distributionMode =
+      this.normalizeString(s.bank_commission_distribution_mode) || 'PERCENT';
 
     return {
       ...this.mapToDto(s),
+      usd_buy_rate: this.toDecimalString(s.usd_buy_rate, '1'),
+      usd_sell_rate: this.toDecimalString(s.usd_sell_rate, '1'),
       rates_change_reasons_json: this.normalizeString(
         s.rates_change_reasons_json,
       ),
@@ -229,6 +242,16 @@ export class SettingsService {
       bank_commission_partners_pct: this.toDecimalString(
         s.bank_commission_partners_pct,
         '40',
+      ),
+      bank_commission_distribution_mode: distributionMode,
+      bank_commission_central_bank_fixed: this.toDecimalString(
+        s.bank_commission_central_bank_fixed,
+      ),
+      bank_commission_bank_fixed: this.toDecimalString(
+        s.bank_commission_bank_fixed,
+      ),
+      bank_commission_partners_fixed: this.toDecimalString(
+        s.bank_commission_partners_fixed,
       ),
       bank_som_account: bankSomAccount,
       bank_salam_wallet: bankSalamWallet,

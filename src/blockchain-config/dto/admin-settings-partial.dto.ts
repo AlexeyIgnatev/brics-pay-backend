@@ -7,6 +7,14 @@ export class AdminSettingsPartialDto {
 
   @IsOptional()
   @IsString()
+  usd_buy_rate?: string;
+
+  @IsOptional()
+  @IsString()
+  usd_sell_rate?: string;
+
+  @IsOptional()
+  @IsString()
   esom_som_conversion_fee_pct?: string;
 
   @IsOptional()
@@ -28,6 +36,10 @@ export class AdminSettingsPartialDto {
   @IsOptional()
   @IsString()
   rates_change_reasons_json?: string;
+
+  @IsOptional()
+  @IsString()
+  comment?: string;
 
   @IsOptional()
   @IsString()
@@ -56,6 +68,22 @@ export class AdminSettingsPartialDto {
   @IsOptional()
   @IsString()
   bank_commission_partners_pct?: string;
+
+  @IsOptional()
+  @IsString()
+  bank_commission_distribution_mode?: string;
+
+  @IsOptional()
+  @IsString()
+  bank_commission_central_bank_fixed?: string;
+
+  @IsOptional()
+  @IsString()
+  bank_commission_bank_fixed?: string;
+
+  @IsOptional()
+  @IsString()
+  bank_commission_partners_fixed?: string;
 
   @IsOptional()
   @IsString()
