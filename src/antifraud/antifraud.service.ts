@@ -11,7 +11,7 @@ import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 
 const ALLOWED_ASSETS = ['SOM', 'ESOM', 'USDT_TRC20'] as const;
-const CONTROL_CATEGORIES: TariffCategory[] = ['K1', 'K2', 'K3'];
+const CONTROL_CATEGORIES: TariffCategory[] = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'];
 
 export interface AntiFraudContext {
   kind: TransactionKind;
@@ -32,8 +32,17 @@ export interface AntiFraudDecision {
 @Injectable()
 export class AntiFraudService {
   private normalizeCategory(category?: TariffCategory | null): TariffCategory {
-    if (category === 'K1' || category === 'K2') return category;
-    return 'K3';
+    if (
+      category === 'K1' ||
+      category === 'K2' ||
+      category === 'K3' ||
+      category === 'K4' ||
+      category === 'K5' ||
+      category === 'K6'
+    ) {
+      return category;
+    }
+    return 'K1';
   }
 
   private async resolveCustomerCategory(plan: {
@@ -66,12 +75,13 @@ export class AntiFraudService {
     data: any,
   ) {
     const normalizedCategory = this.normalizeCategory(category);
+    const { comment, ...ruleData } = data ?? {};
     return this.prisma.antiFraudRule.upsert({
       where: {
         category_key: { category: normalizedCategory, key },
       },
-      create: { category: normalizedCategory, key, ...data },
-      update: data,
+      create: { category: normalizedCategory, key, ...ruleData },
+      update: ruleData,
     });
   }
 

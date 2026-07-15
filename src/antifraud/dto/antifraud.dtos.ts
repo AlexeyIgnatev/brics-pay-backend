@@ -16,7 +16,7 @@ import {
 } from '@prisma/client';
 
 const SUPPORTED_ASSET_ENUM = ['SOM', 'ESOM', 'USDT_TRC20'] as const;
-const CONTROL_TARIFF_CATEGORIES = ['K1', 'K2', 'K3'] as const;
+const CONTROL_TARIFF_CATEGORIES = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'] as const;
 
 export class UpdateRuleDto {
   @ApiPropertyOptional({ description: 'Включено ли правило', example: true })

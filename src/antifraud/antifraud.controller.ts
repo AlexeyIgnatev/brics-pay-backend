@@ -40,7 +40,7 @@ export class AntiFraudController {
   @ApiQuery({
     name: 'category',
     required: false,
-    enum: ['K1', 'K2', 'K3'],
+    enum: ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'],
     description: 'Категория финконтроля',
   })
   @ApiOperation({
@@ -56,7 +56,7 @@ export class AntiFraudController {
   @ApiQuery({
     name: 'category',
     required: false,
-    enum: ['K1', 'K2', 'K3'],
+    enum: ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'],
     description: 'Категория финконтроля',
   })
   @ApiOperation({
