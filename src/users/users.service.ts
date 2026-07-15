@@ -350,6 +350,8 @@ export class UsersService implements OnApplicationBootstrap {
 
     const fallbackSettings = {
       esom_per_usd: '1',
+      usd_buy_rate: '1',
+      usd_sell_rate: '1',
     };
 
     const [somLiveResult, esomBalanceResult, settingsResult] =
@@ -414,13 +416,12 @@ export class UsersService implements OnApplicationBootstrap {
       update: { balance: somLive.toString() },
     });
 
-    const esomPerUsd = Number(settings.esom_per_usd);
+    const usdBuyRate = Number(settings.usd_buy_rate ?? settings.esom_per_usd);
+    const usdSellRate = Number(settings.usd_sell_rate ?? settings.esom_per_usd);
     const esomBuyFee = tariffPercentFor('SOM_TO_ESOM');
     const esomSellFee = tariffPercentFor('ESOM_TO_SOM');
     const usdtBuyFee = tariffPercentFor('ESOM_TO_USDT_TRC20');
     const usdtSellFee = tariffPercentFor('USDT_TRC20_TO_ESOM');
-
-    const usdtBaseEsom = 1 * esomPerUsd;
 
     const usdtBalanceRec = await this.prisma.userAssetBalance.findUnique({
       where: {
@@ -450,8 +451,8 @@ export class UsersService implements OnApplicationBootstrap {
         currency: Currency.USDT_TRC20,
         address: this.cryptoService.trxAddressFromPrivateKey(user.private_key),
         balance: Number(usdtBalanceRec?.balance ?? 0),
-        buy_rate: usdtBaseEsom * (1 + usdtBuyFee),
-        sell_rate: usdtBaseEsom * (1 - usdtSellFee),
+        buy_rate: usdBuyRate * (1 + usdtBuyFee),
+        sell_rate: usdSellRate * (1 - usdtSellFee),
       },
     ];
   }

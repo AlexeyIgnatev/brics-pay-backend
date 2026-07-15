@@ -189,12 +189,18 @@ export class SettingsService {
   }
 
   mapToDto(s: any): SettingsDto {
-    const usdRate =
+    const usdBuyRate =
       this.normalizeString(s.usd_buy_rate) ||
       this.normalizeString(s.esom_per_usd) ||
       '1';
+    const usdSellRate =
+      this.normalizeString(s.usd_sell_rate) ||
+      this.normalizeString(s.esom_per_usd) ||
+      usdBuyRate;
     return {
-      esom_per_usd: this.toDecimalString(usdRate, '1'),
+      esom_per_usd: this.toDecimalString(usdBuyRate, '1'),
+      usd_buy_rate: this.toDecimalString(usdBuyRate, '1'),
+      usd_sell_rate: this.toDecimalString(usdSellRate, '1'),
       esom_som_conversion_fee_pct: this.toDecimalString(
         s.esom_som_conversion_fee_pct,
       ),
