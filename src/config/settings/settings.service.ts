@@ -149,11 +149,21 @@ export class SettingsService {
 
   async update(partial: SettingsPartialDto): Promise<SettingsDto> {
     const current = await this.getOrCreateSettingsRow();
+    const data = { ...partial } as SettingsPartialDto & {
+      usd_buy_rate?: string;
+      usd_sell_rate?: string;
+    };
+
+    if (typeof data.esom_per_usd === 'string' && data.esom_per_usd.trim()) {
+      const normalizedRate = this.normalizeString(data.esom_per_usd);
+      data.usd_buy_rate = normalizedRate;
+      data.usd_sell_rate = normalizedRate;
+    }
 
     this.logger.debug(`Update settings ${JSON.stringify(partial, null, 2)}`);
     const s = await this.prisma.settings.update({
       where: { id: current.id },
-      data: partial,
+      data,
     });
 
     return this.mapToDto(s);
@@ -179,8 +189,12 @@ export class SettingsService {
   }
 
   mapToDto(s: any): SettingsDto {
+    const usdRate =
+      this.normalizeString(s.usd_buy_rate) ||
+      this.normalizeString(s.esom_per_usd) ||
+      '1';
     return {
-      esom_per_usd: this.toDecimalString(s.esom_per_usd),
+      esom_per_usd: this.toDecimalString(usdRate, '1'),
       esom_som_conversion_fee_pct: this.toDecimalString(
         s.esom_som_conversion_fee_pct,
       ),
