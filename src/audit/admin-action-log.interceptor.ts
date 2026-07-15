@@ -70,6 +70,29 @@ type AdminSettingsDiffEntry = {
   after: string;
 };
 
+type TariffDiffChangeEntry = {
+  field: 'percent_fee' | 'fixed_fee';
+  before: string;
+  after: string;
+};
+
+type TariffDiffEntry = {
+  key: string;
+  label: string;
+  category: string;
+  residency: string;
+  operation: string;
+  before: {
+    percent_fee: string;
+    fixed_fee: string;
+  };
+  after: {
+    percent_fee: string;
+    fixed_fee: string;
+  };
+  changes: TariffDiffChangeEntry[];
+};
+
 function normalizeDiffValue(value: unknown): string {
   return value == null ? '' : String(value).trim();
 }
@@ -91,6 +114,98 @@ function buildAdminSettingsDiff(before: any, after: any) {
       };
     })
     .filter(Boolean) as AdminSettingsDiffEntry[];
+}
+
+function tariffDiffLabel(operation: string): string {
+  const labels: Record<string, string> = {
+    SOM_TO_ESOM: 'СОМ в SALAM',
+    ESOM_TO_SOM: 'SALAM в СОМ',
+    WALLET_TRANSFER_ESOM: 'Внутр. SALAM',
+    ESOM_TO_USDT_TRC20: 'SALAM в USDT',
+    USDT_TRC20_TO_ESOM: 'USDT в SALAM',
+    WALLET_TRANSFER_USDT_TRC20: 'Внутр. USDT',
+  };
+  return labels[operation] || operation;
+}
+
+function buildTariffDiff(before: any, after: any) {
+  const afterItems = Array.isArray(after)
+    ? after
+    : Array.isArray(after?.items)
+      ? after.items
+      : [];
+  const beforeItems = Array.isArray(before)
+    ? before
+    : Array.isArray(before?.items)
+      ? before.items
+      : [];
+
+  const beforeByKey = new Map(
+    beforeItems
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => {
+        const category = String((item as any).category ?? '');
+        const residency = String((item as any).residency ?? '');
+        const operation = String((item as any).operation ?? '');
+        return [
+          `${category}:${residency}:${operation}`,
+          item as Record<string, any>,
+        ] as const;
+      }),
+  );
+
+  return afterItems
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => {
+      const row = item as Record<string, any>;
+      const category = String(row.category ?? '');
+      const residency = String(row.residency ?? '');
+      const operation = String(row.operation ?? '');
+      if (!operation) return null;
+
+      const prev = beforeByKey.get(`${category}:${residency}:${operation}`);
+      const previousRow = prev as Record<string, any> | undefined;
+      const nextPercent = normalizeDiffValue(row.percent_fee);
+      const nextFixed = normalizeDiffValue(row.fixed_fee);
+      const prevPercent = normalizeDiffValue(previousRow?.percent_fee);
+      const prevFixed = normalizeDiffValue(previousRow?.fixed_fee);
+
+      const changes: TariffDiffChangeEntry[] = [];
+      if (nextPercent !== prevPercent) {
+        changes.push({
+          field: 'percent_fee',
+          before: prevPercent,
+          after: nextPercent,
+        });
+      }
+      if (nextFixed !== prevFixed) {
+        changes.push({
+          field: 'fixed_fee',
+          before: prevFixed,
+          after: nextFixed,
+        });
+      }
+
+      if (!changes.length) return null;
+
+      return {
+        key: `${category}:${residency}:${operation}`,
+        label: tariffDiffLabel(operation),
+        category,
+        residency,
+        operation,
+        before: {
+          percent_fee: prevPercent,
+          fixed_fee: prevFixed,
+        },
+        after: {
+          percent_fee: nextPercent,
+          fixed_fee: nextFixed,
+        },
+        changes,
+      } satisfies TariffDiffEntry;
+    })
+    .filter(Boolean);
 }
 
 function getClientIp(req: any): string {
@@ -151,11 +266,27 @@ export class AdminActionLogInterceptor implements NestInterceptor {
       url === '/blockchain-config/admin-settings' &&
       req?.body &&
       typeof req.body === 'object';
+    const isTariffsUpdate =
+      method === 'PUT' &&
+      url === '/blockchain-config/tariffs' &&
+      req?.body &&
+      typeof req.body === 'object';
 
     const beforeSettingsPromise = isAdminSettingsUpdate
       ? this.prisma.settings
           .findFirst({ orderBy: { id: 'asc' } })
           .catch(() => null)
+      : Promise.resolve(null);
+    const beforeTariffsPromise = isTariffsUpdate
+      ? this.prisma.tariffSetting
+          .findMany({
+            orderBy: [
+              { category: 'asc' },
+              { residency: 'asc' },
+              { operation: 'asc' },
+            ],
+          })
+          .catch(() => [])
       : Promise.resolve(null);
 
     return next.handle().pipe(
@@ -163,8 +294,11 @@ export class AdminActionLogInterceptor implements NestInterceptor {
         if (!shouldLog) return;
         try {
           const beforeSettings = await beforeSettingsPromise;
+          const beforeTariffs = await beforeTariffsPromise;
           if (isAdminSettingsUpdate) {
             routeDetails.diff = buildAdminSettingsDiff(beforeSettings, req.body);
+          } else if (isTariffsUpdate) {
+            routeDetails.diff = buildTariffDiff(beforeTariffs, req.body);
           }
 
           await this.prisma.adminActionLog.create({
