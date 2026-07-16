@@ -37,6 +37,7 @@ import { ConvertDto } from './dto/convert.dto';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
 import { BalanceFetchService } from '../user-management/balance-fetch.service';
+import { BalanceCacheService } from '../user-management/balance-cache.service';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { TronService } from '../config/crypto/tron.service';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
@@ -143,6 +144,7 @@ export class PaymentsService {
     private readonly settingsService: SettingsService,
     private readonly exchangeService: BybitExchangeService,
     private readonly balanceFetchService: BalanceFetchService,
+    private readonly balanceCache: BalanceCacheService,
     private readonly antiFraud: AntiFraudService,
     private readonly cryptoService: CryptoService,
     private readonly tronService: TronService,
@@ -405,6 +407,56 @@ export class PaymentsService {
         },
       });
 
+      const updateBalance = async (customerId: number, delta: number) => {
+        const existingBalance = await tx.userAssetBalance.findUnique({
+          where: {
+            customer_id_asset: {
+              customer_id: customerId,
+              asset: 'USDT_TRC20',
+            },
+          },
+        });
+        const before = Number(existingBalance?.balance ?? 0);
+        const after = before + delta;
+        if (after < -1e-12) {
+          throw new BadRequestException('Insufficient USDT balance');
+        }
+        if (existingBalance) {
+          await tx.userAssetBalance.update({
+            where: {
+              customer_id_asset: {
+                customer_id: customerId,
+                asset: 'USDT_TRC20',
+              },
+            },
+            data: {
+              balance:
+                delta >= 0
+                  ? { increment: delta.toString() }
+                  : { decrement: Math.abs(delta).toString() },
+            },
+          });
+        } else {
+          await tx.userAssetBalance.create({
+            data: {
+              customer_id: customerId,
+              asset: 'USDT_TRC20',
+              balance: after.toString(),
+            },
+          });
+        }
+      };
+
+      await updateBalance(input.sender.customer_id, -input.amount);
+      this.balanceCache.invalidate(input.sender.customer_id);
+      if (
+        input.recipientCustomerId &&
+        input.recipientCustomerId !== input.sender.customer_id
+      ) {
+        await updateBalance(input.recipientCustomerId, input.amount);
+        this.balanceCache.invalidate(input.recipientCustomerId);
+      }
+
       if ((input.feeAmount ?? 0) > 0) {
         await this.createCommissionDistributionPostings(tx, {
           transactionId: transaction.id,
@@ -518,6 +570,25 @@ export class PaymentsService {
           this.logger.verbose(
             `[browser-wallet-transfer] confirmed txHash=${txHash} blockNumber=${String(blockNumber ?? 0)} blockTimestamp=${String(blockTimestamp ?? 0)} receiptStatus=${receiptStatus ?? 'null'} feeAmountRaw=${String(feeAmountRaw ?? 'null')} energyUsed=${String(Number.isFinite(energyUsed) ? energyUsed : 0)} bandwidthUsed=${String(Number.isFinite(bandwidthUsed) ? bandwidthUsed : 0)}`,
           );
+          void this.balanceFetchService
+            .refreshAllBalancesForUser(input.sender.customer_id, ['USDT_TRC20' as Asset])
+            .catch((error) => {
+              this.logger.warn(
+                `[browser-wallet-transfer] sender balance refresh after confirmation failed customer=${input.sender.customer_id}: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            });
+          if (
+            input.recipientCustomerId &&
+            input.recipientCustomerId !== input.sender.customer_id
+          ) {
+            void this.balanceFetchService
+              .refreshAllBalancesForUser(input.recipientCustomerId, ['USDT_TRC20' as Asset])
+              .catch((error) => {
+                this.logger.warn(
+                  `[browser-wallet-transfer] recipient balance refresh after confirmation failed customer=${input.recipientCustomerId}: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              });
+          }
         })
         .catch((error) => {
           this.logger.warn(
@@ -547,30 +618,6 @@ export class PaymentsService {
       this.logger.verbose(
         `[browser-wallet-transfer] db-recorded transactionId=${transactionId} txHash=${txHash}`,
       );
-
-      void this.balanceFetchService
-        .refreshAllBalancesForUser(input.sender.customer_id, [
-          'USDT_TRC20' as Asset,
-        ])
-        .catch((error) => {
-          this.logger.warn(
-            `[browser-wallet-transfer] sender balance refresh failed customer=${input.sender.customer_id}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        });
-      if (
-        input.recipientCustomerId &&
-        input.recipientCustomerId !== input.sender.customer_id
-      ) {
-        void this.balanceFetchService
-          .refreshAllBalancesForUser(input.recipientCustomerId, [
-            'USDT_TRC20' as Asset,
-          ])
-          .catch((error) => {
-            this.logger.warn(
-              `[browser-wallet-transfer] recipient balance refresh failed customer=${input.recipientCustomerId}: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          });
-      }
 
       void this.usdtTreasuryOrchestrator
         .maybeSweepCustomerWallet(input.sender.customer_id, txHash)
