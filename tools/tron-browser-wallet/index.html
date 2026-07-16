@@ -195,10 +195,7 @@
           </div>
         </div>
         <div class="row" style="margin-top: 12px;">
-          <button id="btnGenerate" type="button">Generate wallet</button>
           <button id="btnConnect" type="button" class="secondary">Connect / refresh</button>
-          <button id="btnSave" type="button" class="secondary">Save locally</button>
-          <button id="btnClear" type="button" class="danger">Clear local wallet</button>
         </div>
       </div>
 
@@ -236,7 +233,19 @@
 
   <script>
     const RPC = 'http://172.17.0.1:8090';
-    const STORAGE_KEY = 'tron_test_wallet_private_key';
+    const WALLET_PRESETS = {
+      'tron-wallet': {
+        route: 'tron-wallet',
+        address: 'TRVh3EuuWTkCfECfXM77SGZZZQwJT49WBm',
+      },
+      'tron-wallet1': {
+        route: 'tron-wallet1',
+        address: 'TAkrzNdEsCbiHwBXzTKX72NLkoLtXh1SFv',
+      },
+    };
+    const routeName = window.location.pathname.split('/').filter(Boolean).pop() || 'tron-wallet';
+    const preset = WALLET_PRESETS[routeName] || WALLET_PRESETS['tron-wallet'];
+    const STORAGE_KEY = `tron_test_wallet_private_key:${preset.route}`;
     const state = {
       tronWeb: null,
       walletLoaded: false,
@@ -274,6 +283,9 @@
         privateKey: cleaned,
       });
       const address = tronWeb.address.fromPrivateKey(cleaned);
+      if (address !== preset.address) {
+        throw new Error(`This page is fixed to ${preset.address}`);
+      }
       return { tronWeb, address, pk: cleaned };
     }
 
@@ -324,46 +336,32 @@
       return tx;
     }
 
-    function generateWallet() {
-      const bytes = new Uint8Array(32);
-      crypto.getRandomValues(bytes);
-      const pk = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-      return connectWallet(pk);
-    }
-
     function loadWallet() {
+      el('address').value = preset.address;
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         el('pk').value = saved;
         return connectWallet(saved).catch((err) => {
-          setStatus(false, 'Wallet load failed');
+          const TronWeb = ensureTronWeb();
+          state.tronWeb = new TronWeb({ fullHost: RPC });
+          state.walletLoaded = false;
+          setStatus(false, 'Fixed wallet');
           log(`Load error: ${err.message}`);
         });
       }
-      setStatus(false, 'No wallet');
+      const TronWeb = ensureTronWeb();
+      state.tronWeb = new TronWeb({ fullHost: RPC });
+      state.walletLoaded = false;
+      setStatus(false, 'Fixed wallet');
+      refreshBalance().catch((err) => {
+        log(`Balance refresh error: ${err.message}`);
+      });
     }
 
     el('rpcLabel').textContent = RPC;
-    el('btnGenerate').addEventListener('click', async () => {
-      try { await generateWallet(); } catch (err) { log(`Generate error: ${err.message}`); setStatus(false, 'Error'); }
-    });
+    document.title = `TRON Test Wallet - ${preset.route}`;
     el('btnConnect').addEventListener('click', async () => {
       try { await connectWallet(el('pk').value); } catch (err) { log(`Connect error: ${err.message}`); setStatus(false, 'Error'); }
-    });
-    el('btnSave').addEventListener('click', () => {
-      const pk = el('pk').value.trim();
-      if (!pk) return log('Nothing to save');
-      localStorage.setItem(STORAGE_KEY, pk);
-      log('Wallet saved locally');
-    });
-    el('btnClear').addEventListener('click', () => {
-      localStorage.removeItem(STORAGE_KEY);
-      el('pk').value = '';
-      el('address').value = '';
-      el('balance').value = '';
-      state.tronWeb = null;
-      setStatus(false, 'Cleared');
-      log('Local wallet cleared');
     });
     el('btnSendTrx').addEventListener('click', async () => {
       try { await sendTrx(); } catch (err) { log(`TRX send error: ${err.message}`); setStatus(false, 'Error'); }
