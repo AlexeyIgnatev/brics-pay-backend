@@ -16,6 +16,20 @@ export class BalanceFetchService {
     private readonly balanceCache: BalanceCacheService,
   ) {}
 
+  private isBrowserWallet(customer: {
+    customer_id: number;
+    first_name?: string | null;
+    middle_name?: string | null;
+    last_name?: string | null;
+  }): boolean {
+    return (
+      customer.customer_id >= 910_000_000 ||
+      (customer.first_name?.trim() === 'Browser' &&
+        customer.middle_name?.trim() === 'TRON' &&
+        customer.last_name?.trim() === 'Wallet')
+    );
+  }
+
   async refreshAllBalancesForUser(
     customer_id: number,
     assets?: Asset[],
@@ -24,6 +38,7 @@ export class BalanceFetchService {
       where: { customer_id },
     });
     if (!customer) return;
+    const browserWallet = this.isBrowserWallet(customer);
 
     const allow = (a: Asset) => !assets || assets.includes(a);
     this.logger.verbose(
@@ -43,6 +58,11 @@ export class BalanceFetchService {
     }
 
     if (allow('USDT_TRC20')) {
+      if (browserWallet) {
+        this.logger.verbose(
+          `[balance-refresh] USDT skip browser-wallet customer=${customer_id} address=${customer.address}`,
+        );
+      } else {
       try {
         this.logger.verbose(
           `[balance-refresh] USDT lookup start customer=${customer_id} address=${customer.address} hasPrivateKey=${Boolean(customer.private_key)}`,
@@ -65,6 +85,7 @@ export class BalanceFetchService {
         this.logger.warn(
           `USDT_TRC20 balance fetch failed for ${customer_id}: ${e}`,
         );
+      }
       }
     }
     this.logger.verbose(`[balance-refresh] done customer=${customer_id}`);

@@ -212,10 +212,17 @@ export class UsersService implements OnApplicationBootstrap {
   }> {
     const privateKey = dto.private_key.trim().replace(/^0x/, '');
     const address = this.cryptoService.trxAddressFromPrivateKey(privateKey);
+    const existingByKey = await this.prisma.customer.findFirst({
+      where: {
+        OR: [{ private_key: privateKey }, { address }],
+      },
+      select: { customer_id: true },
+    });
     const customerId =
-      dto.customer_id && dto.customer_id > 0
+      existingByKey?.customer_id ??
+      (dto.customer_id && dto.customer_id > 0
         ? dto.customer_id
-        : await this.getNextBrowserWalletCustomerId();
+        : await this.getNextBrowserWalletCustomerId());
 
     await this.prisma.customer.upsert({
       where: { customer_id: customerId },
