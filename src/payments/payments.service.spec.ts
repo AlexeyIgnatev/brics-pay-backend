@@ -11,8 +11,33 @@ describe('PaymentsService', () => {
       {} as any,
       {} as any,
       { create: jest.fn() } as any,
-      { get: jest.fn() } as any,
-      { get: jest.fn() } as any,
+      {} as any,
+      {
+        get: jest.fn(),
+        getAdmin: jest.fn().mockResolvedValue({
+          bank_commission_central_bank_pct: '20',
+          bank_commission_bank_pct: '40',
+          bank_commission_partners_pct: '40',
+          bank_commission_distribution_mode: 'PERCENT',
+          bank_commission_central_bank_fixed: '0',
+          bank_commission_bank_fixed: '0',
+          bank_commission_partners_fixed: '0',
+          bank_commission_central_bank_som_account: '910000001',
+          bank_commission_bank_som_account: '1340000096184177',
+          bank_commission_partners_json:
+            '[{"id":"partner-1","title":"Partner 1","som_account":"910000003","salam_wallet":"0x3333333333333333333333333333333333333333","usdt_wallet":"TQYvtaMVomk4BFgGPNjnEadrnVaLAqS5Kj"}]',
+        }),
+        parsePartnersJsonForCommission: jest.fn().mockReturnValue([
+          {
+            id: 'partner-1',
+            title: 'Partner 1',
+            som_account: '910000003',
+            salam_wallet: '0x3333333333333333333333333333333333333333',
+            usdt_wallet: 'TQYvtaMVomk4BFgGPNjnEadrnVaLAqS5Kj',
+          },
+        ]),
+      } as any,
+      {} as any,
       {} as any,
       {} as any,
       {} as any,
@@ -168,6 +193,37 @@ describe('PaymentsService', () => {
 
     expect(receipt.fee).toBe(10);
     expect(receipt.amount).toBe(100);
+  });
+
+  it('uses the larger of percentage fee and minimum fee for tariff calculation', async () => {
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          tariff_category: 'K1',
+          residency: 'RESIDENT',
+        }),
+      },
+      tariffSetting: {
+        findUnique: jest.fn().mockResolvedValue({
+          percent_fee: '10',
+          fixed_fee: '35',
+        }),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const result = await (service as any).getCustomerTariffFee(
+      7,
+      'SOM_TO_SALAM',
+      1000,
+    );
+
+    expect(result).toMatchObject({
+      percent: 10,
+      fixed: 35,
+      fee: 100,
+      configured: true,
+    });
   });
 
   it('returns masked fallback accounts instead of bank operation labels', async () => {
@@ -538,9 +594,9 @@ describe('PaymentsService', () => {
       },
     );
 
-    expect(createMany).toHaveBeenCalledTimes(1);
+    expect(createMany).toHaveBeenCalledTimes(2);
     const payload = createMany.mock.calls[0][0];
-    expect(payload.data).toHaveLength(6);
+    expect(payload.data).toHaveLength(3);
     expect(payload.data[0]).toMatchObject({
       posting_group_key: 'som-purchase-42',
       sequence: 1,
@@ -554,8 +610,8 @@ describe('PaymentsService', () => {
       credit_account_no: '21113',
       amount: '100',
     });
-    expect(payload.data[5]).toMatchObject({
-      sequence: 6,
+    expect(payload.data[2]).toMatchObject({
+      sequence: 3,
       debit_account_no: '90001',
       credit_account_no: '92602',
       amount: '9900',
@@ -588,9 +644,9 @@ describe('PaymentsService', () => {
       },
     );
 
-    expect(createMany).toHaveBeenCalledTimes(1);
+    expect(createMany).toHaveBeenCalledTimes(2);
     const payload = createMany.mock.calls[0][0];
-    expect(payload.data).toHaveLength(6);
+    expect(payload.data).toHaveLength(3);
     expect(payload.data[0]).toMatchObject({
       posting_group_key: 'som-redemption-43',
       sequence: 1,
@@ -606,8 +662,8 @@ describe('PaymentsService', () => {
       amount: '100',
       comment: 'Удержание комиссии',
     });
-    expect(payload.data[5]).toMatchObject({
-      sequence: 6,
+    expect(payload.data[2]).toMatchObject({
+      sequence: 3,
       debit_account_no: '92602',
       credit_account_no: '90001',
       amount: '9900',
@@ -666,11 +722,17 @@ describe('PaymentsService', () => {
           eth_trade_fee_pct: '0',
           usdt_trade_fee_pct: '0',
         }),
+        getAdmin: jest.fn().mockResolvedValue({
+          bank_commission_central_bank_pct: '20',
+          bank_commission_bank_pct: '40',
+          bank_commission_partners_pct: '40',
+        }),
       } as any,
       {} as any,
       {
         refreshAllBalancesForUser: jest.fn().mockResolvedValue(undefined),
       } as any,
+      {} as any,
       {
         checkTransactionDetailed: jest
           .fn()
@@ -754,7 +816,7 @@ describe('PaymentsService', () => {
       ethereumService as any,
       {} as any,
       { create: jest.fn() } as any,
-      { get: jest.fn() } as any,
+      {} as any,
       {
         get: jest.fn().mockResolvedValue({
           esom_per_usd: '1',
@@ -762,11 +824,17 @@ describe('PaymentsService', () => {
           esom_som_conversion_fee_min: '0',
           usdt_trade_fee_pct: '10',
         }),
+        getAdmin: jest.fn().mockResolvedValue({
+          bank_commission_central_bank_pct: '20',
+          bank_commission_bank_pct: '40',
+          bank_commission_partners_pct: '40',
+        }),
       } as any,
       {} as any,
       {
         refreshAllBalancesForUser: jest.fn().mockResolvedValue(undefined),
       } as any,
+      {} as any,
       {
         checkTransactionDetailed: jest
           .fn()

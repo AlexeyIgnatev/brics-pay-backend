@@ -1311,10 +1311,11 @@ export class PaymentsService {
     const fixed = Number(tariff.fixed_fee || 0);
     const safePercent = Number.isFinite(percent) && percent > 0 ? percent : 0;
     const safeFixed = Number.isFinite(fixed) && fixed > 0 ? fixed : 0;
+    const percentFee = baseAmount * (safePercent / 100);
     return {
       percent: safePercent,
       fixed: safeFixed,
-      fee: baseAmount * (safePercent / 100) + safeFixed,
+      fee: Math.max(percentFee, safeFixed),
       configured: true,
     };
   }

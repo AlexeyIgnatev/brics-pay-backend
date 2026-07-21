@@ -243,99 +243,123 @@ export class TransactionsService {
     return Number(item.amount_in ?? 0) * (safePercent / 100) + safeFixed;
   }
 
+  private buildParticipantSearchCondition(params: {
+    role: 'sender' | 'receiver';
+    query: string;
+  }): Prisma.TransactionWhereInput {
+    const normalized = params.query.trim();
+    const tokens = normalized
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const searchParts = Array.from(new Set(tokens.length ? tokens : [normalized]));
+
+    const tokenConditions = searchParts.map((part) => {
+      const customerFieldConditions: Prisma.CustomerWhereInput[] = [
+        { first_name: { contains: part, mode: 'insensitive' } },
+        { middle_name: { contains: part, mode: 'insensitive' } },
+        { last_name: { contains: part, mode: 'insensitive' } },
+        { phone: { contains: part, mode: 'insensitive' } },
+        { email: { contains: part, mode: 'insensitive' } },
+      ];
+
+      const addressField =
+        params.role === 'sender' ? 'sender_wallet_address' : 'receiver_wallet_address';
+      const relationField =
+        params.role === 'sender' ? 'sender_customer' : 'receiver_customer';
+
+      const baseConditions: Prisma.TransactionWhereInput[] = [
+        {
+          [addressField]: {
+            contains: part,
+            mode: 'insensitive',
+          },
+        } as Prisma.TransactionWhereInput,
+        {
+          [relationField]: {
+            OR: customerFieldConditions,
+          },
+        } as Prisma.TransactionWhereInput,
+      ];
+
+      if (params.role === 'receiver') {
+        baseConditions.unshift({
+          external_address: {
+            contains: part,
+            mode: 'insensitive',
+          },
+        });
+      }
+
+      return { OR: baseConditions };
+    });
+
+    return { AND: tokenConditions };
+  }
+
   async list(query: TransactionsListDto): Promise<TransactionsListResponseDto> {
     const where: Prisma.TransactionWhereInput = {};
+    const andFilters: Prisma.TransactionWhereInput[] = [];
 
     if (query.kind?.length) {
-      where.kind = { in: query.kind as TransactionKind[] };
+      andFilters.push({ kind: { in: query.kind as TransactionKind[] } });
     }
     if (query.status?.length) {
-      where.status = { in: query.status as TransactionStatus[] };
+      andFilters.push({ status: { in: query.status as TransactionStatus[] } });
     }
     if (query.asset?.length) {
       const requestedAssets = (query.asset as Asset[]).filter((asset) =>
         ALLOWED_ASSETS.includes(asset as (typeof ALLOWED_ASSETS)[number]),
       );
-      where.OR = requestedAssets.length
-        ? [{ asset_in: { in: requestedAssets } }]
-        : [{ id: -1 }];
+      andFilters.push(
+        requestedAssets.length
+          ? { asset_in: { in: requestedAssets } }
+          : { id: -1 },
+      );
     }
     if (query.tx_hash) {
-      where.tx_hash = { contains: query.tx_hash };
+      andFilters.push({ tx_hash: { contains: query.tx_hash } });
     }
     if (query.id) {
-      where.bank_op_id = query.id;
+      andFilters.push({ bank_op_id: query.id });
     }
     if (query.amount_min != null || query.amount_max != null) {
-      where.amount_in = {} as { gte?: string; lte?: string };
+      const amountWhere: { gte?: string; lte?: string } = {};
       if (query.amount_min != null) {
-        (where.amount_in as { gte?: string }).gte = query.amount_min.toString();
+        amountWhere.gte = query.amount_min.toString();
       }
       if (query.amount_max != null) {
-        (where.amount_in as { lte?: string }).lte = query.amount_max.toString();
+        amountWhere.lte = query.amount_max.toString();
       }
+      andFilters.push({ amount_in: amountWhere });
     }
     if (query.date_from || query.date_to) {
-      where.createdAt = {} as { gte?: Date; lte?: Date };
+      const createdAt: { gte?: Date; lte?: Date } = {};
       if (query.date_from) {
-        (where.createdAt as { gte?: Date }).gte = new Date(query.date_from);
+        createdAt.gte = new Date(query.date_from);
       }
       if (query.date_to) {
-        (where.createdAt as { lte?: Date }).lte = new Date(query.date_to);
+        createdAt.lte = new Date(query.date_to);
       }
+      andFilters.push({ createdAt });
     }
 
     if (query.sender) {
-      where.OR = where.OR || [];
-      (where.OR as Prisma.TransactionWhereInput[]).push(
-        {
-          sender_wallet_address: {
-            contains: query.sender,
-            mode: 'insensitive',
-          },
-        },
-        {
-          sender_customer: {
-            OR: [
-              { first_name: { contains: query.sender, mode: 'insensitive' } },
-              { middle_name: { contains: query.sender, mode: 'insensitive' } },
-              { last_name: { contains: query.sender, mode: 'insensitive' } },
-              { phone: { contains: query.sender, mode: 'insensitive' } },
-              { email: { contains: query.sender, mode: 'insensitive' } },
-            ],
-          },
-        },
+      andFilters.push(
+        this.buildParticipantSearchCondition({ role: 'sender', query: query.sender }),
       );
     }
     if (query.receiver) {
-      where.OR = where.OR || [];
-      (where.OR as Prisma.TransactionWhereInput[]).push(
-        {
-          receiver_wallet_address: {
-            contains: query.receiver,
-            mode: 'insensitive',
-          },
-        },
-        {
-          external_address: {
-            contains: query.receiver,
-            mode: 'insensitive',
-          },
-        },
-        {
-          receiver_customer: {
-            OR: [
-              { first_name: { contains: query.receiver, mode: 'insensitive' } },
-              {
-                middle_name: { contains: query.receiver, mode: 'insensitive' },
-              },
-              { last_name: { contains: query.receiver, mode: 'insensitive' } },
-              { phone: { contains: query.receiver, mode: 'insensitive' } },
-              { email: { contains: query.receiver, mode: 'insensitive' } },
-            ],
-          },
-        },
+      andFilters.push(
+        this.buildParticipantSearchCondition({
+          role: 'receiver',
+          query: query.receiver,
+        }),
       );
+    }
+
+    if (andFilters.length) {
+      where.AND = andFilters;
     }
 
     const orderBy: Prisma.TransactionOrderByWithRelationInput = {};
