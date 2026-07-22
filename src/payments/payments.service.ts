@@ -3268,93 +3268,121 @@ export class PaymentsService {
       throw new BadRequestException('Customer not found');
     }
 
-    const bricsRecipient = await this.bricsService.findAccount(
-      transferDto.phone_number!,
-    );
-    if (!bricsRecipient) {
-      throw new BadRequestException('Recipient not found');
+    const asset = 'ESOM' as Asset;
+
+    if (transferDto.address) {
+      const internalRecipient = await this.findInternalRecipientByAddress(
+        asset,
+        transferDto.address,
+        customer.customer_id,
+      );
+      if (!internalRecipient) {
+        throw new BadRequestException('ESOM wallet address recipient not found');
+      }
+
+      return this.transferCryptoInternal(
+        asset,
+        transferDto.amount,
+        customer.customer_id,
+        internalRecipient.customer_id,
+        `ESOM transfer by wallet address (${asset})`,
+        internalRecipient.walletAddress,
+      );
     }
 
-    const allowed = await this.antiFraud.shouldAllowTransaction({
-      kind: TransactionKind.WALLET_TO_WALLET,
-      amount_in: transferDto.amount,
-      asset_in: 'ESOM',
-      asset_out: 'ESOM',
-      sender_customer_id: customer.customer_id,
-      receiver_customer_id: bricsRecipient.CustomerID,
-      comment: 'ESOM transfer',
-    });
-    if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+    if (transferDto.phone_number) {
+      const bricsRecipient = await this.bricsService.findAccount(
+        transferDto.phone_number,
+      );
+      if (!bricsRecipient) {
+        throw new BadRequestException('Recipient not found');
+      }
 
-    const tariffFee = await this.getCustomerTariffFee(
-      customer.customer_id,
-      this.tariffOperationForWalletTransfer('ESOM' as Asset),
-      transferDto.amount,
-    );
-    const fee = tariffFee.fee;
-
-    let recipient = await this.prisma.customer.findUnique({
-      where: { customer_id: bricsRecipient.CustomerID },
-    });
-    if (!recipient) {
-      const recipientAddress = this.ethereumService.generateAddress();
-      recipient = await this.prisma.customer.create({
-        data: {
-          customer_id: bricsRecipient.CustomerID,
-          address: recipientAddress.address,
-          private_key: recipientAddress.privateKey,
-        },
+      const allowed = await this.antiFraud.shouldAllowTransaction({
+        kind: TransactionKind.WALLET_TO_WALLET,
+        amount_in: transferDto.amount,
+        asset_in: 'ESOM',
+        asset_out: 'ESOM',
+        sender_customer_id: customer.customer_id,
+        receiver_customer_id: bricsRecipient.CustomerID,
+        comment: 'ESOM transfer',
       });
-    }
+      if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
 
-    const ethTransaction = await this.ethereumService.transfer(
-      recipient.address,
-      transferDto.amount,
-      customer.private_key,
-    );
-    if (!ethTransaction?.success) {
-      throw new BadRequestException('Ethereum transaction failed');
-    }
-    if (fee > 0) {
-      const feeTransaction = await this.ethereumService.transferToFiat(
-        fee,
+      const tariffFee = await this.getCustomerTariffFee(
+        customer.customer_id,
+        this.tariffOperationForWalletTransfer(asset),
+        transferDto.amount,
+      );
+      const fee = tariffFee.fee;
+
+      let recipient = await this.prisma.customer.findUnique({
+        where: { customer_id: bricsRecipient.CustomerID },
+      });
+      if (!recipient) {
+        const recipientAddress = this.ethereumService.generateAddress();
+        recipient = await this.prisma.customer.create({
+          data: {
+            customer_id: bricsRecipient.CustomerID,
+            address: recipientAddress.address,
+            private_key: recipientAddress.privateKey,
+          },
+        });
+      }
+
+      const ethTransaction = await this.ethereumService.transfer(
+        recipient.address,
+        transferDto.amount,
         customer.private_key,
       );
-      if (!feeTransaction?.success) {
-        throw new BadRequestException('Ethereum fee transaction failed');
+      if (!ethTransaction?.success) {
+        throw new BadRequestException('Ethereum transaction failed');
       }
-    }
+      if (fee > 0) {
+        const feeTransaction = await this.ethereumService.transferToFiat(
+          fee,
+          customer.private_key,
+        );
+        if (!feeTransaction?.success) {
+          throw new BadRequestException('Ethereum fee transaction failed');
+        }
+      }
 
-    const createdTransaction = await this.prisma.transaction.create({
-      data: {
-        kind: TransactionKind.WALLET_TO_WALLET,
-        status: TransactionStatus.SUCCESS,
-        amount_in: transferDto.amount.toString(),
-        asset_in: 'ESOM',
-        amount_out: transferDto.amount.toString(),
-        asset_out: 'ESOM',
-        fee_amount: fee.toString(),
-        tx_hash: ethTransaction.txHash,
-        sender_customer_id: customer.customer_id,
-        receiver_customer_id: recipient.customer_id,
-        comment: 'ESOM transfer',
-      },
-    });
+      const createdTransaction = await this.prisma.transaction.create({
+        data: {
+          kind: TransactionKind.WALLET_TO_WALLET,
+          status: TransactionStatus.SUCCESS,
+          amount_in: transferDto.amount.toString(),
+          asset_in: 'ESOM',
+          amount_out: transferDto.amount.toString(),
+          asset_out: 'ESOM',
+          fee_amount: fee.toString(),
+          tx_hash: ethTransaction.txHash,
+          sender_customer_id: customer.customer_id,
+          receiver_customer_id: recipient.customer_id,
+          comment: 'ESOM transfer',
+        },
+      });
 
-    await this.balanceFetchService.refreshAllBalancesForUser(
-      customer.customer_id,
-      ['ESOM' as Asset],
-    );
-    if (
-      recipient?.customer_id &&
-      recipient.customer_id !== customer.customer_id
-    ) {
       await this.balanceFetchService.refreshAllBalancesForUser(
-        recipient.customer_id,
+        customer.customer_id,
         ['ESOM' as Asset],
       );
+      if (
+        recipient?.customer_id &&
+        recipient.customer_id !== customer.customer_id
+      ) {
+        await this.balanceFetchService.refreshAllBalancesForUser(
+          recipient.customer_id,
+          ['ESOM' as Asset],
+        );
+      }
+      return new StatusOKDto(createdTransaction.id);
     }
-    return new StatusOKDto(createdTransaction.id);
+
+    throw new BadRequestException(
+      'Either address or phone_number is required for crypto transfer',
+    );
   }
 
   async transferSom(
