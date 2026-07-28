@@ -8,6 +8,7 @@ function parseArgs(argv) {
     backendUrl: process.env.BACKEND_URL || 'http://127.0.0.1:8000',
     bricsRoot: process.env.BRICS_API_ROOT,
     integrationRoot: process.env.INTEGRATION_API_ROOT,
+    integrationRoots: process.env.INTEGRATION_API_ROOTS,
     backendAdminEmail: process.env.BACKEND_ADMIN_EMAIL || process.env.ADMIN_EMAIL,
     backendAdminPassword: process.env.BACKEND_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD,
     bricsAdminLogin: process.env.BRICS_ADMIN_LOGIN || process.env.ADMIN_LOGIN,
@@ -31,6 +32,7 @@ function parseArgs(argv) {
     if (key === '--backend-url') args.backendUrl = rawValue;
     if (key === '--brics-root') args.bricsRoot = rawValue;
     if (key === '--integration-root') args.integrationRoot = rawValue;
+    if (key === '--integration-roots') args.integrationRoots = rawValue;
     if (key === '--backend-admin-email') args.backendAdminEmail = rawValue;
     if (key === '--backend-admin-password') args.backendAdminPassword = rawValue;
     if (key === '--brics-admin-login') args.bricsAdminLogin = rawValue;
@@ -164,6 +166,28 @@ function buildIntegrationUrl(integrationRoot, path) {
 function deriveIntegrationRoot(bricsRoot) {
   const root = String(bricsRoot || '').replace(/\/+$/, '');
   return root.replace(/\/InternetBanking$/i, '');
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function parseIntegrationRoots(argsIntegrationRoot, argsIntegrationRoots, bricsRoot) {
+  const roots = [];
+  if (argsIntegrationRoots) {
+    roots.push(
+      ...String(argsIntegrationRoots)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+  }
+  if (argsIntegrationRoot) {
+    roots.push(argsIntegrationRoot);
+  }
+  const derived = deriveIntegrationRoot(bricsRoot);
+  if (derived) roots.push(derived);
+  return uniqueStrings(roots);
 }
 
 function cookiesFromHeader(setCookieHeader) {
@@ -514,11 +538,11 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const backendUrl = args.backendUrl.replace(/\/+$/, '');
   const bricsRoot = requireValue('BRICS_API_ROOT', args.bricsRoot).replace(/\/+$/, '');
-  const integrationRoot = (
-    args.integrationRoot ||
-    deriveIntegrationRoot(bricsRoot) ||
-    bricsRoot
-  ).replace(/\/+$/, '');
+  const integrationRoots = parseIntegrationRoots(
+    args.integrationRoot,
+    args.integrationRoots,
+    bricsRoot,
+  ).map((root) => root.replace(/\/+$/, ''));
   const backendAdminEmail =
     args.backendAdminEmail && isEmail(args.backendAdminEmail)
       ? args.backendAdminEmail
@@ -540,19 +564,27 @@ async function main() {
 
   console.log('[4/4] scan SOM accounts');
   console.log(
-    `[som-scan] roots bricsRoot=${bricsRoot} integrationRoot=${integrationRoot} backendUrl=${backendUrl}`,
+    `[som-scan] roots bricsRoot=${bricsRoot} integrationRoots=${integrationRoots.join(',') || 'none'} backendUrl=${backendUrl}`,
   );
   const accounts = [];
   for (const user of phoneUsers) {
     console.log(
       `[som-scan] start customer=${user.customer_id} fio="${[user.last_name, user.first_name, user.middle_name].filter(Boolean).join(' ')}" phone=${user.phone}`,
     );
-    let somAccounts = await fetchSomAccountsByCustomerId(integrationRoot, cookies, user.customer_id);
+    let somAccounts = [];
+    let matchedIntegrationRoot = '';
+    for (const integrationRoot of integrationRoots) {
+      somAccounts = await fetchSomAccountsByCustomerId(integrationRoot, cookies, user.customer_id);
+      if (somAccounts.length > 0) {
+        matchedIntegrationRoot = integrationRoot;
+        break;
+      }
+    }
     if (somAccounts.length === 0) {
-      somAccounts = await fetchSomAccountsByPhone(integrationRoot, cookies, user.phone);
+      somAccounts = await fetchSomAccountsByPhone(bricsRoot, cookies, user.phone);
     }
     console.log(
-      `[som-scan] done customer=${user.customer_id} phone=${user.phone} somAccounts=${somAccounts.length}`,
+      `[som-scan] done customer=${user.customer_id} phone=${user.phone} somAccounts=${somAccounts.length} integrationRoot=${matchedIntegrationRoot || 'none'}`,
     );
     for (const account of somAccounts) {
       accounts.push({
