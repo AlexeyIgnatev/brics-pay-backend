@@ -123,14 +123,24 @@ function uniqAccounts(items) {
 }
 
 function signatureForAccount(account) {
-  const omit = new Set(
-    ['AccountNo', 'CustomerID', 'Name', 'Name2', 'QrCode', 'QrCodeBase64'].map(normalizeKey),
-  );
+  const signatureFields = [
+    'CurrencyID',
+    'CurrencySymbol',
+    'ProductID',
+    'OrganizationTypeID',
+    'BalanceGroup',
+    'CustomerType',
+    'DepositAccountStatusID',
+    'DepositAccountStatusName',
+    'CanMakeIncome',
+    'CanWithdraw',
+    'IsHidden',
+  ];
 
-  const entries = Object.entries(account)
-    .filter(([key, value]) => !omit.has(normalizeKey(key)) && value !== undefined)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => [key, value === null ? '__null__' : value]);
+  const entries = signatureFields.map((key) => [
+    key,
+    account[key] === undefined || account[key] === null ? '__missing__' : account[key],
+  ]);
 
   return JSON.stringify(entries);
 }
