@@ -58,6 +58,12 @@ function normalizeKey(key) {
     .toLowerCase();
 }
 
+function shortenText(value, max = 220) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (text.length <= max) return text || 'empty';
+  return `${text.slice(0, max)}…`;
+}
+
 function extractRecords(payload) {
   const collected = [];
   const visited = new Set();
@@ -244,6 +250,35 @@ async function requestJson(url, options = {}) {
   return { ...response, data };
 }
 
+function describeJsonShape(payload) {
+  if (payload == null) {
+    return { type: 'null', topKeys: [], resultType: 'null', resultKeys: [], preview: 'empty' };
+  }
+
+  const responseType = Array.isArray(payload) ? 'array' : typeof payload;
+  const topKeys =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? Object.keys(payload).slice(0, 20)
+      : [];
+  const rawResult =
+    payload && typeof payload === 'object' && !Array.isArray(payload) && 'Result' in payload
+      ? payload.Result
+      : payload;
+  const resultType = Array.isArray(rawResult) ? 'array' : typeof rawResult;
+  const resultKeys =
+    rawResult && typeof rawResult === 'object' && !Array.isArray(rawResult)
+      ? Object.keys(rawResult).slice(0, 20)
+      : [];
+  const preview =
+    typeof rawResult === 'string'
+      ? shortenText(rawResult, 500)
+      : rawResult && typeof rawResult === 'object'
+        ? shortenText(JSON.stringify(rawResult), 500)
+        : shortenText(rawResult, 500);
+
+  return { responseType, topKeys, resultType, resultKeys, preview, rawResult };
+}
+
 async function loginBackend(backendUrl, adminLogin, adminPassword) {
   const response = await requestJson(`${backendUrl}/admin-management/auth/login`, {
     method: 'POST',
@@ -340,8 +375,23 @@ async function fetchSomAccountsByCustomerId(integrationRoot, customerId) {
     },
   );
 
+  const shape = describeJsonShape(response.data);
+  const records = extractRecords(shape.rawResult);
+  console.log(
+    [
+      `[som-lookup][customer] customer=${customerId}`,
+      `status=${response.status}`,
+      `responseType=${shape.responseType}`,
+      `topKeys=${shape.topKeys.join(',') || 'none'}`,
+      `resultType=${shape.resultType}`,
+      `resultKeys=${shape.resultKeys.join(',') || 'none'}`,
+      `records=${records.length}`,
+      `preview=${shape.preview}`,
+    ].join(' | '),
+  );
+
   return uniqAccounts(
-    extractRecords((response.data && response.data.Result) || response.data)
+    records
       .map((item) => ({
         ...item,
         AccountNo: String(
@@ -385,7 +435,8 @@ async function fetchSomAccountsByPhone(bricsRoot, cookies, phone) {
       },
     );
 
-    const rawRecords = extractRecords(response.data);
+    const shape = describeJsonShape(response.data);
+    const rawRecords = extractRecords(shape.rawResult);
     const accounts = uniqAccounts(
       rawRecords
         .map((item) => ({
@@ -407,6 +458,21 @@ async function fetchSomAccountsByPhone(bricsRoot, cookies, phone) {
           ),
         }))
         .filter((item) => Number(item.CurrencyID) === 417 && item.AccountNo),
+    );
+
+    console.log(
+      [
+        `[som-lookup][phone] phone=${phone}`,
+        `candidate=${candidate}`,
+        `status=${response.status}`,
+        `responseType=${shape.responseType}`,
+        `topKeys=${shape.topKeys.join(',') || 'none'}`,
+        `resultType=${shape.resultType}`,
+        `resultKeys=${shape.resultKeys.join(',') || 'none'}`,
+        `records=${rawRecords.length}`,
+        `somAccounts=${accounts.length}`,
+        `preview=${shape.preview}`,
+      ].join(' | '),
     );
 
     if (accounts.length > 0) return accounts;
@@ -467,10 +533,16 @@ async function main() {
   console.log('[4/4] scan SOM accounts');
   const accounts = [];
   for (const user of phoneUsers) {
+    console.log(
+      `[som-scan] start customer=${user.customer_id} fio="${[user.last_name, user.first_name, user.middle_name].filter(Boolean).join(' ')}" phone=${user.phone}`,
+    );
     let somAccounts = await fetchSomAccountsByCustomerId(integrationRoot, user.customer_id);
     if (somAccounts.length === 0) {
       somAccounts = await fetchSomAccountsByPhone(bricsRoot, cookies, user.phone);
     }
+    console.log(
+      `[som-scan] done customer=${user.customer_id} phone=${user.phone} somAccounts=${somAccounts.length}`,
+    );
     for (const account of somAccounts) {
       accounts.push({
         customer_id: user.customer_id,
