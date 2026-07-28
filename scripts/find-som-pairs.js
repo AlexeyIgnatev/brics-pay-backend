@@ -573,8 +573,10 @@ async function main() {
     );
     let somAccounts = [];
     let matchedIntegrationRoot = '';
+    const integrationAttempts = [];
     for (const integrationRoot of integrationRoots) {
       somAccounts = await fetchSomAccountsByCustomerId(integrationRoot, cookies, user.customer_id);
+      integrationAttempts.push(`${integrationRoot}:${somAccounts.length}`);
       if (somAccounts.length > 0) {
         matchedIntegrationRoot = integrationRoot;
         break;
@@ -582,6 +584,15 @@ async function main() {
     }
     if (somAccounts.length === 0) {
       somAccounts = await fetchSomAccountsByPhone(bricsRoot, cookies, user.phone);
+    }
+    if (matchedIntegrationRoot) {
+      console.log(
+        `[som-scan] customer=${user.customer_id} matchedIntegrationRoot=${matchedIntegrationRoot} attempts=${integrationAttempts.join(',') || 'none'}`,
+      );
+    } else {
+      console.log(
+        `[som-scan] customer=${user.customer_id} no integration match attempts=${integrationAttempts.join(',') || 'none'} phoneFallback=${somAccounts.length > 0 ? 'hit' : 'miss'}`,
+      );
     }
     console.log(
       `[som-scan] done customer=${user.customer_id} phone=${user.phone} somAccounts=${somAccounts.length} integrationRoot=${matchedIntegrationRoot || 'none'}`,
