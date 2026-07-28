@@ -156,6 +156,12 @@ function buildBricsUrl(bricsRoot, path) {
   return `${base}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+function joinUrlPath(root, path) {
+  const normalizedRoot = String(root || '').replace(/\/+$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${normalizedRoot}${normalizedPath}`;
+}
+
 function buildIntegrationUrl(integrationRoot, path) {
   const root = String(integrationRoot || '').replace(/\/+$/, '');
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -464,68 +470,72 @@ async function fetchSomAccountsByCustomerId(integrationRoot, cookies, customerId
 
 async function fetchSomAccountsByPhone(integrationRoot, cookies, phone) {
   const candidates = buildPhoneCandidates(phone);
+  const paths = [
+    '/InternetBanking/ru-RU/Reference/GetAccountsByAccountNoOrPhone',
+    '/ru-RU/Reference/GetAccountsByAccountNoOrPhone',
+    '/OnlineBank.IntegrationService/ru-RU/Reference/GetAccountsByAccountNoOrPhone',
+  ];
   for (const candidate of candidates) {
-    const url = buildBricsUrl(
-      integrationRoot,
-      '/ru-RU/Reference/GetAccountsByAccountNoOrPhone',
-    );
-    const response = await requestJson(
-      url,
-      {
-        method: 'POST',
-        headers: {
-          Cookie: cookies,
-          Accept: 'application/json, text/javascript, */*; q=0.01',
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
+    for (const path of paths) {
+      const url = joinUrlPath(integrationRoot, path);
+      const response = await requestJson(
+        url,
+        {
+          method: 'POST',
+          headers: {
+            Cookie: cookies,
+            Accept: 'application/json, text/javascript, */*; q=0.01',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          body: JSON.stringify({ account: candidate }),
+          rejectUnauthorized: false,
         },
-        body: JSON.stringify({ account: candidate }),
-        rejectUnauthorized: false,
-      },
-    );
+      );
 
-    const shape = describeJsonShape(response.data);
-    const rawRecords = extractRecords(shape.rawResult);
-    const accounts = uniqAccounts(
-      rawRecords
-        .map((item) => ({
-          ...item,
-          AccountNo: String(
-            item.AccountNo ??
-              item.accountNo ??
-              item.AccountNumber ??
-              item.account_number ??
-              item.Iban ??
-              item.IBAN ??
-              '',
-          ),
-          CurrencyID: Number(
-            item.CurrencyID ?? item.currencyId ?? item.currency_id ?? item.currencyID ?? item.CurrencyId,
-          ),
-          CustomerID: Number(
-            item.CustomerID ?? item.customerId ?? item.customer_id ?? item.customerID ?? item.CustomerId,
-          ),
-        }))
-        .filter((item) => Number(item.CurrencyID) === 417 && item.AccountNo),
-    );
+      const shape = describeJsonShape(response.data);
+      const rawRecords = extractRecords(shape.rawResult);
+      const accounts = uniqAccounts(
+        rawRecords
+          .map((item) => ({
+            ...item,
+            AccountNo: String(
+              item.AccountNo ??
+                item.accountNo ??
+                item.AccountNumber ??
+                item.account_number ??
+                item.Iban ??
+                item.IBAN ??
+                '',
+            ),
+            CurrencyID: Number(
+              item.CurrencyID ?? item.currencyId ?? item.currency_id ?? item.currencyID ?? item.CurrencyId,
+            ),
+            CustomerID: Number(
+              item.CustomerID ?? item.customerId ?? item.customer_id ?? item.customerID ?? item.CustomerId,
+            ),
+          }))
+          .filter((item) => Number(item.CurrencyID) === 417 && item.AccountNo),
+      );
 
-    console.log(
-      [
-        `[som-lookup][phone] url=${url}`,
-        `[som-lookup][phone] phone=${phone}`,
-        `candidate=${candidate}`,
-        `status=${response.status}`,
-        `responseType=${shape.responseType}`,
-        `topKeys=${shape.topKeys.join(',') || 'none'}`,
-        `resultType=${shape.resultType}`,
-        `resultKeys=${shape.resultKeys.join(',') || 'none'}`,
-        `records=${rawRecords.length}`,
-        `somAccounts=${accounts.length}`,
-        `preview=${shape.preview}`,
-      ].join(' | '),
-    );
+      console.log(
+        [
+          `[som-lookup][phone] url=${url}`,
+          `[som-lookup][phone] phone=${phone}`,
+          `candidate=${candidate}`,
+          `status=${response.status}`,
+          `responseType=${shape.responseType}`,
+          `topKeys=${shape.topKeys.join(',') || 'none'}`,
+          `resultType=${shape.resultType}`,
+          `resultKeys=${shape.resultKeys.join(',') || 'none'}`,
+          `records=${rawRecords.length}`,
+          `somAccounts=${accounts.length}`,
+          `preview=${shape.preview}`,
+        ].join(' | '),
+      );
 
-    if (accounts.length > 0) return accounts;
+      if (accounts.length > 0) return accounts;
+    }
   }
 
   return [];
