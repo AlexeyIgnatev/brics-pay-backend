@@ -363,7 +363,7 @@ async function loginBrics(bricsRoot, adminLogin, adminPassword) {
   return cookies;
 }
 
-async function fetchSomAccountsByCustomerId(integrationRoot, customerId) {
+async function fetchSomAccountsByCustomerId(integrationRoot, cookies, customerId) {
   const url = buildIntegrationUrl(
     integrationRoot,
     `/api/Deposits/GetCurrentAccounts?customerID=${encodeURIComponent(customerId)}`,
@@ -372,6 +372,10 @@ async function fetchSomAccountsByCustomerId(integrationRoot, customerId) {
     url,
     {
       method: 'GET',
+      headers: {
+        Cookie: cookies,
+        Accept: 'application/json, text/javascript, */*; q=0.01',
+      },
       rejectUnauthorized: false,
     },
   );
@@ -416,11 +420,11 @@ async function fetchSomAccountsByCustomerId(integrationRoot, customerId) {
   );
 }
 
-async function fetchSomAccountsByPhone(bricsRoot, cookies, phone) {
+async function fetchSomAccountsByPhone(integrationRoot, cookies, phone) {
   const candidates = buildPhoneCandidates(phone);
   for (const candidate of candidates) {
     const url = buildBricsUrl(
-      bricsRoot,
+      integrationRoot,
       '/ru-RU/Reference/GetAccountsByAccountNoOrPhone',
     );
     const response = await requestJson(
@@ -543,9 +547,9 @@ async function main() {
     console.log(
       `[som-scan] start customer=${user.customer_id} fio="${[user.last_name, user.first_name, user.middle_name].filter(Boolean).join(' ')}" phone=${user.phone}`,
     );
-    let somAccounts = await fetchSomAccountsByCustomerId(integrationRoot, user.customer_id);
+    let somAccounts = await fetchSomAccountsByCustomerId(integrationRoot, cookies, user.customer_id);
     if (somAccounts.length === 0) {
-      somAccounts = await fetchSomAccountsByPhone(bricsRoot, cookies, user.phone);
+      somAccounts = await fetchSomAccountsByPhone(integrationRoot, cookies, user.phone);
     }
     console.log(
       `[som-scan] done customer=${user.customer_id} phone=${user.phone} somAccounts=${somAccounts.length}`,
