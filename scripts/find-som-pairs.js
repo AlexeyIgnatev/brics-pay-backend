@@ -7,6 +7,7 @@ function parseArgs(argv) {
   const args = {
     backendUrl: process.env.BACKEND_URL || 'http://127.0.0.1:8000',
     bricsRoot: process.env.BRICS_API_ROOT,
+    integrationRoot: process.env.INTEGRATION_API_ROOT,
     backendAdminEmail: process.env.BACKEND_ADMIN_EMAIL || process.env.ADMIN_EMAIL,
     backendAdminPassword: process.env.BACKEND_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD,
     bricsAdminLogin: process.env.BRICS_ADMIN_LOGIN || process.env.ADMIN_LOGIN,
@@ -29,6 +30,7 @@ function parseArgs(argv) {
     if (!rawValue) continue;
     if (key === '--backend-url') args.backendUrl = rawValue;
     if (key === '--brics-root') args.bricsRoot = rawValue;
+    if (key === '--integration-root') args.integrationRoot = rawValue;
     if (key === '--backend-admin-email') args.backendAdminEmail = rawValue;
     if (key === '--backend-admin-password') args.backendAdminPassword = rawValue;
     if (key === '--brics-admin-login') args.bricsAdminLogin = rawValue;
@@ -142,6 +144,15 @@ function buildBricsUrl(bricsRoot, path) {
   const root = String(bricsRoot || '').replace(/\/+$/, '');
   const base = root.toLowerCase().endsWith('/internetbanking') ? root : `${root}/InternetBanking`;
   return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function buildIntegrationUrl(integrationRoot, path) {
+  const root = String(integrationRoot || '').replace(/\/+$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  if (/\/OnlineBank\.IntegrationService$/i.test(root)) {
+    return `${root}${normalizedPath}`;
+  }
+  return `${root}/OnlineBank.IntegrationService${normalizedPath}`;
 }
 
 function cookiesFromHeader(setCookieHeader) {
@@ -312,51 +323,40 @@ async function loginBrics(bricsRoot, adminLogin, adminPassword) {
   return cookies;
 }
 
-async function fetchSomAccountsByPhone(bricsRoot, cookies, phone) {
-  const candidates = buildPhoneCandidates(phone);
-  for (const candidate of candidates) {
-    const response = await requestJson(
-      buildBricsUrl(bricsRoot, '/ru-RU/Reference/GetAccountsByAccountNoOrPhone'),
-      {
-        method: 'POST',
-        headers: {
-          Cookie: cookies,
-          Accept: 'application/json, text/javascript, */*; q=0.01',
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({ account: candidate }),
-        rejectUnauthorized: false,
-      },
-    );
+async function fetchSomAccountsByCustomerId(integrationRoot, customerId) {
+  const response = await requestJson(
+    buildIntegrationUrl(
+      integrationRoot,
+      `/api/Deposits/GetCurrentAccounts?customerID=${encodeURIComponent(customerId)}`,
+    ),
+    {
+      method: 'GET',
+      rejectUnauthorized: false,
+    },
+  );
 
-    const accounts = uniqAccounts(
-      extractRecords(response.data)
-        .map((item) => ({
-          ...item,
-          AccountNo: String(
-            item.AccountNo ??
-              item.accountNo ??
-              item.AccountNumber ??
-              item.account_number ??
-              item.Iban ??
-              item.IBAN ??
-              '',
-          ),
-          CurrencyID: Number(
-            item.CurrencyID ?? item.currencyId ?? item.currency_id ?? item.currencyID ?? item.CurrencyId,
-          ),
-          CustomerID: Number(
-            item.CustomerID ?? item.customerId ?? item.customer_id ?? item.customerID ?? item.CustomerId,
-          ),
-        }))
-        .filter((item) => Number(item.CurrencyID) === 417 && item.AccountNo),
-    );
-
-    if (accounts.length > 0) return accounts;
-  }
-
-  return [];
+  return uniqAccounts(
+    extractRecords((response.data && response.data.Result) || response.data)
+      .map((item) => ({
+        ...item,
+        AccountNo: String(
+          item.AccountNo ??
+            item.accountNo ??
+            item.AccountNumber ??
+            item.account_number ??
+            item.Iban ??
+            item.IBAN ??
+            '',
+        ),
+        CurrencyID: Number(
+          item.CurrencyID ?? item.currencyId ?? item.currency_id ?? item.currencyID ?? item.CurrencyId,
+        ),
+        CustomerID: Number(
+          item.CustomerID ?? item.customerId ?? item.customer_id ?? item.customerID ?? item.CustomerId,
+        ),
+      }))
+      .filter((item) => Number(item.CurrencyID) === 417 && item.AccountNo),
+  );
 }
 
 async function probeInternalTransactionPage(bricsRoot, cookies, accountNo) {
@@ -384,6 +384,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const backendUrl = args.backendUrl.replace(/\/+$/, '');
   const bricsRoot = requireValue('BRICS_API_ROOT', args.bricsRoot).replace(/\/+$/, '');
+  const integrationRoot = (args.integrationRoot || bricsRoot).replace(/\/+$/, '');
   const backendAdminEmail =
     args.backendAdminEmail && isEmail(args.backendAdminEmail)
       ? args.backendAdminEmail
@@ -406,7 +407,7 @@ async function main() {
   console.log('[4/4] scan SOM accounts');
   const accounts = [];
   for (const user of phoneUsers) {
-    const somAccounts = await fetchSomAccountsByPhone(bricsRoot, cookies, user.phone);
+    const somAccounts = await fetchSomAccountsByCustomerId(integrationRoot, user.customer_id);
     for (const account of somAccounts) {
       accounts.push({
         customer_id: user.customer_id,
