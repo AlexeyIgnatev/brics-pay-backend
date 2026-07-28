@@ -138,6 +138,14 @@ function buildPhoneCandidates(phone) {
   return [...out].filter(Boolean);
 }
 
+function buildIntegrationUrl(bricsRoot, path) {
+  const root = String(bricsRoot || '').replace(/\/+$/, '');
+  const integrationRoot = root.toLowerCase().includes('/onlinebank.integrationservice')
+    ? root
+    : `${root}/OnlineBank.IntegrationService`;
+  return `${integrationRoot}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 function cookiesFromHeader(setCookieHeader) {
   const header = Array.isArray(setCookieHeader) ? setCookieHeader : setCookieHeader ? [setCookieHeader] : [];
   return header
@@ -310,7 +318,7 @@ async function fetchSomAccountsByPhone(bricsRoot, cookies, phone) {
   const candidates = buildPhoneCandidates(phone);
   for (const candidate of candidates) {
     const response = await requestJson(
-      `${bricsRoot}/InternetBanking/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
+      buildIntegrationUrl(bricsRoot, '/ru-RU/Reference/GetAccountsByAccountNoOrPhone'),
       {
         method: 'POST',
         headers: {
