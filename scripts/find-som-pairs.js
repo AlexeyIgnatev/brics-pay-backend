@@ -7,8 +7,10 @@ function parseArgs(argv) {
   const args = {
     backendUrl: process.env.BACKEND_URL || 'http://127.0.0.1:8000',
     bricsRoot: process.env.BRICS_API_ROOT,
-    adminLogin: process.env.ADMIN_LOGIN,
-    adminPassword: process.env.ADMIN_PASSWORD,
+    backendAdminEmail: process.env.BACKEND_ADMIN_EMAIL || process.env.ADMIN_EMAIL,
+    backendAdminPassword: process.env.BACKEND_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD,
+    bricsAdminLogin: process.env.BRICS_ADMIN_LOGIN || process.env.ADMIN_LOGIN,
+    bricsAdminPassword: process.env.BRICS_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD,
     limit: Number(process.env.PAIR_SCAN_LIMIT || 1000),
     probePage: true,
   };
@@ -27,8 +29,10 @@ function parseArgs(argv) {
     if (!rawValue) continue;
     if (key === '--backend-url') args.backendUrl = rawValue;
     if (key === '--brics-root') args.bricsRoot = rawValue;
-    if (key === '--admin-login') args.adminLogin = rawValue;
-    if (key === '--admin-password') args.adminPassword = rawValue;
+    if (key === '--backend-admin-email') args.backendAdminEmail = rawValue;
+    if (key === '--backend-admin-password') args.backendAdminPassword = rawValue;
+    if (key === '--brics-admin-login') args.bricsAdminLogin = rawValue;
+    if (key === '--brics-admin-password') args.bricsAdminPassword = rawValue;
     if (key === '--limit') args.limit = Number(rawValue);
   }
 
@@ -40,6 +44,10 @@ function requireValue(name, value) {
     throw new Error(`Missing required value: ${name}`);
   }
   return value;
+}
+
+function isEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 }
 
 function normalizeKey(key) {
@@ -223,7 +231,7 @@ async function loginBackend(backendUrl, adminLogin, adminPassword) {
 
   const token = response.data && response.data.accessToken;
   if (!token) {
-    throw new Error(`Backend login failed: ${response.text.slice(0, 300)}`);
+    throw new Error(`Backend login failed for ${adminLogin}: ${String(response.text || '').slice(0, 300)}`);
   }
   return token;
 }
@@ -370,11 +378,16 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const backendUrl = args.backendUrl.replace(/\/+$/, '');
   const bricsRoot = requireValue('BRICS_API_ROOT', args.bricsRoot).replace(/\/+$/, '');
-  const adminLogin = requireValue('ADMIN_LOGIN', args.adminLogin);
-  const adminPassword = requireValue('ADMIN_PASSWORD', args.adminPassword);
+  const backendAdminEmail =
+    args.backendAdminEmail && isEmail(args.backendAdminEmail)
+      ? args.backendAdminEmail
+      : 'admin@admin.admin';
+  const backendAdminPassword = requireValue('BACKEND_ADMIN_PASSWORD or ADMIN_PASSWORD', args.backendAdminPassword);
+  const bricsAdminLogin = requireValue('BRICS_ADMIN_LOGIN or ADMIN_LOGIN', args.bricsAdminLogin);
+  const bricsAdminPassword = requireValue('BRICS_ADMIN_PASSWORD or ADMIN_PASSWORD', args.bricsAdminPassword);
 
-  console.log('[1/4] login backend');
-  const backendToken = await loginBackend(backendUrl, adminLogin, adminPassword);
+  console.log(`[1/4] login backend as ${backendAdminEmail}`);
+  const backendToken = await loginBackend(backendUrl, backendAdminEmail, backendAdminPassword);
 
   console.log('[2/4] load users');
   const users = await loadAllUsers(backendUrl, backendToken, args.limit);
@@ -382,7 +395,7 @@ async function main() {
   console.log(`users=${users.length} phoneUsers=${phoneUsers.length}`);
 
   console.log('[3/4] login brics');
-  const cookies = await loginBrics(bricsRoot, adminLogin, adminPassword);
+  const cookies = await loginBrics(bricsRoot, bricsAdminLogin, bricsAdminPassword);
 
   console.log('[4/4] scan SOM accounts');
   const accounts = [];
