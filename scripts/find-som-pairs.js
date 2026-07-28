@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-const axios = require('axios');
-const cheerio = require('cheerio');
+const http = require('http');
 const https = require('https');
+const { URL } = require('url');
 
 function parseArgs(argv) {
   const args = {
@@ -48,20 +48,13 @@ function normalizeKey(key) {
     .toLowerCase();
 }
 
-function safeJson(value) {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
 function extractRecords(payload) {
   const collected = [];
   const visited = new Set();
 
   const visit = (value) => {
     if (value == null || collected.length > 500) return;
+
     if (typeof value === 'string') {
       const trimmed = value.trim();
       if (
@@ -76,6 +69,7 @@ function extractRecords(payload) {
       }
       return;
     }
+
     if (typeof value !== 'object' || visited.has(value)) return;
     visited.add(value);
 
@@ -84,42 +78,16 @@ function extractRecords(payload) {
       return;
     }
 
-    const record = value;
-    const keys = Object.keys(record).map(normalizeKey);
+    const keys = Object.keys(value).map(normalizeKey);
     if (keys.includes(normalizeKey('CurrencyID')) || keys.includes(normalizeKey('AccountNo'))) {
-      collected.push(record);
+      collected.push(value);
     }
 
-    Object.values(record).forEach(visit);
+    Object.values(value).forEach(visit);
   };
 
   visit(payload);
   return collected;
-}
-
-function signatureForAccount(account) {
-  const omit = new Set([
-    'AccountNo',
-    'CustomerID',
-    'Name',
-    'Name2',
-    'QrCode',
-    'QrCodeBase64',
-  ].map(normalizeKey));
-
-  const entries = Object.entries(account)
-    .filter(([key, value]) => !omit.has(normalizeKey(key)) && value !== undefined)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => [key, value === null ? '__null__' : value]);
-
-  return JSON.stringify(entries);
-}
-
-function accountLabel(account) {
-  const name = account.Name || account.accountName || account.AccountName || 'unknown';
-  const customerId = account.CustomerID ?? account.customer_id ?? 'n/a';
-  const accountNo = account.AccountNo ?? account.accountNo ?? 'n/a';
-  return `${customerId} | ${accountNo} | ${name}`;
 }
 
 function uniqAccounts(items) {
@@ -132,6 +100,19 @@ function uniqAccounts(items) {
     result.push(item);
   }
   return result;
+}
+
+function signatureForAccount(account) {
+  const omit = new Set(
+    ['AccountNo', 'CustomerID', 'Name', 'Name2', 'QrCode', 'QrCodeBase64'].map(normalizeKey),
+  );
+
+  const entries = Object.entries(account)
+    .filter(([key, value]) => !omit.has(normalizeKey(key)) && value !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => [key, value === null ? '__null__' : value]);
+
+  return JSON.stringify(entries);
 }
 
 function buildPhoneCandidates(phone) {
@@ -149,23 +130,114 @@ function buildPhoneCandidates(phone) {
   return [...out].filter(Boolean);
 }
 
-async function loginBackend(http, backendUrl, adminLogin, adminPassword) {
-  const response = await http.post(`${backendUrl}/admin-management/auth/login`, {
-    email: adminLogin,
-    password: adminPassword,
-  });
-  return response.data.accessToken;
+function cookiesFromHeader(setCookieHeader) {
+  const header = Array.isArray(setCookieHeader) ? setCookieHeader : setCookieHeader ? [setCookieHeader] : [];
+  return header
+    .map((cookie) => String(cookie).split(';')[0])
+    .filter(Boolean);
 }
 
-async function loadAllUsers(http, backendUrl, token, limit) {
+function mergeCookies(cookieList) {
+  return [...new Set(cookieList.filter(Boolean))].join('; ');
+}
+
+function requestRaw(urlString, options = {}) {
+  const {
+    method = 'GET',
+    headers = {},
+    body = null,
+    timeout = 30000,
+    rejectUnauthorized = false,
+  } = options;
+
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlString);
+    const transport = url.protocol === 'https:' ? https : http;
+    const payload =
+      body == null
+        ? null
+        : Buffer.isBuffer(body)
+          ? body
+          : typeof body === 'string'
+            ? Buffer.from(body)
+            : Buffer.from(JSON.stringify(body));
+
+    const req = transport.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: `${url.pathname}${url.search}`,
+        method,
+        headers: {
+          ...headers,
+          ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+        },
+        rejectUnauthorized,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            status: res.statusCode || 0,
+            headers: res.headers,
+            text,
+          });
+        });
+      },
+    );
+
+    req.on('error', reject);
+    req.setTimeout(timeout, () => req.destroy(new Error(`Request timeout after ${timeout}ms`)));
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+async function requestText(url, options = {}) {
+  const response = await requestRaw(url, options);
+  return response;
+}
+
+async function requestJson(url, options = {}) {
+  const response = await requestRaw(url, options);
+  let data = null;
+  if (response.text) {
+    try {
+      data = JSON.parse(response.text);
+    } catch {
+      data = response.text;
+    }
+  }
+  return { ...response, data };
+}
+
+async function loginBackend(backendUrl, adminLogin, adminPassword) {
+  const response = await requestJson(`${backendUrl}/admin-management/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: adminLogin, password: adminPassword }),
+  });
+
+  const token = response.data && response.data.accessToken;
+  if (!token) {
+    throw new Error(`Backend login failed: ${response.text.slice(0, 300)}`);
+  }
+  return token;
+}
+
+async function loadAllUsers(backendUrl, token, limit) {
   const items = [];
   let offset = 0;
   let total = Number.POSITIVE_INFINITY;
+
   while (offset < total) {
-    const response = await http.get(
-      `${backendUrl}/user-management?offset=${offset}&limit=${limit}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
+    const response = await requestJson(`${backendUrl}/user-management?offset=${offset}&limit=${limit}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
     const data = response.data || {};
     const pageItems = Array.isArray(data.items) ? data.items : [];
     items.push(...pageItems);
@@ -173,30 +245,34 @@ async function loadAllUsers(http, backendUrl, token, limit) {
     if (pageItems.length < limit) break;
     offset += limit;
   }
+
   return items;
 }
 
-async function loginBrics(http, bricsRoot, adminLogin, adminPassword) {
-  const loginPage = await http.get(`${bricsRoot}/InternetBanking/Account/Login`, {
-    responseType: 'text',
+async function loginBrics(bricsRoot, adminLogin, adminPassword) {
+  const loginPage = await requestText(`${bricsRoot}/InternetBanking/Account/Login`, {
+    method: 'GET',
+    timeout: 30000,
+    rejectUnauthorized: false,
   });
-  const loginHtml = String(loginPage.data || '');
-  const $ = cheerio.load(loginHtml);
+
+  const loginHtml = String(loginPage.text || '');
   const token =
-    $('input[name="__RequestVerificationToken"]').val() ||
-    $('input[type="hidden"][name*="RequestVerificationToken"]').val() ||
-    loginHtml.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/i)?.[1];
+    loginHtml.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/i)?.[1] ||
+    loginHtml.match(/name="__RequestVerificationToken"[\s\S]*?value="([^"]+)"/i)?.[1];
+
   if (!token) {
-    throw new Error(
-      `BRICS token not found on login page. Snippet=${loginHtml.slice(0, 300).replace(/\s+/g, ' ')}`,
-    );
+    throw new Error(`BRICS token not found on login page. Snippet=${loginHtml.slice(0, 300).replace(/\s+/g, ' ')}`);
   }
+
+  const pageCookies = cookiesFromHeader(loginPage.headers['set-cookie']);
   const body = new URLSearchParams();
   body.append('__RequestVerificationToken', token);
   body.append('UserName', adminLogin);
   body.append('Password', adminPassword);
 
-  const response = await http.post(`${bricsRoot}/InternetBanking/Account/Login`, body, {
+  const response = await requestText(`${bricsRoot}/InternetBanking/Account/Login`, {
+    method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'User-Agent':
@@ -205,15 +281,15 @@ async function loginBrics(http, bricsRoot, adminLogin, adminPassword) {
         'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
       Referer: `${bricsRoot}/InternetBanking/Account/Login?ReturnUrl=%2FInternetBanking`,
       Origin: bricsRoot,
+      Cookie: mergeCookies(pageCookies),
     },
-    maxRedirects: 0,
-    validateStatus: (status) => status >= 200 && status < 400,
-    responseType: 'text',
+    body,
+    timeout: 30000,
+    rejectUnauthorized: false,
   });
 
-  const cookies = (response.headers['set-cookie'] || [])
-    .map((cookie) => cookie.split(';')[0])
-    .join('; ');
+  const postCookies = cookiesFromHeader(response.headers['set-cookie']);
+  const cookies = mergeCookies([...pageCookies, ...postCookies]);
 
   if (!cookies) {
     throw new Error('BRICS cookies were not returned after login');
@@ -222,20 +298,21 @@ async function loginBrics(http, bricsRoot, adminLogin, adminPassword) {
   return cookies;
 }
 
-async function fetchSomAccountsByPhone(http, bricsRoot, cookies, phone) {
+async function fetchSomAccountsByPhone(bricsRoot, cookies, phone) {
   const candidates = buildPhoneCandidates(phone);
   for (const candidate of candidates) {
-    const response = await http.post(
+    const response = await requestJson(
       `${bricsRoot}/InternetBanking/ru-RU/Reference/GetAccountsByAccountNoOrPhone`,
-      { account: candidate },
       {
+        method: 'POST',
         headers: {
           Cookie: cookies,
           Accept: 'application/json, text/javascript, */*; q=0.01',
           'Content-Type': 'application/json',
           'X-Requested-With': 'XMLHttpRequest',
         },
-        responseType: 'json',
+        body: JSON.stringify({ account: candidate }),
+        rejectUnauthorized: false,
       },
     );
 
@@ -268,19 +345,20 @@ async function fetchSomAccountsByPhone(http, bricsRoot, cookies, phone) {
   return [];
 }
 
-async function probeInternalTransactionPage(http, bricsRoot, cookies, accountNo) {
-  const response = await http.get(
+async function probeInternalTransactionPage(bricsRoot, cookies, accountNo) {
+  const response = await requestText(
     `${bricsRoot}/InternetBanking/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${encodeURIComponent(accountNo)}&CurrencyID=417`,
     {
+      method: 'GET',
       headers: {
         Cookie: cookies,
         Accept: 'text/html',
       },
-      responseType: 'text',
+      rejectUnauthorized: false,
     },
   );
 
-  const body = String(response.data || '');
+  const body = String(response.text || '');
   return {
     status: response.status,
     ok: body.includes('vmInternalTransaction') || body.includes('template-page'),
@@ -295,27 +373,21 @@ async function main() {
   const adminLogin = requireValue('ADMIN_LOGIN', args.adminLogin);
   const adminPassword = requireValue('ADMIN_PASSWORD', args.adminPassword);
 
-  const http = axios.create({
-    timeout: 30000,
-    httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-    validateStatus: (status) => status >= 200 && status < 500,
-  });
-
   console.log('[1/4] login backend');
-  const backendToken = await loginBackend(http, backendUrl, adminLogin, adminPassword);
+  const backendToken = await loginBackend(backendUrl, adminLogin, adminPassword);
 
   console.log('[2/4] load users');
-  const users = await loadAllUsers(http, backendUrl, backendToken, args.limit);
+  const users = await loadAllUsers(backendUrl, backendToken, args.limit);
   const phoneUsers = users.filter((user) => String(user.phone || '').trim().length > 0);
   console.log(`users=${users.length} phoneUsers=${phoneUsers.length}`);
 
   console.log('[3/4] login brics');
-  const cookies = await loginBrics(http, bricsRoot, adminLogin, adminPassword);
+  const cookies = await loginBrics(bricsRoot, adminLogin, adminPassword);
 
   console.log('[4/4] scan SOM accounts');
   const accounts = [];
   for (const user of phoneUsers) {
-    const somAccounts = await fetchSomAccountsByPhone(http, bricsRoot, cookies, user.phone);
+    const somAccounts = await fetchSomAccountsByPhone(bricsRoot, cookies, user.phone);
     for (const account of somAccounts) {
       accounts.push({
         customer_id: user.customer_id,
@@ -344,7 +416,7 @@ async function main() {
     console.log(`signature=${signatureForAccount(group[0])}`);
     for (const account of group) {
       const probe = args.probePage
-        ? await probeInternalTransactionPage(http, bricsRoot, cookies, account.AccountNo)
+        ? await probeInternalTransactionPage(bricsRoot, cookies, account.AccountNo)
         : null;
       console.log(
         [
@@ -365,9 +437,7 @@ async function main() {
       for (let j = i + 1; j < group.length; j += 1) {
         const a = group[i];
         const b = group[j];
-        console.log(
-          `PAIR: ${a.AccountNo} (${a.customer_id}) <-> ${b.AccountNo} (${b.customer_id})`,
-        );
+        console.log(`PAIR: ${a.AccountNo} (${a.customer_id}) <-> ${b.AccountNo} (${b.customer_id})`);
       }
     }
   }
