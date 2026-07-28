@@ -7,6 +7,7 @@ function parseArgs(argv) {
   const args = {
     backendUrl: process.env.BACKEND_URL || 'http://127.0.0.1:8000',
     bricsRoot: process.env.BRICS_API_ROOT,
+    bricsRoots: process.env.BRICS_API_ROOTS,
     integrationRoot: process.env.INTEGRATION_API_ROOT,
     integrationRoots: process.env.INTEGRATION_API_ROOTS,
     backendAdminEmail: process.env.BACKEND_ADMIN_EMAIL || process.env.ADMIN_EMAIL,
@@ -31,6 +32,7 @@ function parseArgs(argv) {
     if (!rawValue) continue;
     if (key === '--backend-url') args.backendUrl = rawValue;
     if (key === '--brics-root') args.bricsRoot = rawValue;
+    if (key === '--brics-roots') args.bricsRoots = rawValue;
     if (key === '--integration-root') args.integrationRoot = rawValue;
     if (key === '--integration-roots') args.integrationRoots = rawValue;
     if (key === '--backend-admin-email') args.backendAdminEmail = rawValue;
@@ -187,6 +189,22 @@ function parseIntegrationRoots(argsIntegrationRoot, argsIntegrationRoots, bricsR
   }
   const derived = deriveIntegrationRoot(bricsRoot);
   if (derived) roots.push(derived);
+  return uniqueStrings(roots);
+}
+
+function parseBricsRoots(argsBricsRoot, argsBricsRoots) {
+  const roots = [];
+  if (argsBricsRoots) {
+    roots.push(
+      ...String(argsBricsRoots)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+  }
+  if (argsBricsRoot) {
+    roots.push(argsBricsRoot);
+  }
   return uniqueStrings(roots);
 }
 
@@ -538,11 +556,13 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const backendUrl = args.backendUrl.replace(/\/+$/, '');
   const bricsRoot = requireValue('BRICS_API_ROOT', args.bricsRoot).replace(/\/+$/, '');
+  const bricsRoots = parseBricsRoots(args.bricsRoot, args.bricsRoots).map((root) => root.replace(/\/+$/, ''));
   const integrationRoots = parseIntegrationRoots(
     args.integrationRoot,
     args.integrationRoots,
     bricsRoot,
   ).map((root) => root.replace(/\/+$/, ''));
+  const phoneLookupRoots = uniqueStrings([...bricsRoots, ...integrationRoots]).map((root) => root.replace(/\/+$/, ''));
   const backendAdminEmail =
     args.backendAdminEmail && isEmail(args.backendAdminEmail)
       ? args.backendAdminEmail
@@ -564,7 +584,7 @@ async function main() {
 
   console.log('[4/4] scan SOM accounts');
   console.log(
-    `[som-scan] roots bricsRoot=${bricsRoot} integrationRoots=${integrationRoots.join(',') || 'none'} backendUrl=${backendUrl}`,
+    `[som-scan] roots bricsRoot=${bricsRoot} bricsRoots=${bricsRoots.join(',') || 'none'} integrationRoots=${integrationRoots.join(',') || 'none'} backendUrl=${backendUrl}`,
   );
   const accounts = [];
   for (const user of phoneUsers) {
@@ -583,7 +603,13 @@ async function main() {
       }
     }
     if (somAccounts.length === 0) {
-      somAccounts = await fetchSomAccountsByPhone(bricsRoot, cookies, user.phone);
+      for (const phoneRoot of phoneLookupRoots) {
+        somAccounts = await fetchSomAccountsByPhone(phoneRoot, cookies, user.phone);
+        if (somAccounts.length > 0) {
+          matchedIntegrationRoot = `phone:${phoneRoot}`;
+          break;
+        }
+      }
     }
     if (matchedIntegrationRoot) {
       console.log(
