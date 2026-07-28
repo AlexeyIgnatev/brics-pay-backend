@@ -364,11 +364,12 @@ async function loginBrics(bricsRoot, adminLogin, adminPassword) {
 }
 
 async function fetchSomAccountsByCustomerId(integrationRoot, customerId) {
+  const url = buildIntegrationUrl(
+    integrationRoot,
+    `/api/Deposits/GetCurrentAccounts?customerID=${encodeURIComponent(customerId)}`,
+  );
   const response = await requestJson(
-    buildIntegrationUrl(
-      integrationRoot,
-      `/api/Deposits/GetCurrentAccounts?customerID=${encodeURIComponent(customerId)}`,
-    ),
+    url,
     {
       method: 'GET',
       rejectUnauthorized: false,
@@ -379,6 +380,7 @@ async function fetchSomAccountsByCustomerId(integrationRoot, customerId) {
   const records = extractRecords(shape.rawResult);
   console.log(
     [
+      `[som-lookup][customer] url=${url}`,
       `[som-lookup][customer] customer=${customerId}`,
       `status=${response.status}`,
       `responseType=${shape.responseType}`,
@@ -417,11 +419,12 @@ async function fetchSomAccountsByCustomerId(integrationRoot, customerId) {
 async function fetchSomAccountsByPhone(bricsRoot, cookies, phone) {
   const candidates = buildPhoneCandidates(phone);
   for (const candidate of candidates) {
+    const url = buildBricsUrl(
+      bricsRoot,
+      '/ru-RU/Reference/GetAccountsByAccountNoOrPhone',
+    );
     const response = await requestJson(
-      buildBricsUrl(
-        bricsRoot,
-        '/ru-RU/Reference/GetAccountsByAccountNoOrPhone',
-      ),
+      url,
       {
         method: 'POST',
         headers: {
@@ -462,6 +465,7 @@ async function fetchSomAccountsByPhone(bricsRoot, cookies, phone) {
 
     console.log(
       [
+        `[som-lookup][phone] url=${url}`,
         `[som-lookup][phone] phone=${phone}`,
         `candidate=${candidate}`,
         `status=${response.status}`,
@@ -531,6 +535,9 @@ async function main() {
   const cookies = await loginBrics(bricsRoot, bricsAdminLogin, bricsAdminPassword);
 
   console.log('[4/4] scan SOM accounts');
+  console.log(
+    `[som-scan] roots bricsRoot=${bricsRoot} integrationRoot=${integrationRoot} backendUrl=${backendUrl}`,
+  );
   const accounts = [];
   for (const user of phoneUsers) {
     console.log(
