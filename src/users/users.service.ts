@@ -361,16 +361,27 @@ export class UsersService implements OnApplicationBootstrap {
       usd_sell_rate: '1',
     };
 
-    const [somLiveResult, esomBalanceResult, settingsResult] =
+    const [somAccountResult, esomBalanceResult, settingsResult, localSomResult] =
       await Promise.allSettled([
-        this.bricsService.getSomBalance(),
+        this.bricsService.resolveCustomerSomAccount(
+          String(user.customer_id),
+          user.phone ?? userInfo.phone,
+        ),
         this.ethereumService.getEsomBalance(user.address),
         this.settingsService.get(),
+        this.prisma.userAssetBalance.findUnique({
+          where: {
+            customer_id_asset: {
+              customer_id: user.customer_id,
+              asset: 'SOM' as Asset,
+            },
+          },
+        }),
       ]);
 
-    if (somLiveResult.status === 'rejected') {
+    if (somAccountResult.status === 'rejected') {
       console.warn(
-        `Failed to fetch SOM balance for customer=${user.customer_id}: ${somLiveResult.reason}`,
+        `Failed to resolve SOM account for customer=${user.customer_id}: ${somAccountResult.reason}`,
       );
     }
     if (esomBalanceResult.status === 'rejected') {
@@ -384,7 +395,11 @@ export class UsersService implements OnApplicationBootstrap {
       );
     }
     const somLive =
-      somLiveResult.status === 'fulfilled' ? somLiveResult.value : 0;
+      somAccountResult.status === 'fulfilled'
+        ? Number(somAccountResult.value.Balance ?? 0)
+        : Number(localSomResult.status === 'fulfilled'
+              ? localSomResult.value?.balance ?? 0
+              : 0);
     const esomBalance =
       esomBalanceResult.status === 'fulfilled' ? esomBalanceResult.value : 0;
     const settings =
@@ -442,7 +457,10 @@ export class UsersService implements OnApplicationBootstrap {
     return [
       {
         currency: Currency.SOM,
-        address: userInfo.phone,
+        address:
+          somAccountResult.status === 'fulfilled'
+            ? somAccountResult.value.AccountNo
+            : userInfo.phone,
         balance: somLive,
         buy_rate: 1.0,
         sell_rate: 1.0,

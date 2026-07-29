@@ -3410,10 +3410,21 @@ export class PaymentsService {
       );
     }
 
-    const senderAccount = await this.bricsService.getAccount();
+    const senderAccount = await this.bricsService.resolveCustomerSomAccount(
+      String(customer.customer_id),
+      customer.phone ?? undefined,
+    );
     if (!senderAccount?.AccountNo) {
       throw new BadRequestException(
         `Sender SOM account not found for customer ${customer.customer_id}`,
+      );
+    }
+    if (
+      String(senderAccount.CustomerID) === String(bricsRecipient.CustomerID) ||
+      senderAccount.AccountNo.trim() === bricsRecipient.AccountNo.trim()
+    ) {
+      throw new BadRequestException(
+        'Sender and recipient SOM accounts must be different',
       );
     }
     this.logger.verbose(
