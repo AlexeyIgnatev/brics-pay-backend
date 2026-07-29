@@ -256,43 +256,6 @@ export class BricsService {
     return collected;
   }
 
-  private async sendCreateTransferRequest(
-    token: string,
-    transactionBody: {
-      InternalOperationType: number;
-      OperationID: number;
-      DtAccountNo: string;
-      CtAccountNo: string;
-      CurrencyID: number;
-      Sum: number;
-      Comment: string;
-      IsTemplate: boolean;
-      Schedule: null;
-    },
-  ) {
-    this.logger.verbose('Send createTransfer request', transactionBody);
-
-    const response = await this.axiosInstance.post(
-      this.buildBricsUrl('/ru-RU/Accounts/InternalTransaction'),
-      transactionBody,
-      {
-        withCredentials: true,
-        headers: {
-          __requestverificationtoken: token,
-          Cookie: this.getCookieHeader(),
-        },
-      },
-    );
-
-    this.updateCookies(response.headers['set-cookie']);
-
-    this.logger.verbose(
-      `Received createTransfer response ${response.status} ${JSON.stringify(response.data)}`,
-    );
-
-    return response;
-  }
-
   private buildBricsUrl(path: string): string {
     const normalizedRoot = this.BRICS_API_ROOT.replace(/\/+$/, '');
     const rootWithInternetBanking = /\/InternetBanking$/i.test(normalizedRoot)
@@ -300,6 +263,15 @@ export class BricsService {
       : `${normalizedRoot}/InternetBanking`;
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
     return `${rootWithInternetBanking}${normalizedPath}`;
+  }
+
+  private buildIntegrationUrl(path: string): string {
+    const normalizedRoot = this.INTEGRATION_API_ROOT.replace(/\/+$/, '');
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    if (/\/OnlineBank\.IntegrationService$/i.test(normalizedRoot)) {
+      return `${normalizedRoot}${normalizedPath}`;
+    }
+    return `${normalizedRoot}/OnlineBank.IntegrationService${normalizedPath}`;
   }
 
   private async getRequestVerificationToken(html: string): Promise<string> {
@@ -809,42 +781,24 @@ export class BricsService {
   }
 
   async initTransactionScreen(accountNo: string): Promise<string> {
-    try {
-      this.logger.verbose(`Send initTransactionScreen request ${accountNo}`);
-      const response = await this.axiosInstance.get(
-        this.buildBricsUrl(
-          `/ru-RU/Accounts/InternalTransaction?Mode=Create&OperationType=InternalOperation&AccountNo=${accountNo}&CurrencyID=417`,
-        ),
-        {
-          withCredentials: true,
-          headers: {
-            Cookie: this.getCookieHeader(),
-          },
-        },
-      );
-      this.updateCookies(response.headers['set-cookie']);
-      this.logger.verbose(
-        `Received initTransactionScreen response ${response.status}`,
-      );
-
-      const pageAlert = this.extractBricsPageAlert(response.data);
-      if (pageAlert) {
-        throw new BadRequestException(
-          `ABS prepare transfer failed: ${pageAlert}`,
-        );
-      }
-
-      return this.getTransactionToken(response.data);
-    } catch (error) {
-      this.throwBricsRequestError('prepare transfer', error);
-      throw error;
-    }
+    return accountNo;
   }
 
   async ensureTransferSourceAccountAccessible(
     accountNo: string,
   ): Promise<void> {
-    await this.initTransactionScreen(accountNo);
+    const currentAccount = await this.getAccount();
+    if (!currentAccount?.AccountNo) {
+      throw new BadRequestException(
+        `ABS source account is not available for current session`,
+      );
+    }
+
+    if (currentAccount.AccountNo.trim() !== accountNo.trim()) {
+      throw new BadRequestException(
+        `ABS source account ${accountNo} is not accessible in current session`,
+      );
+    }
   }
 
   async createTransactionCryptoToFiat(
@@ -937,54 +891,51 @@ export class BricsService {
     comment: string,
   ): Promise<number> {
     try {
-      const token = await this.initTransactionScreen(fromAccount);
+      const transactionID = Number(Date.now());
+      const operationUrl = this.buildIntegrationUrl(
+        '/api/Transactions/Operation',
+      );
+      this.logger.verbose(
+        `[som-transfer] start transactionID=${transactionID} from=${fromAccount} to=${toAccount} amount=${amount} url=${operationUrl}`,
+      );
 
-      const transactionBody = {
-        InternalOperationType: 1,
-        OperationID: 0,
-        DtAccountNo: fromAccount,
-        CtAccountNo: toAccount,
-        CurrencyID: 417,
-        Sum: amount,
-        Comment: comment,
-        IsTemplate: false,
-        Schedule: null,
-      };
+      const response = await this.axiosInstance.get(operationUrl, {
+        params: {
+          transactionID,
+          dtCurrencyID: 417,
+          dtAccountNo: fromAccount,
+          ctCurrencyID: 417,
+          ctAccountNo: toAccount,
+          comment,
+          amount,
+        },
+        withCredentials: false,
+        headers: {
+          Accept: 'application/json, text/json, */*',
+        },
+      });
 
-      let response;
-      try {
-        response = await this.sendCreateTransferRequest(token, transactionBody);
-      } catch (error) {
-        const extractedMessage = axios.isAxiosError(error)
-          ? this.extractBricsErrorMessage(error.response?.data)
-          : null;
-        const shouldRetryWithSafeComment =
-          axios.isAxiosError(error) &&
-          error.response?.status === 500 &&
-          this.isInvalidUri1023Error(extractedMessage);
+      const payload = response.data as
+        | { State?: unknown; Message?: unknown; MessageCode?: unknown }
+        | undefined;
+      const state =
+        payload && typeof payload.State !== 'undefined'
+          ? Number(payload.State)
+          : 0;
+      const message = String(payload?.Message ?? '');
+      const messageCode = String(payload?.MessageCode ?? '');
 
-        if (!shouldRetryWithSafeComment) {
-          throw error;
-        }
+      this.logger.verbose(
+        `[som-transfer] response transactionID=${transactionID} status=${response.status} state=${state} message=${message || 'none'} messageCode=${messageCode || 'none'}`,
+      );
 
-        const fallbackComment = this.buildSafeAsciiComment(comment);
-        this.logger.warn(
-          `ABS create transfer failed with 1023 Invalid URI, retrying with safe comment. originalComment="${comment}" fallbackComment="${fallbackComment}"`,
+      if (response.status >= 400 || (Number.isFinite(state) && state !== 0)) {
+        throw new BadRequestException(
+          `SOM transfer failed: ${message || messageCode || `HTTP ${response.status}`}`,
         );
-
-        response = await this.sendCreateTransferRequest(token, {
-          ...transactionBody,
-          Comment: fallbackComment,
-        });
       }
 
-      const operationId = response.data.operationID;
-      this.logger.log('Operation ID:', operationId);
-
-      await this.confirmLoad(operationId);
-      await this.confirmFinal(operationId);
-
-      return operationId;
+      return transactionID;
     } catch (error) {
       this.throwBricsRequestError('create transfer', error);
       throw error;
