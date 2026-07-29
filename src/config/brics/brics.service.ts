@@ -274,6 +274,15 @@ export class BricsService {
     return `${normalizedRoot}/OnlineBank.IntegrationService${normalizedPath}`;
   }
 
+  private buildSomOperationUrl(path: string): string {
+    const normalizedRoot = this.BRICS_API_ROOT.replace(/\/+$/, '');
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    if (/\/OnlineBank\.IntegrationService$/i.test(normalizedRoot)) {
+      return `${normalizedRoot}${normalizedPath}`;
+    }
+    return `${normalizedRoot}/OnlineBank.IntegrationService${normalizedPath}`;
+  }
+
   private async getRequestVerificationToken(html: string): Promise<string> {
     const $ = cheerio.load(html);
     const token = $('input[name="__RequestVerificationToken"]').val();
@@ -892,7 +901,7 @@ export class BricsService {
   ): Promise<number> {
     try {
       const transactionID = Number(Date.now());
-      const operationUrl = this.buildIntegrationUrl(
+      const operationUrl = this.buildSomOperationUrl(
         '/api/Transactions/Operation',
       );
       const now = new Date();
