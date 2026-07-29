@@ -394,12 +394,15 @@ export class UsersService implements OnApplicationBootstrap {
         `Failed to fetch settings for customer=${user.customer_id}: ${settingsResult.reason}`,
       );
     }
-    const somLive =
+    const localSomBalance =
+      localSomResult.status === 'fulfilled' && localSomResult.value
+        ? Number(localSomResult.value.balance ?? 0)
+        : null;
+    const bricsSomBalance =
       somAccountResult.status === 'fulfilled'
         ? Number(somAccountResult.value.Balance ?? 0)
-        : Number(localSomResult.status === 'fulfilled'
-              ? localSomResult.value?.balance ?? 0
-              : 0);
+        : null;
+    const somLive = localSomBalance ?? bricsSomBalance ?? 0;
     const esomBalance =
       esomBalanceResult.status === 'fulfilled' ? esomBalanceResult.value : 0;
     const settings =
