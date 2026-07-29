@@ -3470,51 +3470,61 @@ export class PaymentsService {
     if (!bricsTransaction) {
       throw new BadRequestException('Brics transaction failed');
     }
-    const createdTransaction = await this.prisma.transaction.create({
-      data: {
-        kind: TransactionKind.BANK_TO_BANK,
-        status: TransactionStatus.SUCCESS,
-        amount_in: transferDto.amount.toString(),
-        asset_in: 'SOM',
-        amount_out: transferDto.amount.toString(),
-        asset_out: 'SOM',
-        bank_op_id: bricsTransaction,
-        sender_customer_id: customer.customer_id,
-        receiver_customer_id: bricsRecipient.CustomerID,
-        comment: `SOM transfer (${transactionRef})`,
-      },
-    });
 
-    await this.prisma.userAssetBalance.upsert({
-      where: {
-        customer_id_asset: {
+    let createdTransactionId: number | null = null;
+    try {
+      const createdTransaction = await this.prisma.transaction.create({
+        data: {
+          kind: TransactionKind.BANK_TO_BANK,
+          status: TransactionStatus.SUCCESS,
+          amount_in: transferDto.amount.toString(),
+          asset_in: 'SOM',
+          amount_out: transferDto.amount.toString(),
+          asset_out: 'SOM',
+          bank_op_id: bricsTransaction,
+          sender_customer_id: customer.customer_id,
+          receiver_customer_id: bricsRecipient.CustomerID,
+          comment: `SOM transfer (${transactionRef})`,
+        },
+      });
+      createdTransactionId = createdTransaction.id;
+
+      await this.prisma.userAssetBalance.upsert({
+        where: {
+          customer_id_asset: {
+            customer_id: customer.customer_id,
+            asset: 'SOM' as Asset,
+          },
+        },
+        create: {
           customer_id: customer.customer_id,
           asset: 'SOM' as Asset,
+          balance: (-transferDto.amount).toString(),
         },
-      },
-      create: {
-        customer_id: customer.customer_id,
-        asset: 'SOM' as Asset,
-        balance: (-transferDto.amount).toString(),
-      },
-      update: { balance: { decrement: transferDto.amount.toString() } },
-    });
-    await this.prisma.userAssetBalance.upsert({
-      where: {
-        customer_id_asset: {
+        update: { balance: { decrement: transferDto.amount.toString() } },
+      });
+      await this.prisma.userAssetBalance.upsert({
+        where: {
+          customer_id_asset: {
+            customer_id: bricsRecipient.CustomerID,
+            asset: 'SOM' as Asset,
+          },
+        },
+        create: {
           customer_id: bricsRecipient.CustomerID,
           asset: 'SOM' as Asset,
+          balance: transferDto.amount.toString(),
         },
-      },
-      create: {
-        customer_id: bricsRecipient.CustomerID,
-        asset: 'SOM' as Asset,
-        balance: transferDto.amount.toString(),
-      },
-      update: { balance: { increment: transferDto.amount.toString() } },
-    });
+        update: { balance: { increment: transferDto.amount.toString() } },
+      });
+    } catch (error) {
+      this.logger.error(
+        `[transferSom] local persistence failed after ABS success transactionRef=${transactionRef} bricsTransaction=${bricsTransaction}: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
 
-    return new StatusOKDto(createdTransaction.id);
+    return new StatusOKDto(createdTransactionId ?? bricsTransaction);
   }
 
   private async transferCryptoByPhone(

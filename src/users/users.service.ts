@@ -426,20 +426,26 @@ export class UsersService implements OnApplicationBootstrap {
       return Number(row?.percent_fee ?? 0) / 100;
     };
 
-    await this.prisma.userAssetBalance.upsert({
-      where: {
-        customer_id_asset: {
+    try {
+      await this.prisma.userAssetBalance.upsert({
+        where: {
+          customer_id_asset: {
+            customer_id: user.customer_id,
+            asset: 'SOM' as Asset,
+          },
+        },
+        create: {
           customer_id: user.customer_id,
           asset: 'SOM' as Asset,
+          balance: somLive.toString(),
         },
-      },
-      create: {
-        customer_id: user.customer_id,
-        asset: 'SOM' as Asset,
-        balance: somLive.toString(),
-      },
-      update: { balance: somLive.toString() },
-    });
+        update: { balance: somLive.toString() },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[getUserWallets] SOM balance sync failed for customer=${user.customer_id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     const usdBuyRate = Number(settings.usd_buy_rate ?? settings.esom_per_usd);
     const usdSellRate = Number(settings.usd_sell_rate ?? settings.esom_per_usd);
