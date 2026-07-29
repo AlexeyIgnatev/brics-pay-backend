@@ -895,8 +895,14 @@ export class BricsService {
       const operationUrl = this.buildIntegrationUrl(
         '/api/Transactions/Operation',
       );
+      const now = new Date();
+      const bishkekNow = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Asia/Bishkek',
+        dateStyle: 'short',
+        timeStyle: 'medium',
+      }).format(now);
       this.logger.verbose(
-        `[som-transfer] start transactionID=${transactionID} from=${fromAccount} to=${toAccount} amount=${amount} url=${operationUrl}`,
+        `[som-transfer] start transactionID=${transactionID} from=${fromAccount} to=${toAccount} amount=${amount} url=${operationUrl} localNow=${now.toISOString()} bishkekNow=${bishkekNow}`,
       );
 
       const response = await this.axiosInstance.get(operationUrl, {
@@ -924,9 +930,10 @@ export class BricsService {
           : 0;
       const message = String(payload?.Message ?? '');
       const messageCode = String(payload?.MessageCode ?? '');
+      const responseDate = String(response.headers?.date ?? 'n/a');
 
       this.logger.verbose(
-        `[som-transfer] response transactionID=${transactionID} status=${response.status} state=${state} message=${message || 'none'} messageCode=${messageCode || 'none'}`,
+        `[som-transfer] response transactionID=${transactionID} status=${response.status} state=${state} message=${message || 'none'} messageCode=${messageCode || 'none'} responseDate=${responseDate}`,
       );
 
       if (response.status >= 400 || (Number.isFinite(state) && state !== 0)) {
