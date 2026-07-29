@@ -3481,6 +3481,7 @@ export class PaymentsService {
           asset_in: 'SOM',
           amount_out: transferDto.amount.toString(),
           asset_out: 'SOM',
+          bank_op_id: bricsTransaction,
           sender_customer_id: customer.customer_id,
           receiver_customer_id: bricsRecipient.CustomerID,
           comment: `SOM transfer (${transactionRef})`,

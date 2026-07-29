@@ -940,9 +940,11 @@ export class BricsService {
       const message = String(payload?.Message ?? '');
       const messageCode = String(payload?.MessageCode ?? '');
       const responseDate = String(response.headers?.date ?? 'n/a');
+      const postingMatch = message.match(/номер проводки\s*-\s*(\d+)/i);
+      const postingId = postingMatch ? Number(postingMatch[1]) : null;
 
       this.logger.verbose(
-        `[som-transfer] response transactionID=${transactionID} status=${response.status} state=${state} message=${message || 'none'} messageCode=${messageCode || 'none'} responseDate=${responseDate}`,
+        `[som-transfer] response transactionID=${transactionID} postingId=${postingId ?? 'n/a'} status=${response.status} state=${state} message=${message || 'none'} messageCode=${messageCode || 'none'} responseDate=${responseDate}`,
       );
 
       if (response.status >= 400 || (Number.isFinite(state) && state !== 0)) {
@@ -951,7 +953,7 @@ export class BricsService {
         );
       }
 
-      return transactionID;
+      return postingId && Number.isFinite(postingId) ? postingId : transactionID;
     } catch (error) {
       this.throwBricsRequestError('create transfer', error);
       throw error;
