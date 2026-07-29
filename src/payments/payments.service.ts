@@ -3410,6 +3410,20 @@ export class PaymentsService {
       );
     }
 
+    let recipient = await this.prisma.customer.findUnique({
+      where: { customer_id: bricsRecipient.CustomerID },
+    });
+    if (!recipient) {
+      const recipientAddress = this.ethereumService.generateAddress();
+      recipient = await this.prisma.customer.create({
+        data: {
+          customer_id: bricsRecipient.CustomerID,
+          address: recipientAddress.address,
+          private_key: recipientAddress.privateKey,
+        },
+      });
+    }
+
     const senderAccount = await this.bricsService.resolveCustomerSomAccount(
       String(customer.customer_id),
       customer.phone ?? undefined,
