@@ -3488,38 +3488,69 @@ export class PaymentsService {
         },
       });
       createdTransactionId = createdTransaction.id;
-
-      await this.prisma.userAssetBalance.upsert({
-        where: {
-          customer_id_asset: {
-            customer_id: customer.customer_id,
-            asset: 'SOM' as Asset,
-          },
-        },
-        create: {
-          customer_id: customer.customer_id,
-          asset: 'SOM' as Asset,
-          balance: (-transferDto.amount).toString(),
-        },
-        update: { balance: { decrement: transferDto.amount.toString() } },
-      });
-      await this.prisma.userAssetBalance.upsert({
-        where: {
-          customer_id_asset: {
-            customer_id: bricsRecipient.CustomerID,
-            asset: 'SOM' as Asset,
-          },
-        },
-        create: {
-          customer_id: bricsRecipient.CustomerID,
-          asset: 'SOM' as Asset,
-          balance: transferDto.amount.toString(),
-        },
-        update: { balance: { increment: transferDto.amount.toString() } },
-      });
     } catch (error) {
       this.logger.error(
-        `[transferSom] local persistence failed after ABS success transactionRef=${transactionRef} bricsTransaction=${bricsTransaction}: ${error instanceof Error ? error.message : String(error)}`,
+        `[transferSom] transaction record failed after ABS success transactionRef=${transactionRef} bricsTransaction=${bricsTransaction}: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+
+    try {
+      const [freshSenderResult, freshRecipientResult] = await Promise.allSettled([
+        this.bricsService.resolveCustomerSomAccount(
+          String(customer.customer_id),
+          customer.phone ?? undefined,
+        ),
+        this.bricsService.resolveCustomerSomAccount(
+          String(bricsRecipient.CustomerID),
+        ),
+      ]);
+
+      const senderLive =
+        freshSenderResult.status === 'fulfilled'
+          ? Number(freshSenderResult.value.Balance ?? 0)
+          : null;
+      const recipientLive =
+        freshRecipientResult.status === 'fulfilled'
+          ? Number(freshRecipientResult.value.Balance ?? 0)
+          : null;
+
+      if (senderLive != null) {
+        await this.prisma.userAssetBalance.upsert({
+          where: {
+            customer_id_asset: {
+              customer_id: customer.customer_id,
+              asset: 'SOM' as Asset,
+            },
+          },
+          create: {
+            customer_id: customer.customer_id,
+            asset: 'SOM' as Asset,
+            balance: senderLive.toString(),
+          },
+          update: { balance: senderLive.toString() },
+        });
+      }
+
+      if (recipientLive != null) {
+        await this.prisma.userAssetBalance.upsert({
+          where: {
+            customer_id_asset: {
+              customer_id: bricsRecipient.CustomerID,
+              asset: 'SOM' as Asset,
+            },
+          },
+          create: {
+            customer_id: bricsRecipient.CustomerID,
+            asset: 'SOM' as Asset,
+            balance: recipientLive.toString(),
+          },
+          update: { balance: recipientLive.toString() },
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `[transferSom] SOM balance refresh failed after ABS success transactionRef=${transactionRef} bricsTransaction=${bricsTransaction}: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error.stack : undefined,
       );
     }
