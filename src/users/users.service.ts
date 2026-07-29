@@ -402,7 +402,7 @@ export class UsersService implements OnApplicationBootstrap {
       somAccountResult.status === 'fulfilled'
         ? Number(somAccountResult.value.Balance ?? 0)
         : null;
-    const somLive = localSomBalance ?? bricsSomBalance ?? 0;
+    const somLive = bricsSomBalance ?? localSomBalance ?? 0;
     const esomBalance =
       esomBalanceResult.status === 'fulfilled' ? esomBalanceResult.value : 0;
     const settings =
