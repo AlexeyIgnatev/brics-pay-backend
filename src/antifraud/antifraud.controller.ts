@@ -28,6 +28,7 @@ import {
   AntifraudCasesListResponseDto,
 } from './dto/antifraud-cases-list.dto';
 import { AntiFraudService } from './antifraud.service';
+import { UpdateAmlSettingsDto } from './dto/aml-settings.dto';
 
 @ApiTags('Антифрод')
 @ApiBearerAuth('Bearer')
@@ -35,6 +36,18 @@ import { AntiFraudService } from './antifraud.service';
 @Controller('antifraud')
 export class AntiFraudController {
   constructor(private readonly antiFraud: AntiFraudService) {}
+
+  @Get('aml-settings')
+  @ApiOperation({ summary: 'Текущие источники AML' })
+  async amlSettings() {
+    return this.antiFraud.getAmlSettings();
+  }
+
+  @Put('aml-settings')
+  @ApiOperation({ summary: 'Сохранить и загрузить источники AML' })
+  async updateAmlSettings(@Body() dto: UpdateAmlSettingsDto) {
+    return this.antiFraud.updateAmlSettings(dto);
+  }
 
   @Get('rules')
   @ApiQuery({

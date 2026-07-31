@@ -3040,6 +3040,23 @@ export class PaymentsService {
             });
           }
           if (internalRecipient) {
+            const amlDecision = await this.antiFraud.checkExternalWalletDetailed({
+              sender_wallet_address: me.address,
+              amount_in: transferDto.amount,
+              asset_in: asset,
+              sender_customer_id: me.customer_id,
+              receiver_customer_id: internalRecipient.customer_id,
+              receiver_wallet_address: internalRecipient.walletAddress,
+              comment: 'Browser wallet transfer to bank customer',
+            });
+            if (!amlDecision.allowed) {
+              throw new BadRequestException(
+                this.antiFraudRejectMessage(
+                  'EXTERNAL_WALLET_TO_BANK',
+                  amlDecision,
+                ),
+              );
+            }
             this.logger.verbose(
               `[transfer] browser wallet bridge to internal recipient customer=${internalRecipient.customer_id}`,
             );
@@ -3159,6 +3176,23 @@ export class PaymentsService {
         }
 
         if (this.isBrowserWalletCustomer(me)) {
+          const amlDecision = await this.antiFraud.checkExternalWalletDetailed({
+            sender_wallet_address: me.address,
+            amount_in: transferDto.amount,
+            asset_in: asset,
+            sender_customer_id: me.customer_id,
+            receiver_customer_id: recipient.customer_id,
+            receiver_wallet_address: recipient.address,
+            comment: 'Browser wallet transfer to bank customer by phone',
+          });
+          if (!amlDecision.allowed) {
+            throw new BadRequestException(
+              this.antiFraudRejectMessage(
+                'EXTERNAL_WALLET_TO_BANK',
+                amlDecision,
+              ),
+            );
+          }
           this.logger.verbose(
             `[transfer] sender is browser wallet by phone customer=${me.customer_id} recipient=${recipient.customer_id}`,
           );

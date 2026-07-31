@@ -199,6 +199,7 @@ enum TariffOperation {
 }
 
 enum AntiFraudRuleKey {
+  EXTERNAL_WALLET_BLOCKLIST
   FIAT_ANY_GE_1M
   ONE_TIME_GE_8M
   FREQUENT_OPS_3_30D_EACH_GE_100K
@@ -264,6 +265,12 @@ model Settings {
   min_withdraw_eth        Decimal @db.Decimal(38, 18)
   min_withdraw_usdt_trc20 Decimal @db.Decimal(38, 18)
   rates_change_reasons_json     String?
+  aml_api_url                   String?
+  aml_urls_json                 String?
+  aml_file_name                 String?
+  aml_file_rules_json           String?
+  aml_active_sources_json       String?
+  aml_blocked_wallets_json      String?
   bank_fee_posting_time_bishkek String?
   central_bank_som_account      String?
   central_bank_salam_wallet     String?

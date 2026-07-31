@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import {
   AntiFraudRuleKey,
@@ -9,6 +9,11 @@ import {
 } from '@prisma/client';
 import { SettingsService } from '../config/settings/settings.service';
 import { BybitExchangeService } from '../config/exchange/bybit.service';
+import {
+  AmlSourceType,
+  AmlWalletRuleDto,
+  UpdateAmlSettingsDto,
+} from './dto/aml-settings.dto';
 
 const ALLOWED_ASSETS = ['SOM', 'ESOM', 'USDT_TRC20'] as const;
 const CONTROL_CATEGORIES: TariffCategory[] = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'];
@@ -31,6 +36,203 @@ export interface AntiFraudDecision {
 
 @Injectable()
 export class AntiFraudService {
+  private parseJsonArray<T>(value?: string | null): T[] {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private normalizeWalletAddress(value: string): string {
+    const address = value.trim();
+    return address.startsWith('0x') ? address.toLowerCase() : address;
+  }
+
+  private normalizeWalletRules(payload: unknown, source: string): AmlWalletRuleDto[] {
+    const root = payload as any;
+    const raw = Array.isArray(root)
+      ? root
+      : Array.isArray(root?.wallets)
+        ? root.wallets
+        : Array.isArray(root?.rules)
+          ? root.rules
+          : [];
+
+    return raw
+      .map((item: any) => ({
+        address: this.normalizeWalletAddress(
+          String(item?.address ?? item?.wallet ?? item?.wallet_address ?? ''),
+        ),
+        reason: String(item?.reason ?? item?.description ?? item?.comment ?? '').trim(),
+      }))
+      .filter((item: AmlWalletRuleDto) => item.address && item.reason)
+      .map((item: AmlWalletRuleDto) => ({
+        ...item,
+        source,
+      })) as AmlWalletRuleDto[];
+  }
+
+  private async getSettingsRow() {
+    await this.settings.get();
+    const row = await this.prisma.settings.findFirst({
+      orderBy: { id: 'asc' },
+    });
+    if (!row) throw new BadRequestException('Настройки системы не найдены');
+    return row;
+  }
+
+  private async loadWalletRules(url: string): Promise<AmlWalletRuleDto[]> {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(5_000),
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        `Не удалось загрузить AML-источник ${url}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!response.ok) {
+      throw new BadRequestException(
+        `AML-источник ${url} вернул HTTP ${response.status}`,
+      );
+    }
+    const payload = await response.json().catch(() => null);
+    const rules = this.normalizeWalletRules(payload, url);
+    if (!rules.length) {
+      throw new BadRequestException(
+        `AML-источник ${url} не содержит корректных правил`,
+      );
+    }
+    return rules;
+  }
+
+  async getAmlSettings() {
+    const settings = await this.getSettingsRow();
+    const activeSources = this.parseJsonArray<AmlSourceType>(
+      settings.aml_active_sources_json,
+    );
+    return {
+      api: settings.aml_api_url ?? '',
+      urls: this.parseJsonArray<string>(settings.aml_urls_json),
+      fileName: settings.aml_file_name ?? '',
+      activeSources: activeSources.length ? activeSources : ['urls'],
+      fileRules: this.parseJsonArray<AmlWalletRuleDto>(
+        settings.aml_file_rules_json,
+      ),
+      blockedWallets: this.parseJsonArray<AmlWalletRuleDto>(
+        settings.aml_blocked_wallets_json,
+      ),
+    };
+  }
+
+  async updateAmlSettings(dto: UpdateAmlSettingsDto) {
+    if (!dto.comment?.trim()) {
+      throw new BadRequestException('Комментарий обязателен');
+    }
+    if (!dto.activeSources?.length) {
+      throw new BadRequestException('Выберите хотя бы один источник AML');
+    }
+
+    const api = dto.api?.trim() ?? '';
+    const urls = [...new Set((dto.urls ?? []).map((url) => url.trim()).filter(Boolean))];
+    const fileRules = this.normalizeWalletRules(dto.fileRules ?? [], 'file');
+    const blocked: AmlWalletRuleDto[] = [];
+
+    if (dto.activeSources.includes('api')) {
+      if (!api) throw new BadRequestException('Для активного API укажите URL');
+      blocked.push(...(await this.loadWalletRules(api)));
+    }
+    if (dto.activeSources.includes('urls')) {
+      if (!urls.length) {
+        throw new BadRequestException('Для активного URL-источника укажите ссылку');
+      }
+      for (const url of urls) blocked.push(...(await this.loadWalletRules(url)));
+    }
+    if (dto.activeSources.includes('file')) {
+      if (!fileRules.length) {
+        throw new BadRequestException('Активный AML-файл не содержит правил');
+      }
+      blocked.push(...fileRules);
+    }
+
+    const unique = new Map<string, AmlWalletRuleDto>();
+    for (const rule of blocked) unique.set(rule.address, rule);
+
+    const settings = await this.getSettingsRow();
+    await this.prisma.settings.update({
+      where: { id: settings.id },
+      data: {
+        aml_api_url: api || null,
+        aml_urls_json: JSON.stringify(urls),
+        aml_file_name: dto.fileName?.trim() || null,
+        aml_file_rules_json: JSON.stringify(fileRules),
+        aml_active_sources_json: JSON.stringify(dto.activeSources),
+        aml_blocked_wallets_json: JSON.stringify([...unique.values()]),
+      },
+    });
+
+    this.logger.log(
+      `[aml-settings] sources=${dto.activeSources.join(',')} blockedWallets=${unique.size}`,
+    );
+    return this.getAmlSettings();
+  }
+
+  async checkExternalWalletDetailed(plan: {
+    sender_wallet_address: string;
+    amount_in: number;
+    asset_in: Asset;
+    sender_customer_id: number;
+    receiver_customer_id: number;
+    receiver_wallet_address: string;
+    comment?: string;
+  }): Promise<AntiFraudDecision> {
+    const settings = await this.getSettingsRow();
+    const blocked = this.parseJsonArray<AmlWalletRuleDto>(
+      settings.aml_blocked_wallets_json,
+    );
+    const senderAddress = this.normalizeWalletAddress(plan.sender_wallet_address);
+    const match = blocked.find(
+      (rule) => this.normalizeWalletAddress(rule.address) === senderAddress,
+    );
+    if (!match) return { allowed: true };
+
+    const reason = `AML: ${match.reason}. Кошелёк отправителя: ${plan.sender_wallet_address}`;
+    const tx = await this.prisma.transaction.create({
+      data: {
+        kind: TransactionKind.WALLET_TO_WALLET,
+        status: 'REJECTED',
+        amount_in: plan.amount_in.toString(),
+        asset_in: plan.asset_in,
+        amount_out: '0',
+        asset_out: plan.asset_in,
+        sender_customer_id: plan.sender_customer_id,
+        receiver_customer_id: plan.receiver_customer_id,
+        sender_wallet_address: plan.sender_wallet_address,
+        receiver_wallet_address: plan.receiver_wallet_address,
+        comment: plan.comment ? `${plan.comment} - ${reason}` : reason,
+      },
+    });
+    const antiFraudCase = await this.openCase(
+      tx.id,
+      'EXTERNAL_WALLET_BLOCKLIST',
+      reason,
+    );
+    this.logger.warn(
+      `[aml-wallet-block] sender=${plan.sender_wallet_address} receiver=${plan.receiver_wallet_address} case=${antiFraudCase.id} reason=${match.reason}`,
+    );
+    return {
+      allowed: false,
+      reason,
+      rule_key: 'EXTERNAL_WALLET_BLOCKLIST',
+      case_id: antiFraudCase.id,
+      transaction_id: tx.id,
+    };
+  }
   private normalizeCategory(category?: TariffCategory | null): TariffCategory {
     if (
       category === 'K1' ||
