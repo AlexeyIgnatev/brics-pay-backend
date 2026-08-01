@@ -1364,6 +1364,77 @@ export class PaymentsService {
     return Math.max(grossAmount - feeAmount, 0);
   }
 
+  private formatCustomerFullName(customer?: {
+    first_name: string | null;
+    middle_name: string | null;
+    last_name: string | null;
+  } | null): string | undefined {
+    const fullName = [
+      customer?.last_name,
+      customer?.first_name,
+      customer?.middle_name,
+    ]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(' ');
+
+    return fullName || undefined;
+  }
+
+  private buildHistoryCounterpartyNames(
+    t: Transaction & {
+      sender_customer?: {
+        first_name: string | null;
+        middle_name: string | null;
+        last_name: string | null;
+      } | null;
+      receiver_customer?: {
+        first_name: string | null;
+        middle_name: string | null;
+        last_name: string | null;
+      } | null;
+    },
+    customerId: number,
+    customerAddress?: string | null,
+  ): Pick<TransactionDto, 'recipient_full_name' | 'sender_full_name'> {
+    if (
+      t.kind !== TransactionKind.BANK_TO_BANK &&
+      t.kind !== TransactionKind.WALLET_TO_WALLET
+    ) {
+      return {};
+    }
+
+    const normalizedAddress = customerAddress?.trim().toLowerCase();
+    const isOutgoing =
+      t.sender_customer_id === customerId ||
+      (!!normalizedAddress &&
+        t.sender_wallet_address?.trim().toLowerCase() === normalizedAddress);
+    const isIncoming =
+      t.receiver_customer_id === customerId ||
+      (!!normalizedAddress &&
+        t.receiver_wallet_address?.trim().toLowerCase() === normalizedAddress);
+
+    // A transaction whose sender and receiver are the same customer is not a
+    // transfer to another person and must not show the user's own name.
+    if (isOutgoing && isIncoming) return {};
+
+    if (isOutgoing) {
+      const recipientFullName = this.formatCustomerFullName(
+        t.receiver_customer,
+      );
+      return recipientFullName
+        ? { recipient_full_name: recipientFullName }
+        : {};
+    }
+
+    if (isIncoming) {
+      const senderFullName = this.formatCustomerFullName(t.sender_customer);
+      return senderFullName ? { sender_full_name: senderFullName } : {};
+    }
+
+    return {};
+  }
+
   private maskAccount(value?: string | number | null): string {
     if (value == null) return 'N/A';
     const raw = String(value).trim();
@@ -1518,8 +1589,24 @@ export class PaymentsService {
         (where.createdAt as { lte?: Date }).lte = new Date(body.to_time);
     }
 
-    const items: Transaction[] = await this.prisma.transaction.findMany({
+    const items = await this.prisma.transaction.findMany({
       where,
+      include: {
+        sender_customer: {
+          select: {
+            first_name: true,
+            middle_name: true,
+            last_name: true,
+          },
+        },
+        receiver_customer: {
+          select: {
+            first_name: true,
+            middle_name: true,
+            last_name: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       skip: body.skip ?? 0,
       take: body.take ?? 50,
@@ -1568,6 +1655,11 @@ export class PaymentsService {
 
       const inCurrency = (t.asset_in || 'SOM') as unknown as Currency;
       const baseType = this.mapType(t, customer_id);
+      const counterpartyNames = this.buildHistoryCounterpartyNames(
+        t,
+        customer_id,
+        me?.address,
+      );
       const inSideType =
         t.kind === 'BANK_TO_WALLET' || t.kind === 'WALLET_TO_BANK'
           ? TransactionType.EXPENSE
@@ -1582,6 +1674,7 @@ export class PaymentsService {
           inSideType === TransactionType.CONVERSION
             ? ReceiptConversionSide.IN
             : undefined,
+        ...counterpartyNames,
         successful: t.status === 'SUCCESS',
         created_at: t.createdAt.getTime(),
       };

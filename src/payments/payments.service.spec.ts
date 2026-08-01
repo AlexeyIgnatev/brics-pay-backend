@@ -129,6 +129,9 @@ describe('PaymentsService', () => {
           },
         }),
       },
+      tariffSetting: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
     };
     const service = makeService(prismaMock);
 
@@ -471,6 +474,12 @@ describe('PaymentsService', () => {
             createdAt,
             sender_customer_id: 11,
             receiver_customer_id: 7,
+            sender_customer: {
+              first_name: 'Кылыч',
+              middle_name: 'Бегималыевич',
+              last_name: 'Куталиев',
+            },
+            receiver_customer: null,
           },
         ]),
       },
@@ -487,10 +496,103 @@ describe('PaymentsService', () => {
         amount: 6,
         type: TransactionType.INCOME,
         conversion_side: undefined,
+        sender_full_name: 'Куталиев Кылыч Бегималыевич',
         successful: true,
         created_at: createdAt.getTime(),
       },
     ]);
+  });
+
+  it('returns recipient name only for an outgoing user transfer', async () => {
+    const createdAt = new Date('2026-08-01T07:00:00.000Z');
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xsender' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 402,
+            kind: 'BANK_TO_BANK',
+            status: TransactionStatus.SUCCESS,
+            amount_in: '100',
+            asset_in: 'SOM',
+            amount_out: '100',
+            asset_out: 'SOM',
+            fee_amount: '0',
+            createdAt,
+            sender_customer_id: 7,
+            receiver_customer_id: 11,
+            sender_customer: null,
+            receiver_customer: {
+              first_name: 'Максат',
+              middle_name: 'Шамшидинович',
+              last_name: 'Кыдыкеев',
+            },
+          },
+        ]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const rows = await service.getHistory({} as any, 7);
+
+    expect(rows).toEqual([
+      {
+        id: 402,
+        transaction_id: 402,
+        currency: 'SOM',
+        amount: 100,
+        type: TransactionType.EXPENSE,
+        conversion_side: undefined,
+        recipient_full_name: 'Кыдыкеев Максат Шамшидинович',
+        successful: true,
+        created_at: createdAt.getTime(),
+      },
+    ]);
+  });
+
+  it('does not add counterparty names to an own conversion', async () => {
+    const createdAt = new Date('2026-08-01T07:05:00.000Z');
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xmy' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 403,
+            kind: 'CONVERSION',
+            status: TransactionStatus.SUCCESS,
+            amount_in: '100',
+            asset_in: 'ESOM',
+            amount_out: '1',
+            asset_out: 'USDT_TRC20',
+            createdAt,
+            sender_customer_id: 7,
+            receiver_customer_id: 7,
+            sender_customer: {
+              first_name: 'Максат',
+              middle_name: null,
+              last_name: 'Кыдыкеев',
+            },
+            receiver_customer: {
+              first_name: 'Максат',
+              middle_name: null,
+              last_name: 'Кыдыкеев',
+            },
+          },
+        ]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const rows = await service.getHistory({} as any, 7);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).not.toHaveProperty('recipient_full_name');
+    expect(rows[0]).not.toHaveProperty('sender_full_name');
+    expect(rows[0].type).toBe(TransactionType.CONVERSION);
   });
 
   it('hides internal bridge transactions from history', async () => {

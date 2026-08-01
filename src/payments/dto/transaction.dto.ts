@@ -21,6 +21,16 @@ export class TransactionDto {
   @ApiPropertyOptional({ enum: ReceiptConversionSide })
   conversion_side?: ReceiptConversionSide;
 
+  @ApiPropertyOptional({
+    description: 'Recipient full name for an outgoing user transfer',
+  })
+  recipient_full_name?: string;
+
+  @ApiPropertyOptional({
+    description: 'Sender full name for an incoming user transfer',
+  })
+  sender_full_name?: string;
+
   successful: boolean;
 
   created_at: number;
