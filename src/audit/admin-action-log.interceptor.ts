@@ -118,6 +118,7 @@ function buildAdminSettingsDiff(before: any, after: any) {
 
 function tariffDiffLabel(operation: string): string {
   const labels: Record<string, string> = {
+    WALLET_TRANSFER_SOM: 'Внутр. СОМ',
     SOM_TO_ESOM: 'СОМ в SALAM',
     ESOM_TO_SOM: 'SALAM в СОМ',
     WALLET_TRANSFER_ESOM: 'Внутр. SALAM',
