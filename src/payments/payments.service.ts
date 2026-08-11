@@ -1233,6 +1233,10 @@ export class PaymentsService {
     }
   }
 
+  private tariffOperationForSomTransfer(): TariffOperation {
+    return TariffOperation.WALLET_TRANSFER_SOM;
+  }
+
   private async resolveTransactionFeeFromTariffs(
     tx: Transaction,
     fallbackCustomerId: number,
@@ -1245,6 +1249,13 @@ export class PaymentsService {
       operation = this.tariffOperationForWalletTransfer(
         tx.asset_in as unknown as Asset,
       );
+    } else if (tx.kind === TransactionKind.BANK_TO_BANK) {
+      const tariffFee = await this.getCustomerTariffFee(
+        tx.sender_customer_id ?? fallbackCustomerId,
+        tx.asset_in === 'SOM' ? TariffOperation.WALLET_TRANSFER_SOM : null,
+        Number(tx.amount_in ?? 0),
+      );
+      return tariffFee.fee;
     } else if (
       tx.kind === TransactionKind.BANK_TO_WALLET ||
       tx.kind === TransactionKind.WALLET_TO_BANK ||
@@ -1274,6 +1285,8 @@ export class PaymentsService {
     switch (asset) {
       case 'ESOM':
         return TariffOperation.WALLET_TRANSFER_ESOM;
+      case 'SOM':
+        return TariffOperation.WALLET_TRANSFER_SOM;
       case 'USDT_TRC20':
         return TariffOperation.WALLET_TRANSFER_USDT_TRC20;
       default:
@@ -1318,6 +1331,12 @@ export class PaymentsService {
       fee: Math.max(percentFee, safeFixed),
       configured: true,
     };
+  }
+
+  private calcPercentTariffFee(amount: number, percent: number): number {
+    const safeAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
+    const safePercent = Number.isFinite(percent) && percent > 0 ? percent : 0;
+    return Number((safeAmount * (safePercent / 100)).toFixed(2));
   }
 
   private mapType(t: Transaction, customer_id: number): TransactionType {
@@ -2348,8 +2367,8 @@ export class PaymentsService {
       this.tariffOperationForConversion('SOM' as Asset, 'ESOM' as Asset),
       amount,
     );
-    const conversionFee = tariff.fee;
-    const netAmount = Math.max(amount - conversionFee, 0);
+    const conversionFee = this.calcPercentTariffFee(amount, tariff.percent);
+    const netAmount = Number(Math.max(amount - conversionFee, 0).toFixed(2));
     if (netAmount < 0) {
       throw new BadRequestException(
         'Amount is too low after conversion commission',
@@ -2537,8 +2556,8 @@ export class PaymentsService {
       this.tariffOperationForConversion('ESOM' as Asset, 'SOM' as Asset),
       amount,
     );
-    const conversionFee = tariff.fee;
-    const netAmount = Math.max(amount - conversionFee, 0);
+    const conversionFee = this.calcPercentTariffFee(amount, tariff.percent);
+    const netAmount = Number(Math.max(amount - conversionFee, 0).toFixed(2));
     if (netAmount < 0) {
       throw new BadRequestException(
         'Amount is too low after conversion commission',
@@ -3568,8 +3587,14 @@ export class PaymentsService {
         'Sender and recipient SOM accounts must be different',
       );
     }
+    const tariffFee = await this.getCustomerTariffFee(
+      customer.customer_id,
+      this.tariffOperationForSomTransfer(),
+      transferDto.amount,
+    );
+    const feeAmount = tariffFee.fee;
     this.logger.verbose(
-      `[transferSom] senderAccount=${senderAccount.AccountNo} senderCurrency=${senderAccount.CurrencyID ?? 'n/a'} receiverAccount=${bricsRecipient.AccountNo} receiverCurrency=${bricsRecipient.CurrencyID ?? 'n/a'}`,
+      `[transferSom] senderAccount=${senderAccount.AccountNo} senderCurrency=${senderAccount.CurrencyID ?? 'n/a'} receiverAccount=${bricsRecipient.AccountNo} receiverCurrency=${bricsRecipient.CurrencyID ?? 'n/a'} fee=${feeAmount}`,
     );
 
     const allowed = await this.antiFraud.shouldAllowTransaction({
@@ -3608,6 +3633,7 @@ export class PaymentsService {
           asset_in: 'SOM',
           amount_out: transferDto.amount.toString(),
           asset_out: 'SOM',
+          fee_amount: feeAmount.toString(),
           bank_op_id: bricsTransaction,
           sender_customer_id: customer.customer_id,
           receiver_customer_id: bricsRecipient.CustomerID,
@@ -3615,6 +3641,17 @@ export class PaymentsService {
         },
       });
       createdTransactionId = createdTransaction.id;
+      if (feeAmount > 0) {
+        await this.createCommissionDistributionPostings(this.prisma, {
+          transactionId: createdTransaction.id,
+          postingGroupKey: `som-transfer-commission-${createdTransaction.id}`,
+          feeAmount,
+          asset: 'SOM',
+          sourceLabel: 'SOM transfer',
+          transactionRef,
+          bankOperationId: bricsTransaction,
+        });
+      }
     } catch (error) {
       this.logger.error(
         `[transferSom] transaction record failed after ABS success transactionRef=${transactionRef} bricsTransaction=${bricsTransaction}: ${error instanceof Error ? error.message : String(error)}`,

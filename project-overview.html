@@ -1,0 +1,877 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Release Documentation | BRICS Banking Platform</title>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --panel: rgba(255, 255, 255, 0.88);
+      --panel-solid: #ffffff;
+      --text: #101828;
+      --muted: #667085;
+      --line: rgba(16, 24, 40, 0.08);
+      --accent: #d91f2a;
+      --accent-2: #9f1722;
+      --accent-soft: rgba(217, 31, 42, 0.10);
+      --shadow: 0 24px 60px rgba(16, 24, 40, 0.10);
+      --radius: 26px;
+      --radius-sm: 18px;
+      --max: 1200px;
+      --code-bg: #0b1220;
+      --code-fg: #d9e4ff;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(217, 31, 42, 0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(16, 185, 129, 0.08), transparent 24%),
+        linear-gradient(180deg, #f8fafc 0%, #eef2f8 100%);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      width: min(var(--max), calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 56px;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 38px;
+      border: 1px solid var(--line);
+      border-radius: 32px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(255,255,255,0.78));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -120px -140px auto;
+      width: 340px;
+      height: 340px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(217, 31, 42, 0.18), rgba(217, 31, 42, 0.02) 60%, transparent 72%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(217, 31, 42, 0.08);
+      color: var(--accent-2);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 6px rgba(217, 31, 42, 0.10);
+    }
+
+    h1 {
+      margin: 18px 0 12px;
+      font-size: clamp(30px, 4vw, 56px);
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+
+    .lead {
+      max-width: 920px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.75;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 28px;
+    }
+
+    .mini-card {
+      padding: 16px 18px;
+      background: rgba(255,255,255,0.74);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+    }
+
+    .mini-card .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .mini-card .value {
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 20px 0 28px;
+    }
+
+    .nav a {
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.72);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 600;
+      transition: 0.2s ease;
+    }
+
+    .nav a:hover {
+      transform: translateY(-1px);
+      border-color: rgba(217, 31, 42, 0.24);
+      box-shadow: 0 10px 24px rgba(217, 31, 42, 0.10);
+    }
+
+    .section {
+      margin-top: 26px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      backdrop-filter: blur(10px);
+      box-shadow: var(--shadow);
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+
+    .section h2 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.12;
+      letter-spacing: -0.03em;
+    }
+
+    .section p.sub {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.7;
+      max-width: 860px;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      padding: 9px 13px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-2);
+      border: 1px solid rgba(217, 31, 42, 0.16);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      padding: 20px;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.76);
+    }
+
+    .card h3 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    .card h4 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+
+    .list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text);
+      line-height: 1.75;
+    }
+
+    .list li + li { margin-top: 6px; }
+
+    .tech-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .tech {
+      padding: 16px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.76));
+    }
+
+    .tech .k {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .tech .v {
+      font-weight: 700;
+      line-height: 1.45;
+    }
+
+    .process-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .process {
+      padding: 20px;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.80);
+    }
+
+    .process .title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .process .badge {
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: rgba(16, 185, 129, 0.10);
+      color: #067647;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel-solid);
+    }
+
+    .table th,
+    .table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    .table th {
+      background: rgba(16, 24, 40, 0.03);
+      font-size: 13px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .table tr:last-child td { border-bottom: 0; }
+
+    .note {
+      margin-top: 14px;
+      padding: 16px 18px;
+      border-left: 4px solid var(--accent);
+      border-radius: 16px;
+      background: rgba(217, 31, 42, 0.06);
+      color: #4b5563;
+      line-height: 1.7;
+    }
+
+    .footer {
+      margin-top: 24px;
+      padding-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    @media (max-width: 1080px) {
+      .hero-grid,
+      .tech-grid,
+      .cards,
+      .process-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .section-head {
+        flex-direction: column;
+      }
+
+      .pill-row {
+        justify-content: flex-start;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .wrap { width: min(100% - 20px, var(--max)); padding: 18px 0 28px; }
+      .hero,
+      .section { padding: 20px; border-radius: 22px; }
+      .hero-grid,
+      .tech-grid,
+      .cards,
+      .process-grid {
+        grid-template-columns: 1fr;
+      }
+      h1 { font-size: 32px; }
+      .section h2 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <span class="eyebrow">Release Documentation</span>
+      <h1>BRICS banking platform</h1>
+      <p class="lead">
+        Документация для релизной поставки системы, состоящей из трёх компонентов:
+        серверной части банка, админ-панели и мобильного клиента. Ниже описаны технологии,
+        бизнес-процессы, требования к окружению и состав необходимого ПО для установки.
+      </p>
+
+      <div class="hero-grid">
+        <div class="mini-card">
+          <div class="label">Backend</div>
+          <div class="value">Node.js + NestJS + PostgreSQL</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Admin panel</div>
+          <div class="value">Next.js 15 + React 19</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Mobile app</div>
+          <div class="value">Kotlin + AndroidX + Hilt</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Infrastructure</div>
+          <div class="value">Redis, TRON node, Firebase, Docker</div>
+        </div>
+      </div>
+    </section>
+
+    <nav class="nav">
+      <a href="#stack">Стек</a>
+      <a href="#processes">Бизнес-процессы</a>
+      <a href="#requirements">Требования</a>
+      <a href="#software">ПО</a>
+    </nav>
+
+    <section class="section" id="stack">
+      <div class="section-head">
+        <div>
+          <h2>1. Технологический стек</h2>
+          <p class="sub">
+            Система разделена на сервер, веб-админку и мобильный клиент. Каждый компонент использует отдельный стек,
+            но все они связаны единым backend API и общими правилами авторизации, балансов и транзакций.
+          </p>
+        </div>
+        <div class="pill-row">
+          <span class="pill">Backend</span>
+          <span class="pill">Admin</span>
+          <span class="pill">Mobile</span>
+          <span class="pill">Infrastructure</span>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Backend</h3>
+          <ul class="list">
+            <li>Node.js 20+</li>
+            <li>NestJS + TypeScript</li>
+            <li>Prisma ORM</li>
+            <li>PostgreSQL</li>
+            <li>Redis</li>
+            <li>Bull для очередей</li>
+            <li>Swagger/OpenAPI</li>
+            <li>JWT, Passport, Basic Auth</li>
+            <li>TronWeb, Web3, Ethereum-интеграции</li>
+            <li>Firebase Admin, Pusher, Nodemailer</li>
+            <li>S3 / MinIO</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Админка</h3>
+          <ul class="list">
+            <li>Next.js 15</li>
+            <li>React 19 + TypeScript</li>
+            <li>Tailwind CSS 4</li>
+            <li>App Router</li>
+            <li>API routes внутри Next.js</li>
+            <li>Recharts</li>
+            <li>pdfmake и xlsx для экспорта</li>
+            <li>flatpickr, react-range, react-virtual</li>
+            <li>tronweb для tron-wallet</li>
+          </ul>
+        </div>
+      </div>
+
+      <div style="height:16px"></div>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Мобильное приложение</h3>
+          <ul class="list">
+            <li>Kotlin</li>
+            <li>AndroidX + Material Components</li>
+            <li>Hilt DI</li>
+            <li>Navigation Component</li>
+            <li>ViewBinding</li>
+            <li>Coroutines</li>
+            <li>Retrofit + OkHttp + Gson</li>
+            <li>Room + MMKV</li>
+            <li>Firebase Analytics / Crashlytics / Messaging / Auth / Realtime Database</li>
+            <li>Glide, Web3j, ZXing, SwipeRefreshLayout</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Служебная инфраструктура</h3>
+          <ul class="list">
+            <li>Docker / Docker Compose</li>
+            <li>TRON full node / witness node</li>
+            <li>SMTP-сервер</li>
+            <li>Firebase service account</li>
+            <li>Объектное хранилище S3-совместимого типа или MinIO</li>
+            <li>Доступ к внешним API банка и блокчейн-сервисам</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="processes">
+      <div class="section-head">
+        <div>
+          <h2>2. Бизнес-процессы</h2>
+          <p class="sub">
+            Ниже перечислены основные процессы, которые поддерживает платформа. Это и клиентские сценарии,
+            и административные операции, и сервисные фоновые операции.
+          </p>
+        </div>
+        <div class="pill-row">
+          <span class="pill">Финансы</span>
+          <span class="pill">AML</span>
+          <span class="pill">Поддержка</span>
+          <span class="pill">QR</span>
+        </div>
+      </div>
+
+            <div class="process-grid">
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Авторизация и доступ</h3>
+            <span class="badge">Access control</span>
+          </div>
+          <ul class="list">
+            <li><strong>Вход в систему</strong> — пользователь или администратор вводит учетные данные и запускает авторизацию, чтобы попасть в нужную часть системы.</li>
+            <li><strong>Проверка доступа</strong> — backend проверяет логин, пароль и токен, затем определяет роль пользователя и разрешённые ему разделы.</li>
+            <li><strong>Фиксация входа</strong> — после успешной проверки сохраняются последний логин, устройство и IP-адрес для последующего контроля безопасности.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Профиль клиента и кошельки</h3>
+            <span class="badge">Profile</span>
+          </div>
+          <ul class="list">
+            <li><strong>Запрос профиля</strong> — приложение обращается к backend и получает карточку клиента с его основными данными.</li>
+            <li><strong>Загрузка балансов</strong> — backend возвращает кошельки, категорию, тариф, резидентство и актуальные суммы по всем валютам.</li>
+            <li><strong>Синхронизация настроек</strong> — обновляются push-параметры и токены уведомлений, чтобы клиент получал сообщения без потерь.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Переводы</h3>
+            <span class="badge">Transfers</span>
+          </div>
+          <ul class="list">
+            <li><strong>Выбор получателя</strong> — клиент указывает телефон или кошелёк, выбирает валюту и вводит сумму перевода.</li>
+            <li><strong>Проверка операции</strong> — backend проверяет реквизиты, лимиты, баланс и комиссию, чтобы исключить ошибочную транзакцию.</li>
+            <li><strong>Проведение перевода</strong> — выполняется списание и зачисление, после чего операция сразу попадает в историю пользователя.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Конвертация валют</h3>
+            <span class="badge">Swap</span>
+          </div>
+          <ul class="list">
+            <li><strong>Выбор пары</strong> — пользователь выбирает валюту списания и валюту получения, затем вводит сумму для обмена.</li>
+            <li><strong>Расчёт суммы</strong> — backend применяет курс, рассчитывает комиссию и проверяет ограничения по минимуму и максимуму.</li>
+            <li><strong>Завершение свопа</strong> — списание и зачисление выполняются одной связанной транзакцией с записью в историю операций.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Комиссии и тарифы</h3>
+            <span class="badge">Fees</span>
+          </div>
+          <ul class="list">
+            <li><strong>Изменение тарифа</strong> — администратор корректирует процент или фиксированную сумму для конкретного вида операции.</li>
+            <li><strong>Сохранение правки</strong> — backend записывает новое значение, комментарий и создаёт запись в истории изменений.</li>
+            <li><strong>Применение расчёта</strong> — обновлённые значения сразу используются для всех новых операций без ручного вмешательства.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">AML / antifraud</h3>
+            <span class="badge">Compliance</span>
+          </div>
+          <ul class="list">
+            <li><strong>Настройка правил</strong> — администратор включает или отключает правила для категорий K1–K6 и задаёт нужные параметры контроля.</li>
+            <li><strong>Срабатывание проверки</strong> — при нарушении условия backend создаёт кейс на ручную проверку и отправляет его в раздел финконтроля.</li>
+            <li><strong>Решение по кейсу</strong> — администратор подтверждает либо отклоняет операцию, и это решение влияет на обработку похожих случаев в дальнейшем.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">История и выписки</h3>
+            <span class="badge">Statements</span>
+          </div>
+          <ul class="list">
+            <li><strong>Поиск операций</strong> — фильтры применяются по клиенту, валюте, периоду и типу операции, чтобы быстро сузить выборку.</li>
+            <li><strong>Просмотр деталей</strong> — интерфейс показывает найденные транзакции, квитанции и основные параметры каждой операции.</li>
+            <li><strong>Экспорт отчётов</strong> — выбранные данные формируются в CSV, PDF или TXT и могут быть сохранены отдельно.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Поддержка и уведомления</h3>
+            <span class="badge">Support</span>
+          </div>
+          <ul class="list">
+            <li><strong>Создание обращения</strong> — пользователь отправляет сообщение в чат поддержки, если ему нужна помощь или уточнение по работе сервиса.</li>
+            <li><strong>Ответ администратора</strong> — тикет появляется в панели и обрабатывается в том же потоке, чтобы диалог не терялся и оставался привязанным к клиенту.</li>
+            <li><strong>Уведомления</strong> — система отправляет push-сообщения и хранит историю переписки, чтобы можно было поднять контекст обращения.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Блокчейн-операции</h3>
+            <span class="badge">Blockchain</span>
+          </div>
+          <ul class="list">
+            <li><strong>Проверка ноды</strong> — backend контролирует состояние TRON-узла, его синхронизацию и доступность сети перед операциями.</li>
+            <li><strong>Работа с treasury</strong> — выполняются операции по депозиту, свипу и reconcile для USDT, чтобы деньги не зависали на промежуточных адресах.</li>
+            <li><strong>Фиксация результата</strong> — результат операции записывается в базу и отражается в резервных балансах для дальнейшего контроля.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Управление администраторами</h3>
+            <span class="badge">Admins</span>
+          </div>
+          <ul class="list">
+            <li><strong>Создание доступа</strong> — супер-администратор создаёт нового сотрудника и назначает ему роль.</li>
+            <li><strong>Настройка прав</strong> — система ограничивает видимые разделы и действия в зависимости от роли администратора.</li>
+            <li><strong>Контроль активности</strong> — изменения, входы и ключевые действия администратора попадают в аудит-логи.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Аудит действий</h3>
+            <span class="badge">Audit</span>
+          </div>
+          <ul class="list">
+            <li><strong>Фиксация событий</strong> — backend записывает действия администраторов, чтобы можно было восстановить цепочку изменений.</li>
+            <li><strong>Просмотр истории</strong> — в админке доступны список действий, время события, инициатор и краткое описание изменения.</li>
+            <li><strong>Экспорт данных</strong> — аудит можно выгружать для внутренней проверки и отчётности.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Системные настройки</h3>
+            <span class="badge">Settings</span>
+          </div>
+          <ul class="list">
+            <li><strong>Обновление параметров</strong> — администратор меняет системные лимиты, правила обработки и внешние подключения.</li>
+            <li><strong>Сохранение конфигурации</strong> — backend сохраняет новые параметры и сразу использует их в следующих запросах.</li>
+            <li><strong>Применение настроек</strong> — изменения влияют на тарифы, отображение данных и обработку операций без перезапуска системы.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Курсы валют</h3>
+            <span class="badge">Rates</span>
+          </div>
+          <ul class="list">
+            <li><strong>Изменение курса</strong> — администратор задаёт курс покупки и продажи USD в отдельном разделе.</li>
+            <li><strong>Использование курса</strong> — backend подставляет актуальные значения при конвертации и расчёте сумм.</li>
+            <li><strong>История изменений</strong> — все правки фиксируются с комментарием и отображаются в журнале изменений.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Резервы и банковские балансы</h3>
+            <span class="badge">Reserves</span>
+          </div>
+          <ul class="list">
+            <li><strong>Сбор балансов</strong> — backend получает живые остатки по счетам ЦБ, банка и партнёров.</li>
+            <li><strong>Обновление резервов</strong> — суммы обновляются после комиссий, переводов и блокчейн-операций.</li>
+            <li><strong>Контроль остатков</strong> — администратор видит, хватает ли средств для дальнейших выплат и внутренних расчётов.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Tron-wallet</h3>
+            <span class="badge">Wallet</span>
+          </div>
+          <ul class="list">
+            <li><strong>Показ кошелька</strong> — сервис отображает закреплённый TRON-кошелёк и его текущее состояние.</li>
+            <li><strong>Обновление баланса</strong> — по запросу подтягиваются актуальные данные без изменения самой привязки кошелька.</li>
+            <li><strong>Сервисные операции</strong> — кошелёк используется как технический инструмент для перевода и контроля blockchain-средств.</li>
+          </ul>
+        </div>
+
+        <div class="process">
+          <div class="title">
+            <h3 style="margin:0;">Push-уведомления</h3>
+            <span class="badge">Push</span>
+          </div>
+          <ul class="list">
+            <li><strong>Отправка события</strong> — backend формирует push при важной операции или сервисном действии.</li>
+            <li><strong>Доставка на устройство</strong> — уведомление уходит в Firebase и приходит на мобильный клиент.</li>
+            <li><strong>Хранение истории</strong> — уведомления сохраняются, чтобы пользователь мог позже открыть их список и детали.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class='section' id='requirements'>
+      <div class="section-head">
+        <div>
+          <h2>3. Требования к системе</h2>
+          <p class="sub">
+            Для стабильной работы системы нужна серверная среда, отдельная база данных, кэш, TRON-узел
+            и подключение к внешним сервисам, которые используются приложениями.
+          </p>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Серверная часть</h3>
+          <table class="table">
+            <tr>
+              <th>Компонент</th>
+              <th>Требование</th>
+            </tr>
+            <tr>
+              <td>Runtime</td>
+              <td>Node.js 20+</td>
+            </tr>
+            <tr>
+              <td>База данных</td>
+              <td>PostgreSQL 13+</td>
+            </tr>
+            <tr>
+              <td>Кэш / очереди</td>
+              <td>Redis 6+</td>
+            </tr>
+            <tr>
+              <td>TRON</td>
+              <td>Full node / witness node, доступный по HTTP</td>
+            </tr>
+            <tr>
+              <td>Хранилище</td>
+              <td>S3-совместимое хранилище или MinIO</td>
+            </tr>
+            <tr>
+              <td>Почта</td>
+              <td>SMTP-сервер для системных писем</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>Веб-админка</h3>
+          <table class="table">
+            <tr>
+              <th>Компонент</th>
+              <th>Требование</th>
+            </tr>
+            <tr>
+              <td>Runtime</td>
+              <td>Node.js 20+</td>
+            </tr>
+            <tr>
+              <td>Фреймворк</td>
+              <td>Next.js 15 + React 19</td>
+            </tr>
+            <tr>
+              <td>Сборка</td>
+              <td>Docker или локальный npm build</td>
+            </tr>
+            <tr>
+              <td>API доступ</td>
+              <td>Backend endpoint через переменные окружения</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <div style="height:16px"></div>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Мобильное приложение</h3>
+          <table class="table">
+            <tr>
+              <th>Компонент</th>
+              <th>Требование</th>
+            </tr>
+            <tr>
+              <td>IDE</td>
+              <td>Android Studio</td>
+            </tr>
+            <tr>
+              <td>JDK</td>
+              <td>JDK 17</td>
+            </tr>
+            <tr>
+              <td>Android SDK</td>
+              <td>SDK 34</td>
+            </tr>
+            <tr>
+              <td>Min SDK</td>
+              <td>24</td>
+            </tr>
+            <tr>
+              <td>Target SDK</td>
+              <td>34</td>
+            </tr>
+            <tr>
+              <td>Сеть</td>
+              <td>Доступ к backend API и Firebase</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>Дополнительные зависимости</h3>
+          <ul class="list">
+            <li>Git для получения исходников</li>
+            <li>Docker Engine и Docker Compose для серверных компонентов</li>
+            <li>Права на чтение/запись `.env` и секретов</li>
+            <li>Камера и хранилище на мобильном устройстве для QR-функций</li>
+            <li>Стабильный доступ к интернету и DNS</li>
+          </ul>
+          <div class="note">
+            Рекомендуется поднимать backend, админку и мобильный клиент в единой инфраструктуре,
+            чтобы все API-эндпоинты, push-уведомления, блокчейн-узлы и хранилища были доступны без ручных обходных схем.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="software">
+      <div class="section-head">
+        <div>
+          <h2>4. Необходимое программное обеспечение</h2>
+          <p class="sub">
+            Ниже перечислено ПО, которое должно быть установлено для развёртывания и поддержки проекта.
+            Это не команды запуска, а именно состав среды.
+          </p>
+        </div>
+      </div>
+
+      <div class="tech-grid">
+        <div class="tech">
+          <div class="k">Backend</div>
+          <div class="v">Node.js 20+, npm, PostgreSQL, Redis, Docker, Docker Compose</div>
+        </div>
+        <div class="tech">
+          <div class="k">Админка</div>
+          <div class="v">Node.js 20+, npm, Docker, браузер, доступ к backend API</div>
+        </div>
+        <div class="tech">
+          <div class="k">Мобильное</div>
+          <div class="v">Android Studio, JDK 17, Android SDK 34, emulator/device API 24+</div>
+        </div>
+        <div class="tech">
+          <div class="k">Сервисы</div>
+          <div class="v">TRON node, Firebase, SMTP, S3/MinIO, Git</div>
+        </div>
+      </div>
+
+      <div class="note" style="margin-top:16px;">
+        Для релизной поставки важно также подготовить переменные окружения, секреты, ключи доступа к API,
+        а для Android-приложения — конфигурации Firebase и доступ к backend-окружению.
+      </div>
+    </section>
+
+    <div class="footer">
+      Release documentation prepared for the BRICS banking platform.
+    </div>
+  </div>
+</body>
+</html>
+

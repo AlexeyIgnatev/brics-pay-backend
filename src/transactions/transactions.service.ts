@@ -185,21 +185,37 @@ export class TransactionsService {
       case 'ESOM_TO_ESOM':
       case 'USDT_TRC20_TO_USDT_TRC20':
       case 'SOM_TO_SOM':
-        return item.kind === TransactionKind.WALLET_TO_WALLET
-          ? from === 'ESOM'
+        if (item.kind === TransactionKind.WALLET_TO_WALLET) {
+          return from === 'ESOM'
             ? TariffOperation.WALLET_TRANSFER_ESOM
             : from === 'USDT_TRC20'
               ? TariffOperation.WALLET_TRANSFER_USDT_TRC20
-              : null
-          : null;
+              : null;
+        }
+        if (item.kind === TransactionKind.BANK_TO_BANK) {
+          return from === 'SOM'
+            ? TariffOperation.WALLET_TRANSFER_SOM
+            : from === 'ESOM'
+              ? TariffOperation.ESOM_TO_SOM
+              : null;
+        }
+        return null;
       default:
-        return item.kind === TransactionKind.WALLET_TO_WALLET
-          ? from === 'ESOM'
+        if (item.kind === TransactionKind.WALLET_TO_WALLET) {
+          return from === 'ESOM'
             ? TariffOperation.WALLET_TRANSFER_ESOM
             : from === 'USDT_TRC20'
               ? TariffOperation.WALLET_TRANSFER_USDT_TRC20
-              : null
-          : null;
+              : null;
+        }
+        if (item.kind === TransactionKind.BANK_TO_BANK) {
+          return from === 'SOM'
+            ? TariffOperation.WALLET_TRANSFER_SOM
+            : from === 'ESOM'
+              ? TariffOperation.ESOM_TO_SOM
+              : null;
+        }
+        return null;
     }
   }
 
@@ -217,11 +233,11 @@ export class TransactionsService {
     const existingFee = Number(item.fee_amount ?? 0);
     if (existingFee > 0) return existingFee;
 
-    const operation = this.tariffOperationForTransaction(item);
-    if (!operation) return 0;
-
     const customer = item.sender_customer;
     if (!customer) return 0;
+
+    const operation = this.tariffOperationForTransaction(item);
+    if (!operation) return 0;
 
     const tariff = await this.prisma.tariffSetting.findUnique({
       where: {
@@ -240,7 +256,8 @@ export class TransactionsService {
     const fixed = Number(tariff.fixed_fee ?? 0);
     const safePercent = Number.isFinite(percent) && percent > 0 ? percent : 0;
     const safeFixed = Number.isFinite(fixed) && fixed > 0 ? fixed : 0;
-    return Number(item.amount_in ?? 0) * (safePercent / 100) + safeFixed;
+    const percentFee = Number(item.amount_in ?? 0) * (safePercent / 100);
+    return Math.max(percentFee, safeFixed);
   }
 
   private buildParticipantSearchCondition(params: {

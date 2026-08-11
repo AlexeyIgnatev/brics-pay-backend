@@ -70,7 +70,7 @@ export class PaymentsController {
   @ApiBearerAuth('Basic')
   @UseGuards(BasicAuthGuard)
   async getFees(@Req() req: { user: UserInfoDto }): Promise<PaymentFeeDto[]> {
-    return this.settingsService.getTariffs();
+    return this.settingsService.getTariffsForCustomer(req.user.customer_id);
   }
 
   @Post('convert')

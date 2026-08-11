@@ -27,6 +27,7 @@ const TEMP_PARTNER_SALAM_WALLET = '0x3333333333333333333333333333333333333333';
 const TEMP_PARTNER_USDT_WALLET = 'TQYvtaMVomk4BFgGPNjnEadrnVaLAqS5Kj';
 
 const SUPPORTED_TARIFF_OPERATIONS: TariffOperation[] = [
+  TariffOperation.WALLET_TRANSFER_SOM,
   TariffOperation.SOM_TO_ESOM,
   TariffOperation.ESOM_TO_SOM,
   TariffOperation.WALLET_TRANSFER_ESOM,
@@ -331,6 +332,32 @@ export class SettingsService {
         percent_fee: this.toDecimalString(row.percent_fee),
         fixed_fee: this.toDecimalString(row.fixed_fee),
       }));
+  }
+
+  async getTariffsForCustomer(customerId: number): Promise<TariffSettingDto[]> {
+    const customer = await this.prisma.customer.findUnique({
+      where: { customer_id: customerId },
+      select: { tariff_category: true, residency: true },
+    });
+
+    if (!customer) return [];
+
+    const rows = await this.prisma.tariffSetting.findMany({
+      where: {
+        category: customer.tariff_category,
+        residency: customer.residency,
+        operation: { in: SUPPORTED_TARIFF_OPERATIONS },
+      },
+      orderBy: [{ operation: 'asc' }],
+    });
+
+    return rows.map((row) => ({
+      category: row.category,
+      residency: row.residency,
+      operation: row.operation,
+      percent_fee: this.toDecimalString(row.percent_fee),
+      fixed_fee: this.toDecimalString(row.fixed_fee),
+    }));
   }
 
   async updateTariffs(
