@@ -406,14 +406,17 @@ export class UsersService implements OnApplicationBootstrap {
       somAccountResult.status === 'fulfilled'
         ? Number(somAccountResult.value.Balance ?? 0)
         : null;
-    const somLive = bricsSomBalance ?? localSomBalance ?? 0;
+    // GetCurrentAccounts currently returns account metadata with Balance=0.
+    // The ledger balance maintained by transfers/conversions is authoritative
+    // for the app and is the same source displayed by the admin panel.
+    const somLive = localSomBalance ?? bricsSomBalance ?? 0;
     if (
       localSomBalance != null &&
       bricsSomBalance != null &&
       Math.abs(localSomBalance - bricsSomBalance) > 1e-9
     ) {
       this.logger.warn(
-        `[getUserWallets] SOM balance mismatch customer=${user.customer_id} local=${localSomBalance} brics=${bricsSomBalance}; using ABS balance`,
+        `[getUserWallets] SOM balance mismatch customer=${user.customer_id} local=${localSomBalance} brics=${bricsSomBalance}; using local ledger balance`,
       );
     }
     const esomBalance =
