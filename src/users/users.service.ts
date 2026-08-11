@@ -361,23 +361,27 @@ export class UsersService implements OnApplicationBootstrap {
       usd_sell_rate: '1',
     };
 
-    const [somAccountResult, esomBalanceResult, settingsResult, localSomResult] =
-      await Promise.allSettled([
-        this.bricsService.resolveCustomerSomAccount(
-          String(user.customer_id),
-          user.phone ?? userInfo.phone,
-        ),
-        this.ethereumService.getEsomBalance(user.address),
-        this.settingsService.get(),
-        this.prisma.userAssetBalance.findUnique({
-          where: {
-            customer_id_asset: {
-              customer_id: user.customer_id,
-              asset: 'SOM' as Asset,
-            },
+    const [
+      somAccountResult,
+      esomBalanceResult,
+      settingsResult,
+      localSomResult,
+    ] = await Promise.allSettled([
+      this.bricsService.resolveCustomerSomAccount(
+        String(user.customer_id),
+        user.phone ?? userInfo.phone,
+      ),
+      this.ethereumService.getEsomBalance(user.address),
+      this.settingsService.get(),
+      this.prisma.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: user.customer_id,
+            asset: 'SOM' as Asset,
           },
-        }),
-      ]);
+        },
+      }),
+    ]);
 
     if (somAccountResult.status === 'rejected') {
       console.warn(
@@ -402,14 +406,14 @@ export class UsersService implements OnApplicationBootstrap {
       somAccountResult.status === 'fulfilled'
         ? Number(somAccountResult.value.Balance ?? 0)
         : null;
-    const somLive = localSomBalance ?? bricsSomBalance ?? 0;
+    const somLive = bricsSomBalance ?? localSomBalance ?? 0;
     if (
       localSomBalance != null &&
       bricsSomBalance != null &&
       Math.abs(localSomBalance - bricsSomBalance) > 1e-9
     ) {
       this.logger.warn(
-        `[getUserWallets] SOM balance mismatch customer=${user.customer_id} local=${localSomBalance} brics=${bricsSomBalance}; using local balance`,
+        `[getUserWallets] SOM balance mismatch customer=${user.customer_id} local=${localSomBalance} brics=${bricsSomBalance}; using ABS balance`,
       );
     }
     const esomBalance =

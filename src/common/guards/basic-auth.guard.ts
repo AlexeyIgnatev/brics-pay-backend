@@ -41,13 +41,9 @@ export class BasicAuthGuard implements CanActivate {
 
       return true;
     } catch (error) {
-      const details =
-        error instanceof Error ? error.message : 'Unknown authorization error';
-
-      this.logger.warn(`Authorization failed: ${details}`);
-      throw new UnauthorizedException(
-        `Неверные учетные данные. Детали: ${details}`,
-      );
+      const errorName = error instanceof Error ? error.name : 'UnknownError';
+      this.logger.warn(`Authorization failed: ${errorName}`);
+      throw new UnauthorizedException('Неверные учетные данные');
     }
   }
 }

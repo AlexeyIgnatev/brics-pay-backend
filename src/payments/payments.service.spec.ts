@@ -664,7 +664,9 @@ describe('PaymentsService', () => {
     const query = prismaMock.transaction.findMany.mock.calls[0][0];
     expect(query.where.OR).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ ledger_entries: { some: { customer_id: 7 } } }),
+        expect.objectContaining({
+          ledger_entries: { some: { customer_id: 7 } },
+        }),
       ]),
     );
   });
@@ -868,7 +870,7 @@ describe('PaymentsService', () => {
     );
   });
 
-  it('stores a success transaction even when ESOM to USDT blockchain transfer fails', async () => {
+  it('stores a failed transaction when ESOM to USDT blockchain transfer fails', async () => {
     const prismaMock = {
       customer: {
         findUnique: jest
@@ -947,18 +949,23 @@ describe('PaymentsService', () => {
       {} as any,
     );
 
-    const result = await service.convert(
-      {
-        asset_from: 'ESOM' as any,
-        asset_to: 'USDT_TRC20' as any,
-        amount_from: 100,
-      },
-      7,
-    );
+    await expect(
+      service.convert(
+        {
+          asset_from: 'ESOM' as any,
+          asset_to: 'USDT_TRC20' as any,
+          amount_from: 100,
+        },
+        7,
+      ),
+    ).rejects.toThrow('Conversion failed. Transaction 777');
 
-    expect(result.transaction_id).toBe(777);
-    expect(prismaMock.transaction.create).toHaveBeenCalled();
-    expect(prismaMock.userAssetBalance.upsert).toHaveBeenCalled();
+    expect(prismaMock.transaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: TransactionStatus.FAILED }),
+      }),
+    );
+    expect(prismaMock.userAssetBalance.upsert).not.toHaveBeenCalled();
     expect(ethereumService.transferToFiat).toHaveBeenCalledWith(
       100,
       '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',

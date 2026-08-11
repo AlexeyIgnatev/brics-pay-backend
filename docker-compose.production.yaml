@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     env_file: .env.production
     environment:
+      NODE_ENV: production
       TRON_FULL_NODE: http://172.17.0.1:8090
       TRON_SOLIDITY_NODE: http://172.17.0.1:8090
       TRON_EVENT_SERVER: http://172.17.0.1:8090
@@ -21,15 +22,13 @@ services:
 
   postgres:
     container_name: brics_postgres
-    image: postgres:latest
+    image: postgres:16.4
     env_file:
       - .env.production
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - 5432:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

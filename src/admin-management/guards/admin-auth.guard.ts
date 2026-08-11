@@ -23,10 +23,12 @@ export class AdminAuthGuard implements CanActivate {
       throw new UnauthorizedException('Неверный тип авторизации');
 
     try {
+      const secret = this.config.get<string>('ADMIN_JWT_ACCESS_SECRET');
+      if (!secret) {
+        throw new Error('ADMIN_JWT_ACCESS_SECRET is not configured');
+      }
       const payload = await this.jwt.verifyAsync(token, {
-        secret:
-          this.config.get<string>('ADMIN_JWT_ACCESS_SECRET') ||
-          'dev_admin_access_secret',
+        secret,
       });
       req.admin = { id: payload.sub, email: payload.email, role: payload.role };
       return true;

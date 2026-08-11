@@ -34,3 +34,8 @@ npm-debug.log
 .env.production
 .env.local
 .env.example
+secrets/
+**/secrets/
+*.pem
+*.key
+*firebase-adminsdk*.json

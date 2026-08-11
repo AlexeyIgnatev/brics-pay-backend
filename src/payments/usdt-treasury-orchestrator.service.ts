@@ -591,11 +591,13 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     return null;
   }
 
-  private isBrowserWalletCustomer(customer?: {
-    first_name?: string | null;
-    middle_name?: string | null;
-    last_name?: string | null;
-  } | null): boolean {
+  private isBrowserWalletCustomer(
+    customer?: {
+      first_name?: string | null;
+      middle_name?: string | null;
+      last_name?: string | null;
+    } | null,
+  ): boolean {
     if (!customer) return false;
     const markers = [
       customer.first_name?.trim().toLowerCase(),
@@ -734,7 +736,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   }
 
   private invalidateTreasuryUsdtBalanceCache(): void {
-    const treasuryAddress = this.getRuntime().treasuryAddress.trim().toLowerCase();
+    const treasuryAddress = this.getRuntime()
+      .treasuryAddress.trim()
+      .toLowerCase();
     this.treasuryUsdtBalanceCache.delete(treasuryAddress);
     this.logger.verbose(
       `[reserve-usdt] cache invalidated address=${this.getRuntime().treasuryAddress}`,
@@ -744,7 +748,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
   private async adjustTreasuryUsdtBalanceCache(delta: number): Promise<void> {
     if (!Number.isFinite(delta) || delta === 0) return;
 
-    const treasuryAddress = this.getRuntime().treasuryAddress.trim().toLowerCase();
+    const treasuryAddress = this.getRuntime()
+      .treasuryAddress.trim()
+      .toLowerCase();
     const now = Date.now();
     const cached = this.treasuryUsdtBalanceCache.get(treasuryAddress);
     const baseBalance =
@@ -1044,9 +1050,12 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         brics_burned_total: 0,
       };
     } finally {
-      const runtime = this.getRuntime();
+      let treasuryAddress = 'unavailable';
+      try {
+        treasuryAddress = this.getRuntime().treasuryAddress;
+      } catch {}
       this.logger.verbose(
-        `[reserve-snapshot] done treasury=${runtime.treasuryAddress} elapsedMs=${Date.now() - startedAt}`,
+        `[reserve-snapshot] done treasury=${treasuryAddress} elapsedMs=${Date.now() - startedAt}`,
       );
     }
   }
@@ -1057,9 +1066,8 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     amount: number,
   ): Promise<{ txHash: string }> {
     try {
-      const fromAddress = this.cryptoService.trxAddressFromPrivateKey(
-        fromPrivateKey,
-      );
+      const fromAddress =
+        this.cryptoService.trxAddressFromPrivateKey(fromPrivateKey);
       const { txHash } = await this.tronService.sendTrc20({
         fromPrivateKey,
         toAddress,
@@ -1158,9 +1166,10 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     }
 
     try {
-      const tx = (await this.getTronWeb().trx.getTransaction(
-        txHash,
-      )) as Record<string, unknown> | null;
+      const tx = (await this.getTronWeb().trx.getTransaction(txHash)) as Record<
+        string,
+        unknown
+      > | null;
       if (tx && Object.keys(tx).length > 0) {
         this.logger.verbose(
           `Full-node transaction payload for tx=${txHash} was treated as confirmed: ${JSON.stringify(tx)}`,
@@ -1768,7 +1777,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         `bankFixed=${Number.isFinite(bankFixed) ? bankFixed : 0}`,
         `partnersFixed=${Number.isFinite(partnerFixed) ? partnerFixed : 0}`,
         `postingGroup=${input.postingGroupKey}`,
-        input.transactionId != null ? `transactionId=${input.transactionId}` : null,
+        input.transactionId != null
+          ? `transactionId=${input.transactionId}`
+          : null,
         input.paymentOperationId != null
           ? `paymentOperationId=${input.paymentOperationId}`
           : null,
@@ -1899,17 +1910,17 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         const snapshot = await this.fetchChainTransactionSnapshot(txHash).catch(
           () => null,
         );
-          await this.upsertBlockchainTransaction(this.prisma, {
-            paymentOperationId: op.id,
-            direction: BlockchainTransactionDirection.OUTBOUND,
-            asset: 'USDT_TRC20',
-            txHash,
-            fromAddress: customerTronAddress,
-            toAddress: this.getRuntime().treasuryAddress,
-            amount: liveBalance,
-            status: BlockchainTransactionStatus.CONFIRMED,
-            gasPayerAddress: customerTronAddress,
-            snapshot,
+        await this.upsertBlockchainTransaction(this.prisma, {
+          paymentOperationId: op.id,
+          direction: BlockchainTransactionDirection.OUTBOUND,
+          asset: 'USDT_TRC20',
+          txHash,
+          fromAddress: customerTronAddress,
+          toAddress: this.getRuntime().treasuryAddress,
+          amount: liveBalance,
+          status: BlockchainTransactionStatus.CONFIRMED,
+          gasPayerAddress: customerTronAddress,
+          snapshot,
         });
         await this.markConfirmed(op);
         await this.balanceFetchService
@@ -2141,13 +2152,13 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     const receiverResolvedAddress = this.resolveCustomerTronAddress(receiver);
     const chainSourceAddress = receiverIsBrowserWallet
       ? this.getRuntime().treasuryAddress
-      : senderResolvedAddress ?? input.senderAddress;
+      : (senderResolvedAddress ?? input.senderAddress);
     const chainDestinationAddress = receiverIsBrowserWallet
-      ? receiverResolvedAddress ?? input.receiverAddress
+      ? (receiverResolvedAddress ?? input.receiverAddress)
       : this.getRuntime().treasuryAddress;
     const chainSourcePrivateKey = receiverIsBrowserWallet
       ? this.getRuntime().treasuryPrivateKey
-      : input.senderPrivateKey ?? sender.private_key;
+      : (input.senderPrivateKey ?? sender.private_key);
 
     if (
       !receiverIsBrowserWallet &&
@@ -2362,8 +2373,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
             );
             return;
           }
-          const confirmedSnapshot =
-            await this.fetchChainTransactionSnapshot(txHash).catch(() => null);
+          const confirmedSnapshot = await this.fetchChainTransactionSnapshot(
+            txHash,
+          ).catch(() => null);
           await this.prisma.$transaction(async (tx) => {
             await this.upsertBlockchainTransaction(tx, {
               paymentOperationId: op.id,
@@ -2746,7 +2758,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           Number(op.amount),
           op.to_address,
           op.tx_hash!,
-          Number((op.payload as UsdtPaymentPayload | undefined)?.fee_amount ?? 0),
+          Number(
+            (op.payload as UsdtPaymentPayload | undefined)?.fee_amount ?? 0,
+          ),
         ));
 
       const debitLedgerEntryId = Number(
@@ -2826,7 +2840,11 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
     webhookSecret?: string,
   ): Promise<StatusOKDto> {
     const expectedSecret = this.getWebhookSecret();
-    if (expectedSecret && webhookSecret !== expectedSecret) {
+    if (!expectedSecret) {
+      this.logger.error('USDT webhook secret is not configured');
+      throw new UnauthorizedException('USDT webhook is not configured');
+    }
+    if (webhookSecret !== expectedSecret) {
       throw new UnauthorizedException('Invalid webhook secret');
     }
 

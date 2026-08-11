@@ -1,11 +1,7 @@
-FROM ubuntu:24.04
+FROM node:20.19.4-bookworm-slim
 
-ARG version=20
-
-RUN apt-get update -y && apt-get install curl unzip -y \
-    && curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir './fnm' \
-    && cp ./fnm/fnm /usr/bin && fnm install $version && apt-get install npm netcat-traditional -y \
-    && apt-get clean \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends netcat-traditional \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -15,7 +11,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm cache clean --force && npm install --legacy-peer-deps
+RUN npm ci --legacy-peer-deps --no-audit --no-fund
 
 # Copy the rest of the application code
 COPY . .
@@ -27,9 +23,10 @@ RUN npx prisma generate
 RUN npm run build
 
 EXPOSE 8000
-EXPOSE 587 
 
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh && chown -R node:node /app
+
+USER node
 
 CMD ["/bin/bash", "/app/entrypoint.sh"]

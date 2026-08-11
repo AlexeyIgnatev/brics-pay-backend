@@ -19,12 +19,6 @@ export class UserInfoDto {
 
   @ApiProperty({ description: 'Email' })
   email: string;
-
-  @ApiProperty({
-    description: 'Приватный ключ пользователя',
-    example: '0xabcdef...',
-  })
-  private_key?: string;
 }
 
 export class UserDto extends UserInfoDto {

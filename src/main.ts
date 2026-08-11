@@ -19,9 +19,23 @@ async function bootstrap() {
     type: VersioningType.URI,
   });
 
-  app.enableCors();
+  const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.enableCors({
+    origin: allowedOrigins.length ? allowedOrigins : false,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Idempotency-Key',
+      'X-Webhook-Secret',
+      'X-Api-Key',
+    ],
+  });
 
-  SwaggerConfig(app);
+  await SwaggerConfig(app);
 
   app.useGlobalPipes(
     new ValidationPipe({

@@ -259,11 +259,12 @@ export class PaymentsService {
     priceUsd?: string | null;
     notionalUsd?: string | null;
     comment?: string | null;
+    status?: TransactionStatus;
   }): Promise<Transaction> {
     return this.prisma.transaction.create({
       data: {
         kind: input.kind,
-        status: TransactionStatus.SUCCESS,
+        status: input.status ?? TransactionStatus.SUCCESS,
         amount_in: input.amountIn.toString(),
         asset_in: input.assetIn,
         amount_out: input.amountOut.toString(),
@@ -283,12 +284,17 @@ export class PaymentsService {
     });
   }
 
-  private isBrowserWalletCustomer(customer?: {
-    customer_id: number;
-    first_name?: string | null;
-    middle_name?: string | null;
-    last_name?: string | null;
-  } | number | null): boolean {
+  private isBrowserWalletCustomer(
+    customer?:
+      | {
+          customer_id: number;
+          first_name?: string | null;
+          middle_name?: string | null;
+          last_name?: string | null;
+        }
+      | number
+      | null,
+  ): boolean {
     if (customer == null) return false;
     if (typeof customer === 'number') {
       return customer >= 910_000_000;
@@ -360,9 +366,10 @@ export class PaymentsService {
           direction: BlockchainTransactionDirection.OUTBOUND,
           network: Network.TRON,
           asset: 'USDT_TRC20',
-          token_contract: this.configService.get<string>('USDT_TOKEN_ADDRESS')
-            ?? this.configService.get<string>('TRON_USDT_CONTRACT')
-            ?? null,
+          token_contract:
+            this.configService.get<string>('USDT_TOKEN_ADDRESS') ??
+            this.configService.get<string>('TRON_USDT_CONTRACT') ??
+            null,
           tx_hash: input.txHash,
           from_address: input.sender.address,
           to_address: input.recipientAddress,
@@ -392,7 +399,8 @@ export class PaymentsService {
           asset_in: 'USDT_TRC20',
           amount_out: input.amount.toString(),
           asset_out: 'USDT_TRC20',
-          fee_amount: (input.feeAmount ?? 0) > 0 ? String(input.feeAmount) : null,
+          fee_amount:
+            (input.feeAmount ?? 0) > 0 ? String(input.feeAmount) : null,
           tx_hash: input.txHash,
           sender_customer_id: input.sender.customer_id,
           receiver_customer_id: input.recipientCustomerId ?? null,
@@ -571,7 +579,9 @@ export class PaymentsService {
             `[browser-wallet-transfer] confirmed txHash=${txHash} blockNumber=${String(blockNumber ?? 0)} blockTimestamp=${String(blockTimestamp ?? 0)} receiptStatus=${receiptStatus ?? 'null'} feeAmountRaw=${String(feeAmountRaw ?? 'null')} energyUsed=${String(Number.isFinite(energyUsed) ? energyUsed : 0)} bandwidthUsed=${String(Number.isFinite(bandwidthUsed) ? bandwidthUsed : 0)}`,
           );
           void this.balanceFetchService
-            .refreshAllBalancesForUser(input.sender.customer_id, ['USDT_TRC20' as Asset])
+            .refreshAllBalancesForUser(input.sender.customer_id, [
+              'USDT_TRC20' as Asset,
+            ])
             .catch((error) => {
               this.logger.warn(
                 `[browser-wallet-transfer] sender balance refresh after confirmation failed customer=${input.sender.customer_id}: ${error instanceof Error ? error.message : String(error)}`,
@@ -582,7 +592,9 @@ export class PaymentsService {
             input.recipientCustomerId !== input.sender.customer_id
           ) {
             void this.balanceFetchService
-              .refreshAllBalancesForUser(input.recipientCustomerId, ['USDT_TRC20' as Asset])
+              .refreshAllBalancesForUser(input.recipientCustomerId, [
+                'USDT_TRC20' as Asset,
+              ])
               .catch((error) => {
                 this.logger.warn(
                   `[browser-wallet-transfer] recipient balance refresh after confirmation failed customer=${input.recipientCustomerId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -649,7 +661,9 @@ export class PaymentsService {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException(`Browser wallet transfer failed: ${details}`);
+      throw new BadRequestException(
+        `Browser wallet transfer failed: ${details}`,
+      );
     }
   }
 
@@ -751,7 +765,7 @@ export class PaymentsService {
       bank_som_account: string;
       bank_salam_wallet: string;
       bank_usdt_wallet: string;
-    bank_commission_partners_json: string;
+      bank_commission_partners_json: string;
     },
     kind: 'central' | 'bank' | 'partner',
     asset: Asset,
@@ -841,10 +855,9 @@ export class PaymentsService {
       bankFixed,
       partnerFixed,
     );
-    const partnerConfigs = this.settingsService
-      .parsePartnersJsonForCommission(
-        adminSettings.bank_commission_partners_json,
-      );
+    const partnerConfigs = this.settingsService.parsePartnersJsonForCommission(
+      adminSettings.bank_commission_partners_json,
+    );
     const partnerTargets = partnerConfigs
       .map((partner, index) =>
         this.getCommissionTargetRef(adminSettings, 'partner', input.asset, {
@@ -852,7 +865,9 @@ export class PaymentsService {
           title: partner.title || `Партнер ${index + 1}`,
         }),
       )
-      .filter((item): item is { reference: string; title: string } => Boolean(item));
+      .filter((item): item is { reference: string; title: string } =>
+        Boolean(item),
+      );
     const fallbackPartnerTarget = this.getCommissionTargetRef(
       adminSettings,
       'bank',
@@ -861,7 +876,9 @@ export class PaymentsService {
     const targets = [
       this.getCommissionTargetRef(adminSettings, 'central', input.asset),
       this.getCommissionTargetRef(adminSettings, 'bank', input.asset),
-    ].filter((item): item is { reference: string; title: string } => Boolean(item));
+    ].filter((item): item is { reference: string; title: string } =>
+      Boolean(item),
+    );
 
     const partnerPerTarget =
       partnerTargets.length > 0
@@ -917,7 +934,7 @@ export class PaymentsService {
                 comment: `${input.sourceLabel}: доля партнера`,
               },
             ]
-      : []),
+          : []),
     ].filter((item) => Number(item.amount) > 0);
 
     if (!postings.length) return;
@@ -935,7 +952,9 @@ export class PaymentsService {
         `bankFixed=${Number.isFinite(bankFixed) ? bankFixed : 0}`,
         `partnersFixed=${Number.isFinite(partnerFixed) ? partnerFixed : 0}`,
         `postingGroup=${input.postingGroupKey}`,
-        input.transactionId != null ? `transactionId=${input.transactionId}` : null,
+        input.transactionId != null
+          ? `transactionId=${input.transactionId}`
+          : null,
         input.paymentOperationId != null
           ? `paymentOperationId=${input.paymentOperationId}`
           : null,
@@ -1333,12 +1352,6 @@ export class PaymentsService {
     };
   }
 
-  private calcPercentTariffFee(amount: number, percent: number): number {
-    const safeAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
-    const safePercent = Number.isFinite(percent) && percent > 0 ? percent : 0;
-    return Number((safeAmount * (safePercent / 100)).toFixed(2));
-  }
-
   private mapType(t: Transaction, customer_id: number): TransactionType {
     switch (t.kind) {
       case 'BANK_TO_BANK':
@@ -1383,11 +1396,13 @@ export class PaymentsService {
     return Math.max(grossAmount - feeAmount, 0);
   }
 
-  private formatCustomerFullName(customer?: {
-    first_name: string | null;
-    middle_name: string | null;
-    last_name: string | null;
-  } | null): string | undefined {
+  private formatCustomerFullName(
+    customer?: {
+      first_name: string | null;
+      middle_name: string | null;
+      last_name: string | null;
+    } | null,
+  ): string | undefined {
     const fullName = [
       customer?.last_name,
       customer?.first_name,
@@ -1937,9 +1952,7 @@ export class PaymentsService {
           return new StatusOKDto(createdTransaction.id);
         } catch (error) {
           const details = this.errorDetails(error);
-          this.logger.warn(
-            `[convert ESOM->${to}] blockchain step failed, storing success anyway: ${details}`,
-          );
+          this.logger.error(`[convert ESOM->${to}] failed: ${details}`);
 
           const createdTransaction =
             await this.createConversionTransactionRecord({
@@ -1952,26 +1965,12 @@ export class PaymentsService {
               senderCustomerId: customer_id,
               priceUsd,
               notionalUsd: notionalUsdt,
-              comment: `Convert ESOM->${to}`,
+              comment: `Convert ESOM->${to}; failed: ${details.slice(0, 300)}`,
+              status: TransactionStatus.FAILED,
             });
-
-          if (feeEsom > 0) {
-            await this.createCommissionDistributionPostings(this.prisma, {
-              transactionId: createdTransaction.id,
-              postingGroupKey: `conversion-commission-${createdTransaction.id}`,
-              feeAmount: feeEsom,
-              asset: 'ESOM',
-              sourceLabel: `Convert ESOM->${to}`,
-              transactionRef,
-            });
-          }
-
-          await addBalance(to, usdtAmount);
-          await this.balanceFetchService.refreshAllBalancesForUser(
-            customer_id,
-            ['ESOM' as Asset],
+          throw new BadRequestException(
+            `Conversion failed. Transaction ${createdTransaction.id}`,
           );
-          return new StatusOKDto(createdTransaction.id);
         }
       }
 
@@ -2048,9 +2047,7 @@ export class PaymentsService {
           return new StatusOKDto(createdTransaction.id);
         } catch (error) {
           const details = this.errorDetails(error);
-          this.logger.warn(
-            `[convert ${from}->ESOM] blockchain step failed, storing success anyway: ${details}`,
-          );
+          this.logger.error(`[convert ${from}->ESOM] failed: ${details}`);
 
           const createdTransaction =
             await this.createConversionTransactionRecord({
@@ -2063,26 +2060,12 @@ export class PaymentsService {
               senderCustomerId: customer_id,
               priceUsd: '1',
               notionalUsd: notionalUsdt.toString(),
-              comment: `Convert ${from}->ESOM`,
+              comment: `Convert ${from}->ESOM; failed: ${details.slice(0, 300)}`,
+              status: TransactionStatus.FAILED,
             });
-
-          if (feeUsdt > 0) {
-            await this.createCommissionDistributionPostings(this.prisma, {
-              transactionId: createdTransaction.id,
-              postingGroupKey: `conversion-commission-${createdTransaction.id}`,
-              feeAmount: feeUsdt,
-              asset: 'USDT_TRC20',
-              sourceLabel: `Convert ${from}->ESOM`,
-              transactionRef,
-            });
-          }
-
-          await addBalance(from, -amountFrom);
-          await this.balanceFetchService.refreshAllBalancesForUser(
-            customer_id,
-            ['ESOM' as Asset],
+          throw new BadRequestException(
+            `Conversion failed. Transaction ${createdTransaction.id}`,
           );
-          return new StatusOKDto(createdTransaction.id);
         }
       }
 
@@ -2098,10 +2081,14 @@ export class PaymentsService {
       }
 
       if (from === 'SOM' && to === 'USDT_TRC20') {
-        const somToEsomResult = await this.fiatToCrypto({ amount: amountFrom }, customer_id, {
-          internalBridge: true,
-          bridgeTarget: to,
-        });
+        const somToEsomResult = await this.fiatToCrypto(
+          { amount: amountFrom },
+          customer_id,
+          {
+            internalBridge: true,
+            bridgeTarget: to,
+          },
+        );
 
         const somToEsomTx = await this.prisma.transaction.findFirst({
           where: {
@@ -2367,7 +2354,7 @@ export class PaymentsService {
       this.tariffOperationForConversion('SOM' as Asset, 'ESOM' as Asset),
       amount,
     );
-    const conversionFee = this.calcPercentTariffFee(amount, tariff.percent);
+    const conversionFee = Number(tariff.fee.toFixed(2));
     const netAmount = Number(Math.max(amount - conversionFee, 0).toFixed(2));
     if (netAmount < 0) {
       throw new BadRequestException(
@@ -2479,9 +2466,7 @@ export class PaymentsService {
       return new StatusOKDto(createdTransaction.id);
     } catch (error) {
       const details = this.errorDetails(error);
-      this.logger.warn(
-        `[fiatToCrypto] blockchain step failed, storing success anyway: ${details}`,
-      );
+      this.logger.error(`[fiatToCrypto] failed: ${details}`);
 
       const createdTransaction = await this.createConversionTransactionRecord({
         kind: TransactionKind.BANK_TO_WALLET,
@@ -2494,41 +2479,13 @@ export class PaymentsService {
         receiverWalletAddress: customer.address,
         bankOpId: null,
         comment: isInternalBridge
-          ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef})`
-          : `Пополнение Салам (${transactionRef})`,
+          ? `INTERNAL_BRIDGE SOM->ESOM for SOM->${options?.bridgeTarget ?? 'CRYPTO'} (${transactionRef}); failed`
+          : `Пополнение Салам (${transactionRef}); failed`,
+        status: TransactionStatus.FAILED,
       });
-
-      await this.prisma.userAssetBalance.upsert({
-        where: {
-          customer_id_asset: {
-            customer_id: customer.customer_id,
-            asset: 'SOM' as Asset,
-          },
-        },
-        create: {
-          customer_id: customer.customer_id,
-          asset: 'SOM' as Asset,
-          balance: (-amount).toString(),
-        },
-        update: { balance: { decrement: amount.toString() } },
-      });
-
-      await this.createSomPurchaseAccountingPostings(this.prisma, {
-        transactionId: createdTransaction.id,
-        postingGroupKey: `som-purchase-${createdTransaction.id}`,
-        grossAmount: amount,
-        commissionAmount: conversionFee,
-        netAmount,
-        bankOperationId: null,
-        transactionRef,
-        internalBridge: isInternalBridge,
-      });
-
-      await this.balanceFetchService.refreshAllBalancesForUser(
-        customer.customer_id,
-        ['ESOM' as Asset],
+      throw new BadRequestException(
+        `Conversion failed. Transaction ${createdTransaction.id}`,
       );
-      return new StatusOKDto(createdTransaction.id);
     }
   }
 
@@ -2556,7 +2513,7 @@ export class PaymentsService {
       this.tariffOperationForConversion('ESOM' as Asset, 'SOM' as Asset),
       amount,
     );
-    const conversionFee = this.calcPercentTariffFee(amount, tariff.percent);
+    const conversionFee = Number(tariff.fee.toFixed(2));
     const netAmount = Number(Math.max(amount - conversionFee, 0).toFixed(2));
     if (netAmount < 0) {
       throw new BadRequestException(
@@ -2843,9 +2800,7 @@ export class PaymentsService {
       return new StatusOKDto(createdTransaction.id);
     } catch (error) {
       const details = this.errorDetails(error);
-      this.logger.warn(
-        `[cryptoToFiat] blockchain step failed, storing success anyway: ${details}`,
-      );
+      this.logger.error(`[cryptoToFiat] failed: ${details}`);
 
       const fallbackEthHash = undefined;
       const createdTransaction = await this.createConversionTransactionRecord({
@@ -2859,40 +2814,13 @@ export class PaymentsService {
         senderWalletAddress: customer.address,
         txHash: fallbackEthHash,
         comment: isInternalBridge
-          ? `INTERNAL_BRIDGE ESOM->SOM for ${options?.bridgeSource ?? 'CRYPTO'}->SOM (${transactionRef})`
-          : `Crypto->Fiat (${transactionRef})`,
+          ? `INTERNAL_BRIDGE ESOM->SOM for ${options?.bridgeSource ?? 'CRYPTO'}->SOM (${transactionRef}); failed`
+          : `Crypto->Fiat (${transactionRef}); failed`,
+        status: TransactionStatus.FAILED,
       });
-
-      await this.prisma.userAssetBalance.upsert({
-        where: {
-          customer_id_asset: {
-            customer_id: customer.customer_id,
-            asset: 'SOM' as Asset,
-          },
-        },
-        create: {
-          customer_id: customer.customer_id,
-          asset: 'SOM' as Asset,
-          balance: netAmount.toString(),
-        },
-        update: { balance: { increment: netAmount.toString() } },
-      });
-
-      await this.createSomRedemptionAccountingPostings(this.prisma, {
-        transactionId: createdTransaction.id,
-        postingGroupKey: `som-redemption-${createdTransaction.id}`,
-        grossAmount: amount,
-        commissionAmount: conversionFee,
-        netAmount,
-        bankOperationId: null,
-        transactionRef,
-      });
-
-      await this.balanceFetchService.refreshAllBalancesForUser(
-        customer.customer_id,
-        ['ESOM' as Asset],
+      throw new BadRequestException(
+        `Conversion failed. Transaction ${createdTransaction.id}`,
       );
-      return new StatusOKDto(createdTransaction.id);
     }
   }
 
@@ -2983,7 +2911,9 @@ export class PaymentsService {
         const candidateList =
           asset === 'USDT_TRC20'
             ? [
-                this.cryptoService.trxAddressFromPrivateKey(customer.private_key),
+                this.cryptoService.trxAddressFromPrivateKey(
+                  customer.private_key,
+                ),
                 customer.address,
               ]
             : [customer.address];
@@ -3152,15 +3082,16 @@ export class PaymentsService {
             });
           }
           if (internalRecipient) {
-            const amlDecision = await this.antiFraud.checkExternalWalletDetailed({
-              sender_wallet_address: me.address,
-              amount_in: transferDto.amount,
-              asset_in: asset,
-              sender_customer_id: me.customer_id,
-              receiver_customer_id: internalRecipient.customer_id,
-              receiver_wallet_address: internalRecipient.walletAddress,
-              comment: 'Browser wallet transfer to bank customer',
-            });
+            const amlDecision =
+              await this.antiFraud.checkExternalWalletDetailed({
+                sender_wallet_address: me.address,
+                amount_in: transferDto.amount,
+                asset_in: asset,
+                sender_customer_id: me.customer_id,
+                receiver_customer_id: internalRecipient.customer_id,
+                receiver_wallet_address: internalRecipient.walletAddress,
+                comment: 'Browser wallet transfer to bank customer',
+              });
             if (!amlDecision.allowed) {
               throw new BadRequestException(
                 this.antiFraudRejectMessage(
@@ -3423,7 +3354,9 @@ export class PaymentsService {
         customer.customer_id,
       );
       if (!internalRecipient) {
-        throw new BadRequestException('ESOM wallet address recipient not found');
+        throw new BadRequestException(
+          'ESOM wallet address recipient not found',
+        );
       }
 
       return this.transferCryptoInternal(
@@ -3613,89 +3546,103 @@ export class PaymentsService {
       transactionRef,
       requestedAt,
     );
-    const bricsTransaction = await this.bricsService.createTransfer(
-      senderAccount.AccountNo,
-      bricsRecipient.AccountNo,
-      transferDto.amount,
-      paymentPurpose,
-    );
-    if (!bricsTransaction) {
-      throw new BadRequestException('Brics transaction failed');
-    }
+    const pendingTransaction = await this.prisma.transaction.create({
+      data: {
+        kind: TransactionKind.BANK_TO_BANK,
+        status: TransactionStatus.PENDING,
+        amount_in: transferDto.amount.toString(),
+        asset_in: 'SOM',
+        amount_out: transferDto.amount.toString(),
+        asset_out: 'SOM',
+        fee_amount: feeAmount.toString(),
+        sender_customer_id: customer.customer_id,
+        receiver_customer_id: bricsRecipient.CustomerID,
+        comment: `SOM transfer (${transactionRef})`,
+      },
+    });
 
-    let createdTransactionId: number | null = null;
+    let bricsTransaction: number;
     try {
-      const createdTransaction = await this.prisma.transaction.create({
+      const result = await this.bricsService.createTransfer(
+        senderAccount.AccountNo,
+        bricsRecipient.AccountNo,
+        transferDto.amount,
+        paymentPurpose,
+      );
+      if (!result) {
+        throw new BadRequestException('Brics transaction failed');
+      }
+      bricsTransaction = result;
+    } catch (error) {
+      await this.prisma.transaction.update({
+        where: { id: pendingTransaction.id },
         data: {
-          kind: TransactionKind.BANK_TO_BANK,
-          status: TransactionStatus.SUCCESS,
-          amount_in: transferDto.amount.toString(),
-          asset_in: 'SOM',
-          amount_out: transferDto.amount.toString(),
-          asset_out: 'SOM',
-          fee_amount: feeAmount.toString(),
-          bank_op_id: bricsTransaction,
-          sender_customer_id: customer.customer_id,
-          receiver_customer_id: bricsRecipient.CustomerID,
-          comment: `SOM transfer (${transactionRef})`,
+          status: TransactionStatus.FAILED,
+          comment: `SOM transfer (${transactionRef}); ABS failed`,
         },
       });
-      createdTransactionId = createdTransaction.id;
-      if (feeAmount > 0) {
-        await this.createCommissionDistributionPostings(this.prisma, {
-          transactionId: createdTransaction.id,
-          postingGroupKey: `som-transfer-commission-${createdTransaction.id}`,
-          feeAmount,
-          asset: 'SOM',
-          sourceLabel: 'SOM transfer',
-          transactionRef,
-          bankOperationId: bricsTransaction,
-        });
-      }
-    } catch (error) {
-      this.logger.error(
-        `[transferSom] transaction record failed after ABS success transactionRef=${transactionRef} bricsTransaction=${bricsTransaction}: ${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error.stack : undefined,
-      );
+      throw error;
     }
 
+    await this.prisma.transaction.update({
+      where: { id: pendingTransaction.id },
+      data: { bank_op_id: bricsTransaction },
+    });
+
     try {
-      await this.prisma.userAssetBalance.upsert({
-        where: {
-          customer_id_asset: {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.userAssetBalance.upsert({
+          where: {
+            customer_id_asset: {
+              customer_id: customer.customer_id,
+              asset: 'SOM' as Asset,
+            },
+          },
+          create: {
             customer_id: customer.customer_id,
             asset: 'SOM' as Asset,
+            balance: (-transferDto.amount).toString(),
           },
-        },
-        create: {
-          customer_id: customer.customer_id,
-          asset: 'SOM' as Asset,
-          balance: (-transferDto.amount).toString(),
-        },
-        update: { balance: { decrement: transferDto.amount.toString() } },
-      });
-      await this.prisma.userAssetBalance.upsert({
-        where: {
-          customer_id_asset: {
+          update: { balance: { decrement: transferDto.amount.toString() } },
+        });
+        await tx.userAssetBalance.upsert({
+          where: {
+            customer_id_asset: {
+              customer_id: bricsRecipient.CustomerID,
+              asset: 'SOM' as Asset,
+            },
+          },
+          create: {
             customer_id: bricsRecipient.CustomerID,
             asset: 'SOM' as Asset,
+            balance: transferDto.amount.toString(),
           },
-        },
-        create: {
-          customer_id: bricsRecipient.CustomerID,
-          asset: 'SOM' as Asset,
-          balance: transferDto.amount.toString(),
-        },
-        update: { balance: { increment: transferDto.amount.toString() } },
+          update: { balance: { increment: transferDto.amount.toString() } },
+        });
+        if (feeAmount > 0) {
+          await this.createCommissionDistributionPostings(tx, {
+            transactionId: pendingTransaction.id,
+            postingGroupKey: `som-transfer-commission-${pendingTransaction.id}`,
+            feeAmount,
+            asset: 'SOM',
+            sourceLabel: 'SOM transfer',
+            transactionRef,
+            bankOperationId: bricsTransaction,
+          });
+        }
+        await tx.transaction.update({
+          where: { id: pendingTransaction.id },
+          data: { status: TransactionStatus.SUCCESS },
+        });
       });
     } catch (error) {
       this.logger.error(
-        `[transferSom] local balance update failed after ABS success transactionRef=${transactionRef} bricsTransaction=${bricsTransaction}: ${error instanceof Error ? error.message : String(error)}`,
+        `[transferSom] local finalization pending after ABS success transactionRef=${transactionRef} bricsTransaction=${bricsTransaction}: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error.stack : undefined,
       );
     }
 
-    return new StatusOKDto(createdTransactionId ?? bricsTransaction);
+    return new StatusOKDto(pendingTransaction.id);
   }
 
   private async transferCryptoByPhone(

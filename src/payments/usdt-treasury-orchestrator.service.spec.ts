@@ -6,6 +6,9 @@ import { CryptoService } from '../config/crypto/crypto.service';
 import { EthereumService } from '../config/ethereum/ethereum.service';
 import { BricsService } from 'src/config/brics/brics.service';
 import { BalanceCacheService } from '../user-management/balance-cache.service';
+import { BalanceFetchService } from '../user-management/balance-fetch.service';
+import { SettingsService } from '../config/settings/settings.service';
+import { TronService } from '../config/crypto/tron.service';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
 
 describe('UsdtTreasuryOrchestratorService', () => {
@@ -34,6 +37,7 @@ describe('UsdtTreasuryOrchestratorService', () => {
               if (key === 'USDT_TREASURY_PRIVATE_KEY') {
                 return '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
               }
+              if (key === 'USDT_WEBHOOK_SECRET') return 'test-webhook-secret';
               if (key === 'ADMIN_ADDRESS')
                 return '0x1230000000000000000000000000000000000000';
               return undefined;
@@ -54,11 +58,34 @@ describe('UsdtTreasuryOrchestratorService', () => {
               .mockRejectedValue(new Error('no contract')),
           },
         },
+        { provide: TronService, useValue: {} },
         { provide: BricsService, useValue: {} },
+        {
+          provide: BalanceFetchService,
+          useValue: {
+            refreshAllBalancesForUser: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         {
           provide: BalanceCacheService,
           useValue: {
             refreshAllBalancesForUser: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: SettingsService,
+          useValue: {
+            getAdmin: jest.fn().mockResolvedValue({
+              bank_commission_central_bank_pct: '20',
+              bank_commission_bank_pct: '40',
+              bank_commission_partners_pct: '40',
+              bank_commission_distribution_mode: 'PERCENT',
+              bank_commission_central_bank_fixed: '0',
+              bank_commission_bank_fixed: '0',
+              bank_commission_partners_fixed: '0',
+              bank_commission_partners_json: '[]',
+            }),
+            parsePartnersJsonForCommission: jest.fn().mockReturnValue([]),
           },
         },
       ],
@@ -243,9 +270,12 @@ describe('UsdtTreasuryOrchestratorService', () => {
     (service as any).findOperationByIdempotencyKey = jest
       .fn()
       .mockResolvedValue(null);
-    (service as any).createOperation = jest
-      .fn()
-      .mockResolvedValue({ id: 77, attempt_count: 0, payload: null, status: 'NEW' });
+    (service as any).createOperation = jest.fn().mockResolvedValue({
+      id: 77,
+      attempt_count: 0,
+      payload: null,
+      status: 'NEW',
+    });
     (service as any).applyLedgerDelta = jest.fn().mockResolvedValue(undefined);
     (service as any).markFailed = jest.fn();
 
@@ -275,12 +305,12 @@ describe('UsdtTreasuryOrchestratorService', () => {
       expect(first.transaction_id).toBe(601);
       expect(second.transaction_id).toBe(602);
       expect((service as any).createOperation).toHaveBeenCalledTimes(2);
-      expect((service as any).createOperation.mock.calls[0][0].idempotency_key).toBe(
-        'usdt-internal:00000000-0000-4000-8000-000000000001',
-      );
-      expect((service as any).createOperation.mock.calls[1][0].idempotency_key).toBe(
-        'usdt-internal:00000000-0000-4000-8000-000000000002',
-      );
+      expect(
+        (service as any).createOperation.mock.calls[0][0].idempotency_key,
+      ).toBe('usdt-internal:00000000-0000-4000-8000-000000000001');
+      expect(
+        (service as any).createOperation.mock.calls[1][0].idempotency_key,
+      ).toBe('usdt-internal:00000000-0000-4000-8000-000000000002');
     } finally {
       randomSpy.mockRestore();
     }
@@ -319,12 +349,16 @@ describe('UsdtTreasuryOrchestratorService', () => {
       .fn()
       .mockResolvedValue(undefined);
 
-    const result = await service.handleUsdtDepositWebhook({
-      tx_hash: '6f580f445d84295fc6c10fdf9062d714c7c16cbbc519524208bf99c7dc27d6ca',
-      from_address: 'TFromAddress1111111111111111111111111',
-      to_address: 'TXYZ',
-      amount: 800,
-    });
+    const result = await service.handleUsdtDepositWebhook(
+      {
+        tx_hash:
+          '6f580f445d84295fc6c10fdf9062d714c7c16cbbc519524208bf99c7dc27d6ca',
+        from_address: 'TFromAddress1111111111111111111111111',
+        to_address: 'TXYZ',
+        amount: 800,
+      },
+      'test-webhook-secret',
+    );
 
     expect(result.transaction_id).toBe(777);
     expect((service as any).finalizeDepositOperation).toHaveBeenCalledWith(
@@ -388,7 +422,8 @@ describe('UsdtTreasuryOrchestratorService', () => {
       fromAddress: 'TFromAddress1111111111111111111111111',
       toAddress: 'TXYZ',
       amount: 800,
-      txHash: '6f580f445d84295fc6c10fdf9062d714c7c16cbbc519524208bf99c7dc27d6ca',
+      txHash:
+        '6f580f445d84295fc6c10fdf9062d714c7c16cbbc519524208bf99c7dc27d6ca',
       operationId: 901,
       payload: {},
     });

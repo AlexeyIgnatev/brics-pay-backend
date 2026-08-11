@@ -508,9 +508,8 @@ async function main() {
       process.env.USDT_RPC_URL ||
       'http://172.17.0.1:8090';
     const appUrl = process.env.APP_URL || 'http://127.0.0.1:8000';
-    const witnessPk =
-      process.env.USDT_WITNESS_PRIVATE_KEY ||
-      'da146374a75310b9666e834ee4ad0866d6f4035967bfc76217c5a495fff9f0d0';
+    const witnessPk = process.env.USDT_WITNESS_PRIVATE_KEY;
+    if (!witnessPk) throw new Error('USDT_WITNESS_PRIVATE_KEY is required');
     const tokenAddress =
       process.env.USDT_TOKEN_ADDRESS || process.env.TRON_USDT_CONTRACT;
     const webhookSecret = fs

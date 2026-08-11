@@ -29,6 +29,8 @@ import { BrowserWalletTransferDto } from './dto/browser-wallet-transfer.dto';
 
 @Controller('payments')
 export class PaymentsController {
+  private readonly inFlightTransfers = new Map<string, Promise<StatusOKDto>>();
+
   constructor(
     private readonly paymentsService: PaymentsService,
     private readonly settingsService: SettingsService,
@@ -63,7 +65,27 @@ export class PaymentsController {
     if (idempotencyKey) {
       transferDto.idempotency_key = idempotencyKey;
     }
-    return this.paymentsService.transfer(transferDto, req?.user.customer_id);
+    const customerId = req?.user.customer_id;
+    const operationKey =
+      transferDto.idempotency_key?.trim() ||
+      [
+        customerId,
+        transferDto.currency,
+        transferDto.amount,
+        transferDto.phone_number?.trim() ?? '',
+        transferDto.address?.trim() ?? '',
+      ].join(':');
+    const requestKey = `${customerId}:${operationKey}`;
+    const existing = this.inFlightTransfers.get(requestKey);
+    if (existing) return existing;
+
+    const operation = this.paymentsService.transfer(transferDto, customerId);
+    this.inFlightTransfers.set(requestKey, operation);
+    try {
+      return await operation;
+    } finally {
+      this.inFlightTransfers.delete(requestKey);
+    }
   }
 
   @Get('fees')
@@ -139,6 +161,8 @@ export class PaymentsController {
   }
 
   @Post('usdt/reconcile')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(AdminAuthGuard)
   async reconcileUsdtTreasury(): Promise<StatusOKDto> {
     return this.usdtTreasuryOrchestrator.reconcileUsdtOperations();
   }

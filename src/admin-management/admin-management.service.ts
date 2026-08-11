@@ -163,17 +163,18 @@ export class AdminManagementService {
   }
 
   private async signTokens(payload: any) {
+    const accessSecret = this.config.get<string>('ADMIN_JWT_ACCESS_SECRET');
+    const refreshSecret = this.config.get<string>('ADMIN_JWT_REFRESH_SECRET');
+    if (!accessSecret || !refreshSecret) {
+      throw new Error('Admin JWT secrets are not configured');
+    }
     const accessToken = await this.jwtService.signAsync(payload, {
-      secret:
-        this.config.get<string>('ADMIN_JWT_ACCESS_SECRET') ||
-        'dev_admin_access_secret',
+      secret: accessSecret,
       expiresIn: this.config.get<string>('ADMIN_JWT_ACCESS_TTL') || '7d',
     });
 
     const refreshToken = await this.jwtService.signAsync(payload, {
-      secret:
-        this.config.get<string>('ADMIN_JWT_REFRESH_SECRET') ||
-        'dev_admin_refresh_secret',
+      secret: refreshSecret,
       expiresIn: this.config.get<string>('ADMIN_JWT_REFRESH_TTL') || '7d',
     });
     return { accessToken, refreshToken };
@@ -202,10 +203,12 @@ export class AdminManagementService {
 
   async refresh(refreshToken: string) {
     try {
+      const refreshSecret = this.config.get<string>('ADMIN_JWT_REFRESH_SECRET');
+      if (!refreshSecret) {
+        throw new Error('ADMIN_JWT_REFRESH_SECRET is not configured');
+      }
       const decoded: any = await this.jwtService.verifyAsync(refreshToken, {
-        secret:
-          this.config.get<string>('ADMIN_JWT_REFRESH_SECRET') ||
-          'dev_admin_refresh_secret',
+        secret: refreshSecret,
       });
       const admin = await this.prisma.admin.findUnique({
         where: { id: decoded.sub },

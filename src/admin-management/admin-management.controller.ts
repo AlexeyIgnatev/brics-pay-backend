@@ -31,6 +31,7 @@ import {
 } from './dto/admin-auth.dto';
 import { AdminListQueryDto } from './dto/admin-list-query.dto';
 import { AdminAuthGuard } from './guards/admin-auth.guard';
+import { SuperAdminGuard } from './guards/super-admin.guard';
 import { Request } from 'express';
 
 function getClientIp(req: Request): string {
@@ -79,7 +80,7 @@ export class AdminManagementController {
   }
 
   @Post()
-  @UseGuards(AdminAuthGuard)
+  @UseGuards(AdminAuthGuard, SuperAdminGuard)
   @ApiBearerAuth('Bearer')
   @ApiOperation({
     summary: 'Создать нового администратора',
@@ -92,7 +93,7 @@ export class AdminManagementController {
   }
 
   @Get()
-  @UseGuards(AdminAuthGuard)
+  @UseGuards(AdminAuthGuard, SuperAdminGuard)
   @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Получить список администраторов' })
   @ApiResponse({ status: 200, type: PaginatedAdminResponseDto })
@@ -112,7 +113,7 @@ export class AdminManagementController {
   }
 
   @Get(':id')
-  @UseGuards(AdminAuthGuard)
+  @UseGuards(AdminAuthGuard, SuperAdminGuard)
   @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Получить администратора по ID' })
   @ApiParam({ name: 'id', example: 1 })
@@ -124,7 +125,7 @@ export class AdminManagementController {
   }
 
   @Put(':id')
-  @UseGuards(AdminAuthGuard)
+  @UseGuards(AdminAuthGuard, SuperAdminGuard)
   @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Обновить данные администратора' })
   @ApiParam({ name: 'id', example: 1 })
@@ -137,7 +138,7 @@ export class AdminManagementController {
   }
 
   @Delete(':id')
-  @UseGuards(AdminAuthGuard)
+  @UseGuards(AdminAuthGuard, SuperAdminGuard)
   @ApiBearerAuth('Bearer')
   @HttpCode(204)
   @ApiOperation({ summary: 'Удалить администратора' })

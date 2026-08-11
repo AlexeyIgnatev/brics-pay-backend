@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { AdminManagementController } from './admin-management.controller';
 import { AdminManagementService } from './admin-management.service';
 import { AdminAuthGuard } from './guards/admin-auth.guard';
+import { SuperAdminGuard } from './guards/super-admin.guard';
 
 describe('AdminManagementController', () => {
   let controller: AdminManagementController;
@@ -15,6 +16,10 @@ describe('AdminManagementController', () => {
         { provide: AdminManagementService, useValue: {} },
         {
           provide: AdminAuthGuard,
+          useValue: { canActivate: jest.fn(() => true) },
+        },
+        {
+          provide: SuperAdminGuard,
           useValue: { canActivate: jest.fn(() => true) },
         },
         { provide: JwtService, useValue: { verifyAsync: jest.fn() } },
