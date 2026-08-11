@@ -402,7 +402,16 @@ export class UsersService implements OnApplicationBootstrap {
       somAccountResult.status === 'fulfilled'
         ? Number(somAccountResult.value.Balance ?? 0)
         : null;
-    const somLive = bricsSomBalance ?? localSomBalance ?? 0;
+    const somLive = localSomBalance ?? bricsSomBalance ?? 0;
+    if (
+      localSomBalance != null &&
+      bricsSomBalance != null &&
+      Math.abs(localSomBalance - bricsSomBalance) > 1e-9
+    ) {
+      this.logger.warn(
+        `[getUserWallets] SOM balance mismatch customer=${user.customer_id} local=${localSomBalance} brics=${bricsSomBalance}; using local balance`,
+      );
+    }
     const esomBalance =
       esomBalanceResult.status === 'fulfilled' ? esomBalanceResult.value : 0;
     const settings =
@@ -445,10 +454,7 @@ export class UsersService implements OnApplicationBootstrap {
     return [
       {
         currency: Currency.SOM,
-        address:
-          somAccountResult.status === 'fulfilled'
-            ? somAccountResult.value.AccountNo
-            : userInfo.phone,
+        address: user.phone ?? userInfo.phone,
         balance: somLive,
         buy_rate: 1.0,
         sell_rate: 1.0,
