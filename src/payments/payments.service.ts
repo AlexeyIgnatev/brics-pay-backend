@@ -1381,11 +1381,20 @@ export class PaymentsService {
 
   private resolveHistoryAmount(
     t: Transaction,
-    _baseType: TransactionType,
+    baseType: TransactionType,
   ): number {
-    // Transfer fees are charged on top of the requested amount. Both history
-    // sides display the transferred amount; the sender's receipt shows fee
-    // separately and the total debit is amount + fee.
+    if (t.kind === TransactionKind.WALLET_TO_WALLET) {
+      const transferredAmount = Number(t.amount_in ?? t.amount_out ?? 0);
+      const feeAmount = Number(t.fee_amount ?? 0);
+      return baseType === TransactionType.EXPENSE
+        ? transferredAmount + feeAmount
+        : transferredAmount;
+    }
+
+    if (t.kind === TransactionKind.WITHDRAW_CRYPTO) {
+      return Number(t.amount_out ?? t.amount_in ?? 0) + Number(t.fee_amount ?? 0);
+    }
+
     return Number(t.amount_out ?? t.amount_in ?? 0);
   }
 

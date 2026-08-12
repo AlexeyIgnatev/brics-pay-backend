@@ -570,6 +570,57 @@ describe('PaymentsService', () => {
     ]);
   });
 
+  it('shows amount plus fee for an outgoing USDT transfer', async () => {
+    const createdAt = new Date('2026-08-13T10:00:00.000Z');
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: 'Tsender' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 404,
+            kind: 'WALLET_TO_WALLET',
+            status: TransactionStatus.SUCCESS,
+            amount_in: '3',
+            asset_in: 'USDT_TRC20',
+            amount_out: '3',
+            asset_out: 'USDT_TRC20',
+            fee_amount: '0.03',
+            createdAt,
+            sender_customer_id: 7,
+            receiver_customer_id: 11,
+            sender_wallet_address: 'Tsender',
+            receiver_wallet_address: 'Treceiver',
+            sender_customer: null,
+            receiver_customer: {
+              first_name: 'Кылыч',
+              middle_name: 'Бегималыевич',
+              last_name: 'Куталиев',
+            },
+          },
+        ]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const rows = await service.getHistory({} as any, 7);
+
+    expect(rows).toEqual([
+      {
+        id: 404,
+        transaction_id: 404,
+        currency: 'USDT_TRC20',
+        amount: 3.03,
+        type: TransactionType.EXPENSE,
+        conversion_side: undefined,
+        recipient_full_name: 'Куталиев Кылыч Бегималыевич',
+        successful: true,
+        created_at: createdAt.getTime(),
+      },
+    ]);
+  });
+
   it('returns recipient name only for an outgoing user transfer', async () => {
     const createdAt = new Date('2026-08-01T07:00:00.000Z');
     const prismaMock = {

@@ -215,7 +215,7 @@ describe('UsdtTreasuryOrchestratorService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           amount_in: '100',
-          amount_out: '90',
+          amount_out: '100',
           fee_amount: '10',
         }),
       }),
@@ -224,14 +224,14 @@ describe('UsdtTreasuryOrchestratorService', () => {
       prismaTxMock,
       expect.objectContaining({
         customerId: 1,
-        delta: -100,
+        delta: -110,
       }),
     );
     expect((service as any).applyLedgerDelta).toHaveBeenCalledWith(
       prismaTxMock,
       expect.objectContaining({
         customerId: 2,
-        delta: 90,
+        delta: 100,
       }),
     );
   });

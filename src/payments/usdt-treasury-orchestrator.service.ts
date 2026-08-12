@@ -1995,9 +1995,9 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
         input.amount,
       );
       const feeAmount = tariffFee.fee > 0 ? tariffFee.fee : 0;
-      const receiverNetAmount = Math.max(input.amount - feeAmount, 0);
+      const totalDebit = input.amount + feeAmount;
       this.logger.verbose(
-        `[internal-transfer] fee sender=${input.senderCustomerId} receiver=${input.receiverCustomerId} gross=${input.amount} fee=${feeAmount} net=${receiverNetAmount}`,
+        `[internal-transfer] fee sender=${input.senderCustomerId} receiver=${input.receiverCustomerId} amount=${input.amount} fee=${feeAmount} total_debit=${totalDebit}`,
       );
 
       const result = await this.prisma.$transaction(async (tx) => {
@@ -2006,7 +2006,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           input.senderCustomerId,
           input.receiverCustomerId,
           input.amount,
-          receiverNetAmount,
+          input.amount,
           feeAmount,
           null,
           'USDT internal transfer',
@@ -2030,7 +2030,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           transactionId: transaction.id,
           customerId: input.senderCustomerId,
           asset: 'USDT_TRC20',
-          delta: -input.amount,
+          delta: -totalDebit,
           entryType: LedgerEntryType.DEBIT,
           metadata: {
             side: 'sender',
@@ -2047,7 +2047,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           transactionId: transaction.id,
           customerId: input.receiverCustomerId,
           asset: 'USDT_TRC20',
-          delta: receiverNetAmount,
+          delta: input.amount,
           entryType: LedgerEntryType.CREDIT,
           metadata: {
             side: 'receiver',
@@ -2147,7 +2147,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       input.amount,
     );
     const feeAmount = tariffFee.fee > 0 ? tariffFee.fee : 0;
-    const receiverNetAmount = Math.max(input.amount - feeAmount, 0);
+    const totalDebit = input.amount + feeAmount;
     const senderResolvedAddress = this.resolveCustomerTronAddress(sender);
     const receiverResolvedAddress = this.resolveCustomerTronAddress(receiver);
     const chainSourceAddress = receiverIsBrowserWallet
@@ -2216,13 +2216,16 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
       }));
 
     try {
+      const chainTransferAmount = senderIsBrowserWallet
+        ? totalDebit
+        : input.amount;
       const { txHash } = await this.sendUsdt(
         chainSourcePrivateKey,
         chainDestinationAddress,
-        input.amount,
+        chainTransferAmount,
       );
       this.logger.verbose(
-        `[browser-bridge] broadcasted txHash=${txHash} chainFrom=${chainSourceAddress} chainTo=${chainDestinationAddress} amount=${input.amount}`,
+        `[browser-bridge] broadcasted txHash=${txHash} chainFrom=${chainSourceAddress} chainTo=${chainDestinationAddress} amount=${chainTransferAmount} recipientAmount=${input.amount} fee=${feeAmount}`,
       );
 
       await this.markBroadcasted(op, txHash, {
@@ -2242,7 +2245,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           input.senderCustomerId,
           input.receiverCustomerId,
           input.amount,
-          receiverNetAmount,
+          input.amount,
           feeAmount,
           txHash,
           receiverIsBrowserWallet
@@ -2271,7 +2274,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           transactionId: transaction.id,
           customerId: input.senderCustomerId,
           asset: 'USDT_TRC20',
-          delta: -input.amount,
+          delta: -totalDebit,
           entryType: LedgerEntryType.DEBIT,
           metadata: {
             side: 'sender',
@@ -2290,7 +2293,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           transactionId: transaction.id,
           customerId: input.receiverCustomerId,
           asset: 'USDT_TRC20',
-          delta: receiverNetAmount,
+          delta: input.amount,
           entryType: LedgerEntryType.CREDIT,
           metadata: {
             side: 'receiver',
@@ -2312,7 +2315,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
           txHash,
           fromAddress: chainSourceAddress,
           toAddress: chainDestinationAddress,
-          amount: input.amount,
+          amount: chainTransferAmount,
           status: BlockchainTransactionStatus.CONFIRMED,
           gasPayerAddress: chainSourceAddress,
           snapshot: null,
@@ -2352,7 +2355,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
               txHash,
               fromAddress: chainSourceAddress,
               toAddress: chainDestinationAddress,
-              amount: input.amount,
+              amount: chainTransferAmount,
               status: BlockchainTransactionStatus.CONFIRMED,
               gasPayerAddress: chainSourceAddress,
               snapshot,
@@ -2384,7 +2387,7 @@ export class UsdtTreasuryOrchestratorService implements OnModuleInit {
               txHash,
               fromAddress: chainSourceAddress,
               toAddress: chainDestinationAddress,
-              amount: input.amount,
+              amount: chainTransferAmount,
               status: BlockchainTransactionStatus.CONFIRMED,
               gasPayerAddress: chainSourceAddress,
               snapshot: confirmedSnapshot,
