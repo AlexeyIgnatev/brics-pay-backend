@@ -521,7 +521,7 @@ describe('PaymentsService', () => {
     ]);
   });
 
-  it('shows net amount for incoming history rows when fee is present', async () => {
+  it('shows the full credited amount when sender pays the fee on top', async () => {
     const createdAt = new Date('2026-06-12T12:00:00.000Z');
     const prismaMock = {
       customer: {
@@ -560,7 +560,7 @@ describe('PaymentsService', () => {
         id: 401,
         transaction_id: 401,
         currency: 'USDT_TRC20',
-        amount: 6,
+        amount: 10,
         type: TransactionType.INCOME,
         conversion_side: undefined,
         sender_full_name: 'Куталиев Кылыч Бегималыевич',

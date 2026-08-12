@@ -366,6 +366,7 @@ export class UsersService implements OnApplicationBootstrap {
       esomBalanceResult,
       settingsResult,
       localSomResult,
+      localEsomResult,
     ] = await Promise.allSettled([
       this.bricsService.resolveCustomerSomAccount(
         String(user.customer_id),
@@ -378,6 +379,14 @@ export class UsersService implements OnApplicationBootstrap {
           customer_id_asset: {
             customer_id: user.customer_id,
             asset: 'SOM' as Asset,
+          },
+        },
+      }),
+      this.prisma.userAssetBalance.findUnique({
+        where: {
+          customer_id_asset: {
+            customer_id: user.customer_id,
+            asset: 'ESOM' as Asset,
           },
         },
       }),
@@ -419,8 +428,22 @@ export class UsersService implements OnApplicationBootstrap {
         `[getUserWallets] SOM balance mismatch customer=${user.customer_id} local=${localSomBalance} brics=${bricsSomBalance}; using local ledger balance`,
       );
     }
-    const esomBalance =
-      esomBalanceResult.status === 'fulfilled' ? esomBalanceResult.value : 0;
+    const localEsomBalance =
+      localEsomResult.status === 'fulfilled' && localEsomResult.value
+        ? Number(localEsomResult.value.balance ?? 0)
+        : null;
+    const blockchainEsomBalance =
+      esomBalanceResult.status === 'fulfilled' ? esomBalanceResult.value : null;
+    const esomBalance = localEsomBalance ?? blockchainEsomBalance ?? 0;
+    if (
+      localEsomBalance != null &&
+      blockchainEsomBalance != null &&
+      Math.abs(localEsomBalance - blockchainEsomBalance) > 1e-9
+    ) {
+      this.logger.warn(
+        `[getUserWallets] ESOM balance mismatch customer=${user.customer_id} local=${localEsomBalance} blockchain=${blockchainEsomBalance}; using local ledger balance`,
+      );
+    }
     const settings =
       settingsResult.status === 'fulfilled'
         ? settingsResult.value
