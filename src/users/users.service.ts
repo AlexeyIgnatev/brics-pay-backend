@@ -448,29 +448,8 @@ export class UsersService implements OnApplicationBootstrap {
       settingsResult.status === 'fulfilled'
         ? settingsResult.value
         : fallbackSettings;
-    const tariffs = await this.settingsService.getTariffs();
-    const tariffRows = tariffs.filter(
-      (row) =>
-        row.category === user.tariff_category &&
-        row.residency === user.residency,
-    );
-    const tariffPercentFor = (operation: string): number => {
-      const aliasOperation =
-        operation === 'SOM_TO_USDT_TRC20'
-          ? 'ESOM_TO_USDT_TRC20'
-          : operation === 'USDT_TRC20_TO_SOM'
-            ? 'USDT_TRC20_TO_ESOM'
-            : operation;
-      const row = tariffRows.find((item) => item.operation === aliasOperation);
-      return Number(row?.percent_fee ?? 0) / 100;
-    };
-
     const usdBuyRate = Number(settings.usd_buy_rate ?? settings.esom_per_usd);
     const usdSellRate = Number(settings.usd_sell_rate ?? settings.esom_per_usd);
-    const esomBuyFee = tariffPercentFor('SOM_TO_ESOM');
-    const esomSellFee = tariffPercentFor('ESOM_TO_SOM');
-    const usdtBuyFee = tariffPercentFor('ESOM_TO_USDT_TRC20');
-    const usdtSellFee = tariffPercentFor('USDT_TRC20_TO_ESOM');
 
     const usdtBalanceRec = await this.prisma.userAssetBalance.findUnique({
       where: {
@@ -493,15 +472,15 @@ export class UsersService implements OnApplicationBootstrap {
         currency: Currency.ESOM,
         address: user.address,
         balance: esomBalance,
-        buy_rate: 1.0 - esomBuyFee,
-        sell_rate: 1.0 - esomSellFee,
+        buy_rate: 1.0,
+        sell_rate: 1.0,
       },
       {
         currency: Currency.USDT_TRC20,
         address: this.cryptoService.trxAddressFromPrivateKey(user.private_key),
         balance: Number(usdtBalanceRec?.balance ?? 0),
-        buy_rate: usdBuyRate * (1 + usdtBuyFee),
-        sell_rate: usdSellRate * (1 - usdtSellFee),
+        buy_rate: usdBuyRate,
+        sell_rate: usdSellRate,
       },
     ];
   }

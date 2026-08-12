@@ -1864,8 +1864,17 @@ export class PaymentsService {
       }
       const transactionRef = this.buildAbsTransactionRef();
       const s = await this.settingsService.get();
-      const esomPerUsd = Number(s.esom_per_usd);
-      this.logger.verbose(`[convert] settings esom_per_usd=${esomPerUsd}`);
+      const usdBuyRate = Number(s.usd_buy_rate ?? s.esom_per_usd);
+      const usdSellRate = Number(s.usd_sell_rate ?? s.esom_per_usd);
+      if (!Number.isFinite(usdBuyRate) || usdBuyRate <= 0) {
+        throw new BadRequestException('USD buy rate must be positive');
+      }
+      if (!Number.isFinite(usdSellRate) || usdSellRate <= 0) {
+        throw new BadRequestException('USD sell rate must be positive');
+      }
+      this.logger.verbose(
+        `[convert] settings usd_buy_rate=${usdBuyRate} usd_sell_rate=${usdSellRate}`,
+      );
 
       const addBalance = async (asset: Asset, delta: number) => {
         await this.prisma.userAssetBalance.upsert({
@@ -1929,7 +1938,7 @@ export class PaymentsService {
           amountFrom,
           tradeFee.fee,
         );
-        const usdtAmount = netEsom / esomPerUsd;
+        const usdtAmount = netEsom / usdSellRate;
         const priceUsd = '1';
         const notionalUsdt = usdtAmount.toString();
 
@@ -2024,13 +2033,13 @@ export class PaymentsService {
         }
 
         const notionalUsdt = amountFrom;
-        const grossEsom = notionalUsdt * esomPerUsd;
+        const grossEsom = notionalUsdt * usdBuyRate;
         const tradeFee = await tradeFeeFor(from, to, amountFrom);
         const { net: netUsdt, fee: feeUsdt } = applyFee(
           amountFrom,
           tradeFee.fee,
         );
-        const netEsom = netUsdt * esomPerUsd;
+        const netEsom = netUsdt * usdBuyRate;
 
         try {
           if (netEsom > 0) {

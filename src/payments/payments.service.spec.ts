@@ -939,6 +939,8 @@ describe('PaymentsService', () => {
       {
         get: jest.fn().mockResolvedValue({
           esom_per_usd: '1',
+          usd_buy_rate: '80',
+          usd_sell_rate: '90',
           btc_trade_fee_pct: '0',
           eth_trade_fee_pct: '0',
           usdt_trade_fee_pct: '0',
@@ -983,7 +985,7 @@ describe('PaymentsService', () => {
     });
     expect(ethereumService.transferFromFiat).toHaveBeenCalledWith(
       '0x1111111111111111111111111111111111111111',
-      5,
+      400,
     );
   });
 
