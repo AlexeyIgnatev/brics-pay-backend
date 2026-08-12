@@ -1462,6 +1462,21 @@ export class PaymentsService {
     return {};
   }
 
+  private resolveHistoryUpperBound(toTime?: number): Date | undefined {
+    if (!toTime) return undefined;
+
+    const now = Date.now();
+    const clockSkewToleranceMs = 10 * 60 * 1000;
+
+    // Mobile devices can lag behind the backend clock. Without this tolerance,
+    // a transaction already stored in PostgreSQL is hidden until clocks catch up.
+    if (toTime >= now - clockSkewToleranceMs) {
+      return new Date(Math.max(toTime, now + clockSkewToleranceMs));
+    }
+
+    return new Date(toTime);
+  }
+
   private maskAccount(value?: string | number | null): string {
     if (value == null) return 'N/A';
     const raw = String(value).trim();
@@ -1612,8 +1627,9 @@ export class PaymentsService {
       where.createdAt = {} as { gte?: Date; lte?: Date };
       if (body.from_time)
         (where.createdAt as { gte?: Date }).gte = new Date(body.from_time);
-      if (body.to_time)
-        (where.createdAt as { lte?: Date }).lte = new Date(body.to_time);
+      const upperBound = this.resolveHistoryUpperBound(body.to_time);
+      if (upperBound)
+        (where.createdAt as { lte?: Date }).lte = upperBound;
     }
 
     const items = await this.prisma.transaction.findMany({

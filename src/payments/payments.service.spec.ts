@@ -738,6 +738,56 @@ describe('PaymentsService', () => {
     );
   });
 
+  it('allows recent history requests to tolerate client clock drift', async () => {
+    const now = new Date('2026-08-12T12:00:00.000Z').getTime();
+    const clientToTime = now - 3 * 60 * 1000;
+    const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xmy' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    try {
+      await service.getHistory({ to_time: clientToTime } as any, 7);
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    const query = prismaMock.transaction.findMany.mock.calls[0][0];
+    expect(query.where.createdAt.lte.getTime()).toBe(
+      now + 10 * 60 * 1000,
+    );
+  });
+
+  it('keeps the exact upper bound for historical periods', async () => {
+    const now = new Date('2026-08-12T12:00:00.000Z').getTime();
+    const historicalToTime = new Date('2026-07-01T23:59:59.999Z').getTime();
+    const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xmy' }),
+      },
+      transaction: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    try {
+      await service.getHistory({ to_time: historicalToTime } as any, 7);
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    const query = prismaMock.transaction.findMany.mock.calls[0][0];
+    expect(query.where.createdAt.lte.getTime()).toBe(historicalToTime);
+  });
+
   it('creates SOM purchase accounting postings with the provided account map', async () => {
     const createMany = jest.fn().mockResolvedValue({ count: 6 });
     const service = makeService({
