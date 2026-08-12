@@ -593,6 +593,25 @@ export class BricsService {
     }
   }
 
+  async getCustomerInfoById(customerId: number): Promise<BricsCustomerDto> {
+    try {
+      this.logger.verbose(
+        `[getCustomerInfoById] request customer=${customerId}`,
+      );
+      const response = await this.axiosInstance.get(
+        `${this.INTEGRATION_API_ROOT}/OnlineBank.IntegrationService/api/customer/GetCustomerFullInfo`,
+        { params: { customerID: customerId } },
+      );
+      return response.data;
+    } catch (error) {
+      this.logger.error(
+        `[getCustomerInfoById] failed customer=${customerId}`,
+        error,
+      );
+      throw error;
+    }
+  }
+
   async getCustomerAccount(customerId: string): Promise<BricsAccountDto> {
     try {
       const callerStack = new Error()

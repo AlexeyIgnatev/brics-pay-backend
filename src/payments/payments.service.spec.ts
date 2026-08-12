@@ -46,6 +46,73 @@ describe('PaymentsService', () => {
       { processInternalTransfer: jest.fn(), processWithdraw: jest.fn() } as any,
     );
 
+  it('returns recipient name by phone number', async () => {
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          first_name: 'Иван',
+          middle_name: 'Иванович',
+          last_name: 'Иванов',
+        }),
+      },
+    };
+    const service = makeService(prismaMock);
+    (service as any).bricsService = {
+      findAccount: jest.fn().mockResolvedValue({ CustomerID: 55 }),
+    };
+
+    await expect(
+      service.getRecipientInfo(
+        {
+          phone_number: '996777960777',
+          address: null,
+          currency: 'SOM' as any,
+        },
+        7,
+      ),
+    ).resolves.toEqual({
+      first_name: 'Иван',
+      middle_name: 'Иванович',
+      last_name: 'Иванов',
+    });
+  });
+
+  it('loads recipient name from ABS when the local name is empty', async () => {
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          first_name: null,
+          middle_name: null,
+          last_name: null,
+        }),
+      },
+    };
+    const service = makeService(prismaMock);
+    (service as any).bricsService = {
+      findAccount: jest.fn().mockResolvedValue({ CustomerID: 55 }),
+      getCustomerInfoById: jest.fn().mockResolvedValue({
+        CustomerName: 'Иван',
+        Otchestvo: 'Иванович',
+        Surname: 'Иванов',
+      }),
+    };
+
+    await expect(
+      service.getRecipientInfo(
+        {
+          phone_number: '996777960777',
+          address: null,
+          currency: 'USDT_TRC20' as any,
+        },
+        7,
+      ),
+    ).resolves.toEqual({
+      first_name: 'Иван',
+      middle_name: 'Иванович',
+      last_name: 'Иванов',
+    });
+  });
+
   it('builds receipt by transaction_id and masks accounts', async () => {
     const createdAt = new Date('2026-01-01T00:00:00.000Z');
     const prismaMock = {

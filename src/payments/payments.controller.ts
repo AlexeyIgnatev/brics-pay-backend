@@ -26,6 +26,10 @@ import { UsdtDepositWebhookDto } from './dto/usdt-deposit.dto';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
 import { AdminAuthGuard } from '../admin-management/guards/admin-auth.guard';
 import { BrowserWalletTransferDto } from './dto/browser-wallet-transfer.dto';
+import {
+  RecipientInfoRequestDto,
+  RecipientInfoResponseDto,
+} from './dto/recipient-info.dto';
 
 @Controller('payments')
 export class PaymentsController {
@@ -86,6 +90,19 @@ export class PaymentsController {
     } finally {
       this.inFlightTransfers.delete(requestKey);
     }
+  }
+
+  @Post('recipient-info')
+  @ApiBearerAuth('Basic')
+  @UseGuards(BasicAuthGuard)
+  async recipientInfo(
+    @Body() dto: RecipientInfoRequestDto,
+    @Req() req: { user: UserInfoDto },
+  ): Promise<RecipientInfoResponseDto> {
+    return this.paymentsService.getRecipientInfo(
+      dto,
+      req.user.customer_id,
+    );
   }
 
   @Get('fees')

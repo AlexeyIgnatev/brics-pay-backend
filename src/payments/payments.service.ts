@@ -41,6 +41,10 @@ import { BalanceCacheService } from '../user-management/balance-cache.service';
 import { CryptoService } from '../config/crypto/crypto.service';
 import { TronService } from '../config/crypto/tron.service';
 import { UsdtTreasuryOrchestratorService } from './usdt-treasury-orchestrator.service';
+import {
+  RecipientInfoRequestDto,
+  RecipientInfoResponseDto,
+} from './dto/recipient-info.dto';
 
 import { GetTransactions } from './dto/get-transactions.dto';
 import {
@@ -2989,6 +2993,80 @@ export class PaymentsService {
     );
 
     return null;
+  }
+
+  async getRecipientInfo(
+    dto: RecipientInfoRequestDto,
+    customerId: number,
+  ): Promise<RecipientInfoResponseDto> {
+    const phone = dto.phone_number?.trim();
+    const address = dto.address?.trim();
+    if ((!phone && !address) || (phone && address)) {
+      throw new BadRequestException(
+        'Specify either phone_number or address',
+      );
+    }
+
+    let recipientCustomerId: number;
+    if (phone) {
+      const account = await this.bricsService.findAccount(phone);
+      if (!account?.CustomerID) {
+        throw new BadRequestException('Recipient not found');
+      }
+      recipientCustomerId = account.CustomerID;
+    } else {
+      if (dto.currency === Currency.SOM) {
+        throw new BadRequestException(
+          'SOM recipient must be specified by phone number',
+        );
+      }
+      const recipient = await this.findInternalRecipientByAddress(
+        dto.currency as unknown as Asset,
+        address!,
+        customerId,
+      );
+      if (!recipient) {
+        throw new BadRequestException('Recipient not found');
+      }
+      recipientCustomerId = recipient.customer_id;
+    }
+
+    if (recipientCustomerId === customerId) {
+      throw new BadRequestException('Sender and recipient must be different');
+    }
+
+    const localCustomer = await this.prisma.customer.findUnique({
+      where: { customer_id: recipientCustomerId },
+      select: {
+        first_name: true,
+        middle_name: true,
+        last_name: true,
+      },
+    });
+    if (
+      localCustomer &&
+      (localCustomer.first_name ||
+        localCustomer.middle_name ||
+        localCustomer.last_name)
+    ) {
+      return {
+        first_name: localCustomer.first_name?.trim() ?? '',
+        middle_name: localCustomer.middle_name?.trim() ?? '',
+        last_name: localCustomer.last_name?.trim() ?? '',
+      };
+    }
+
+    try {
+      const absCustomer =
+        await this.bricsService.getCustomerInfoById(recipientCustomerId);
+      return {
+        first_name: absCustomer.CustomerName?.trim() ?? '',
+        middle_name: absCustomer.Otchestvo?.trim() ?? '',
+        last_name: absCustomer.Surname?.trim() ?? '',
+      };
+    } catch {
+      throw new BadRequestException('Recipient information not found');
+    }
   }
 
   private async transferCryptoInternal(
