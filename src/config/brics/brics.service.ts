@@ -489,24 +489,31 @@ export class BricsService {
     }
   }
 
-  async findAccount(accountNoOrPhone: string): Promise<BricsAccountDto> {
-    try {
-      this.logger.verbose('Send findAccount request');
-      const response = await this.axiosInstance.post(
-        this.buildBricsUrl('/ru-RU/Reference/GetAccountsByAccountNoOrPhone'),
-        {
-          account: accountNoOrPhone,
+  private normalizeLocalKyrgyzPhone(value: string): string | null {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length !== 10 || !digits.startsWith('0')) return null;
+    return `+996${digits.slice(1)}`;
+  }
+
+  private async requestAccountLookup(
+    accountNoOrPhone: string,
+  ): Promise<BricsAccountDto | undefined> {
+    this.logger.verbose(`Send findAccount request account=${accountNoOrPhone}`);
+    const response = await this.axiosInstance.post(
+      this.buildBricsUrl('/ru-RU/Reference/GetAccountsByAccountNoOrPhone'),
+      {
+        account: accountNoOrPhone,
+      },
+      {
+        withCredentials: true,
+        headers: {
+          Cookie: this.getCookieHeader(),
         },
-        {
-          withCredentials: true,
-          headers: {
-            Cookie: this.getCookieHeader(),
-          },
-        },
-      );
-      this.updateCookies(response.headers['set-cookie']);
-      this.logger.verbose(`Received findAccount response ${response.status}`);
-      const accounts = this.extractAccountRecords(response.data).map(
+      },
+    );
+    this.updateCookies(response.headers['set-cookie']);
+    this.logger.verbose(`Received findAccount response ${response.status}`);
+    const accounts = this.extractAccountRecords(response.data).map(
         (item) => ({
           ...item,
           AccountNo: String(
@@ -542,9 +549,25 @@ export class BricsService {
           ),
         }),
       );
-      return accounts.find(
-        (account: BricsAccountDto) => account.CurrencyID === 417,
-      )!!;
+    return accounts.find(
+      (account: BricsAccountDto) => account.CurrencyID === 417,
+    );
+  }
+
+  async findAccount(accountNoOrPhone: string): Promise<BricsAccountDto> {
+    try {
+      const account = await this.requestAccountLookup(accountNoOrPhone);
+      if (account) return account;
+
+      const normalizedPhone = this.normalizeLocalKyrgyzPhone(accountNoOrPhone);
+      if (!normalizedPhone || normalizedPhone === accountNoOrPhone.trim()) {
+        return account!;
+      }
+
+      this.logger.verbose(
+        `findAccount fallback localPhone=${accountNoOrPhone} normalized=${normalizedPhone}`,
+      );
+      return (await this.requestAccountLookup(normalizedPhone))!;
     } catch (error) {
       this.logger.error('Error getting account information:', error);
       throw error;
