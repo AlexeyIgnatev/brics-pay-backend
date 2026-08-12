@@ -1753,27 +1753,42 @@ export class PaymentsService {
       select: { address: true },
     });
 
-    const tx = await this.prisma.transaction.findUnique({
-      where: { id: dto.transaction_id },
-      include: {
-        sender_customer: {
-          select: {
-            address: true,
-            first_name: true,
-            middle_name: true,
-            last_name: true,
-          },
-        },
-        receiver_customer: {
-          select: {
-            address: true,
-            first_name: true,
-            middle_name: true,
-            last_name: true,
-          },
+    const transactionInclude = {
+      sender_customer: {
+        select: {
+          address: true,
+          first_name: true,
+          middle_name: true,
+          last_name: true,
         },
       },
+      receiver_customer: {
+        select: {
+          address: true,
+          first_name: true,
+          middle_name: true,
+          last_name: true,
+        },
+      },
+      ledger_entries: {
+        select: { customer_id: true },
+      },
+    };
+
+    let tx = await this.prisma.transaction.findUnique({
+      where: { id: dto.transaction_id },
+      include: transactionInclude,
     });
+
+    // Older SOM transfer responses exposed the ABS operation number. Keep
+    // receipts compatible with those app versions and existing history rows.
+    if (!tx) {
+      tx = await this.prisma.transaction.findFirst({
+        where: { bank_op_id: dto.transaction_id },
+        orderBy: { createdAt: 'desc' },
+        include: transactionInclude,
+      });
+    }
 
     if (!tx) throw new NotFoundException('Transaction not found');
 
@@ -1781,6 +1796,7 @@ export class PaymentsService {
     const isMine =
       tx.sender_customer_id === customer_id ||
       tx.receiver_customer_id === customer_id ||
+      tx.ledger_entries?.some((entry) => entry.customer_id === customer_id) ||
       (!!myAddress &&
         (tx.sender_wallet_address?.toLowerCase() === myAddress ||
           tx.receiver_wallet_address?.toLowerCase() === myAddress));

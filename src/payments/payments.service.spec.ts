@@ -93,6 +93,72 @@ describe('PaymentsService', () => {
     expect(receipt.receipt_number).toBe(`TX-10-${createdAt.getTime()}`);
   });
 
+  it('builds a SOM receipt when an older client sends the ABS operation id', async () => {
+    const createdAt = new Date('2026-08-12T00:00:00.000Z');
+    const somTransaction = {
+      id: 25,
+      kind: 'BANK_TO_BANK',
+      status: TransactionStatus.SUCCESS,
+      amount_in: '50',
+      asset_in: 'SOM',
+      amount_out: '50',
+      asset_out: 'SOM',
+      fee_amount: '0',
+      tx_hash: null,
+      bank_op_id: 44858139,
+      sender_customer_id: 7,
+      receiver_customer_id: 55,
+      sender_wallet_address: null,
+      receiver_wallet_address: null,
+      external_address: null,
+      comment: 'SOM transfer',
+      createdAt,
+      ledger_entries: [],
+      sender_customer: {
+        address: null,
+        first_name: 'Sender',
+        middle_name: null,
+        last_name: 'User',
+      },
+      receiver_customer: {
+        address: null,
+        first_name: 'Receiver',
+        middle_name: null,
+        last_name: 'User',
+      },
+    };
+    const prismaMock = {
+      customer: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ address: '0xmywallet' })
+          .mockResolvedValueOnce(null),
+      },
+      transaction: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findFirst: jest.fn().mockResolvedValue(somTransaction),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const receipt = await service.getReceipt(
+      { transaction_id: 44858139 },
+      7,
+    );
+
+    expect(prismaMock.transaction.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { bank_op_id: 44858139 } }),
+    );
+    expect(receipt).toMatchObject({
+      successful: true,
+      amount: 50,
+      currency: 'SOM',
+      type: TransactionType.EXPENSE,
+      recipient_full_name: 'User Receiver',
+    });
+    expect(receipt.receipt_number).toBe(`TX-25-${createdAt.getTime()}`);
+  });
+
   it('returns fee=0 and fallback recipient when fee is missing', async () => {
     const createdAt = new Date('2026-02-01T00:00:00.000Z');
     const prismaMock = {
@@ -323,6 +389,7 @@ describe('PaymentsService', () => {
       },
       transaction: {
         findUnique: jest.fn().mockResolvedValue(null),
+        findFirst: jest.fn().mockResolvedValue(null),
       },
     };
     const service = makeService(prismaMock);
