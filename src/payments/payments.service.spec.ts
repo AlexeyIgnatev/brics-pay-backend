@@ -856,9 +856,9 @@ describe('PaymentsService', () => {
     );
   });
 
-  it('allows recent history requests to tolerate client clock drift', async () => {
+  it('keeps a recent history period live when the app reuses to_time', async () => {
     const now = new Date('2026-08-12T12:00:00.000Z').getTime();
-    const clientToTime = now - 3 * 60 * 1000;
+    const clientToTime = now - 3 * 60 * 60 * 1000;
     const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
     const prismaMock = {
       customer: {
@@ -877,9 +877,7 @@ describe('PaymentsService', () => {
     }
 
     const query = prismaMock.transaction.findMany.mock.calls[0][0];
-    expect(query.where.createdAt.lte.getTime()).toBe(
-      now + 10 * 60 * 1000,
-    );
+    expect(query.where.createdAt.lte).toBeUndefined();
   });
 
   it('keeps the exact upper bound for historical periods', async () => {

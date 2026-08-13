@@ -1479,13 +1479,12 @@ export class PaymentsService {
     if (!toTime) return undefined;
 
     const now = Date.now();
-    const clockSkewToleranceMs = 10 * 60 * 1000;
+    const livePeriodThresholdMs = 24 * 60 * 60 * 1000;
 
-    // Mobile devices can lag behind the backend clock. Without this tolerance,
-    // a transaction already stored in PostgreSQL is hidden until clocks catch up.
-    if (toTime >= now - clockSkewToleranceMs) {
-      return new Date(Math.max(toTime, now + clockSkewToleranceMs));
-    }
+    // The app persists the end of the selected current period. On later
+    // refreshes that value is stale, so applying it hides newly created rows.
+    // Past periods still keep their exact upper bound.
+    if (toTime >= now - livePeriodThresholdMs) return undefined;
 
     return new Date(toTime);
   }

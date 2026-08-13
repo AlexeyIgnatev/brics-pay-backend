@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Headers,
   Post,
   Req,
@@ -146,6 +147,7 @@ export class PaymentsController {
   @Post('history')
   @ApiBearerAuth('Basic')
   @UseGuards(BasicAuthGuard)
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   async getHistory(
     @Body() getTransactions: GetTransactions,
     @Req() req: { user: UserInfoDto },
