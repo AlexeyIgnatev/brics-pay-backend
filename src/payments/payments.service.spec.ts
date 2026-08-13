@@ -119,7 +119,7 @@ describe('PaymentsService', () => {
       customer: {
         findUnique: jest
           .fn()
-          .mockResolvedValue({ address: 'TABCDEF1234567890' }),
+          .mockResolvedValue({ address: 'TRVh3EuuWTkCfECfXM77SGZZZQwJT49WBm' }),
       },
       transaction: {
         findUnique: jest.fn().mockResolvedValue({
@@ -135,12 +135,16 @@ describe('PaymentsService', () => {
           bank_op_id: null,
           sender_customer_id: 7,
           receiver_customer_id: null,
-          sender_wallet_address: 'TABCDEF1234567890',
+          sender_wallet_address: 'TRVh3EuuWTkCfECfXM77SGZZZQwJT49WBm',
           receiver_wallet_address: null,
-          external_address: 'TXYZ0000111122223333',
+          external_address: 'TAkrzNdEsCbiHwBXzTKX72NLkoLtXh1SFv',
           comment: null,
           createdAt,
-          sender_customer: { address: 'TABCDEF1234567890' },
+          sender_customer: {
+            address: '0x1111111111111111111111111111111111111111',
+            phone: null,
+            private_key: null,
+          },
           receiver_customer: null,
         }),
       },
@@ -155,8 +159,8 @@ describe('PaymentsService', () => {
     expect(receipt.currency).toBe('USDT_TRC20');
     expect(receipt.created_at).toBe(createdAt.getTime());
     expect(receipt.fee).toBe(0.5);
-    expect(receipt.account_details).toBe('****22223333');
-    expect(receipt.paid_from_account).toBe('****34567890');
+    expect(receipt.account_details).toBe('****LtXh1SFv');
+    expect(receipt.paid_from_account).toBe('****wJT49WBm');
     expect(receipt.receipt_number).toBe(`TX-10-${createdAt.getTime()}`);
   });
 
@@ -271,6 +275,76 @@ describe('PaymentsService', () => {
 
     expect(receipt.paid_from_account).toBe('****77111222');
     expect(receipt.account_details).toBe('****77960777');
+  });
+
+  it('uses distinct currency wallets in ESOM and USDT receipts', async () => {
+    const createdAt = new Date('2026-08-13T06:35:24.034Z');
+    const transaction = {
+      id: 667,
+      kind: 'WALLET_TO_WALLET',
+      status: TransactionStatus.SUCCESS,
+      amount_in: '3',
+      amount_out: '3',
+      fee_amount: '0.03',
+      tx_hash: null,
+      bank_op_id: null,
+      sender_customer_id: 7,
+      receiver_customer_id: 55,
+      sender_wallet_address: '0x1111111111111111111111111111111111111111',
+      receiver_wallet_address: '0x2222222222222222222222222222222222222222',
+      external_address: null,
+      comment: null,
+      createdAt,
+      sender_customer: {
+        address: '0x1111111111111111111111111111111111111111',
+        phone: '+996777111222',
+        private_key: 'sender-key',
+      },
+      receiver_customer: {
+        address: '0x2222222222222222222222222222222222222222',
+        phone: '+996777960777',
+        private_key: 'receiver-key',
+        first_name: 'Ivan',
+        middle_name: null,
+        last_name: 'Ivanov',
+      },
+      ledger_entries: [],
+    };
+    const prismaMock = {
+      customer: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ address: transaction.sender_customer.address }),
+      },
+      transaction: { findUnique: jest.fn() },
+    };
+    const service = makeService(prismaMock);
+    (service as any).cryptoService = {
+      trxAddressFromPrivateKey: jest.fn((key: string) =>
+        key === 'sender-key'
+          ? 'TRVh3EuuWTkCfECfXM77SGZZZQwJT49WBm'
+          : 'TAkrzNdEsCbiHwBXzTKX72NLkoLtXh1SFv',
+      ),
+    };
+
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      ...transaction,
+      asset_in: 'ESOM',
+      asset_out: 'ESOM',
+    });
+    const esomReceipt = await service.getReceipt({ transaction_id: 667 }, 7);
+
+    prismaMock.transaction.findUnique.mockResolvedValue({
+      ...transaction,
+      asset_in: 'USDT_TRC20',
+      asset_out: 'USDT_TRC20',
+    });
+    const usdtReceipt = await service.getReceipt({ transaction_id: 667 }, 7);
+
+    expect(esomReceipt.paid_from_account).toBe('****11111111');
+    expect(esomReceipt.account_details).toBe('****22222222');
+    expect(usdtReceipt.paid_from_account).toBe('****wJT49WBm');
+    expect(usdtReceipt.account_details).toBe('****LtXh1SFv');
   });
 
   it('returns fee=0 and fallback recipient when fee is missing', async () => {

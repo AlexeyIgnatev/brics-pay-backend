@@ -1599,6 +1599,18 @@ export class PaymentsService {
     return undefined;
   }
 
+  private isReceiptAccountForCurrency(
+    value: string | null | undefined,
+    currency: Currency,
+  ): boolean {
+    const account = value?.trim();
+    if (!account) return false;
+    if (currency === Currency.ESOM) return /^0x[0-9a-f]{40}$/i.test(account);
+    if (currency === Currency.USDT_TRC20)
+      return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(account);
+    return false;
+  }
+
   private buildPaidFromAccount(
     t: {
       kind: TransactionKind;
@@ -1621,7 +1633,10 @@ export class PaymentsService {
     const senderAccount =
       currency === Currency.SOM
         ? customerAccount
-        : t.sender_wallet_address || customerAccount;
+        : customerAccount ||
+          (this.isReceiptAccountForCurrency(t.sender_wallet_address, currency)
+            ? t.sender_wallet_address
+            : undefined);
     if (senderAccount) return this.maskAccount(senderAccount);
     if (this.isBankKind(t.kind) && t.sender_customer_id != null)
       return this.maskAccount(t.sender_customer_id);
@@ -1649,10 +1664,14 @@ export class PaymentsService {
       currency,
       t.receiver_customer,
     );
+    const transactionAccount = [
+      t.external_address,
+      t.receiver_wallet_address,
+    ].find((account) => this.isReceiptAccountForCurrency(account, currency));
     const targetAccount =
       currency === Currency.SOM
         ? customerAccount
-        : t.external_address || t.receiver_wallet_address || customerAccount;
+        : customerAccount || transactionAccount;
     if (targetAccount) return this.maskAccount(targetAccount);
     if (this.isBankKind(t.kind) && t.receiver_customer_id != null)
       return this.maskAccount(t.receiver_customer_id);
