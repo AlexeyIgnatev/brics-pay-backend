@@ -1396,7 +1396,9 @@ export class PaymentsService {
     }
 
     if (t.kind === TransactionKind.WITHDRAW_CRYPTO) {
-      return Number(t.amount_out ?? t.amount_in ?? 0) + Number(t.fee_amount ?? 0);
+      return (
+        Number(t.amount_out ?? t.amount_in ?? 0) + Number(t.fee_amount ?? 0)
+      );
     }
 
     return Number(t.amount_out ?? t.amount_in ?? 0);
@@ -1574,34 +1576,84 @@ export class PaymentsService {
     return 'N/A';
   }
 
-  private buildPaidFromAccount(t: {
-    kind: TransactionKind;
-    sender_wallet_address: string | null;
-    sender_customer?: { address: string } | null;
-    sender_customer_id: number | null;
-    bank_op_id: number | null;
-  }): string {
-    const senderWallet = t.sender_wallet_address || t.sender_customer?.address;
-    if (senderWallet) return this.maskAccount(senderWallet);
+  private resolveReceiptCustomerAccount(
+    currency: Currency,
+    customer?: {
+      address: string | null;
+      phone: string | null;
+      private_key: string | null;
+    } | null,
+  ): string | undefined {
+    if (currency === Currency.SOM) return customer?.phone?.trim() || undefined;
+    if (currency === Currency.ESOM)
+      return customer?.address?.trim() || undefined;
+
+    if (currency === Currency.USDT_TRC20 && customer?.private_key?.trim()) {
+      try {
+        return this.cryptoService.trxAddressFromPrivateKey(
+          customer.private_key,
+        );
+      } catch {}
+    }
+
+    return undefined;
+  }
+
+  private buildPaidFromAccount(
+    t: {
+      kind: TransactionKind;
+      asset_in: Asset;
+      sender_wallet_address: string | null;
+      sender_customer?: {
+        address: string | null;
+        phone: string | null;
+        private_key: string | null;
+      } | null;
+      sender_customer_id: number | null;
+      bank_op_id: number | null;
+    },
+    currency: Currency,
+  ): string {
+    const customerAccount = this.resolveReceiptCustomerAccount(
+      currency,
+      t.sender_customer,
+    );
+    const senderAccount =
+      currency === Currency.SOM
+        ? customerAccount
+        : t.sender_wallet_address || customerAccount;
+    if (senderAccount) return this.maskAccount(senderAccount);
     if (this.isBankKind(t.kind) && t.sender_customer_id != null)
       return this.maskAccount(t.sender_customer_id);
     if (t.bank_op_id != null) return this.maskAccount(t.bank_op_id);
     return 'N/A';
   }
 
-  private buildAccountDetails(t: {
-    kind: TransactionKind;
-    external_address: string | null;
-    receiver_wallet_address: string | null;
-    receiver_customer?: { address: string } | null;
-    receiver_customer_id: number | null;
-    bank_op_id: number | null;
-  }): string {
-    const targetWallet =
-      t.external_address ||
-      t.receiver_wallet_address ||
-      t.receiver_customer?.address;
-    if (targetWallet) return this.maskAccount(targetWallet);
+  private buildAccountDetails(
+    t: {
+      kind: TransactionKind;
+      asset_out: Asset;
+      external_address: string | null;
+      receiver_wallet_address: string | null;
+      receiver_customer?: {
+        address: string | null;
+        phone: string | null;
+        private_key: string | null;
+      } | null;
+      receiver_customer_id: number | null;
+      bank_op_id: number | null;
+    },
+    currency: Currency,
+  ): string {
+    const customerAccount = this.resolveReceiptCustomerAccount(
+      currency,
+      t.receiver_customer,
+    );
+    const targetAccount =
+      currency === Currency.SOM
+        ? customerAccount
+        : t.external_address || t.receiver_wallet_address || customerAccount;
+    if (targetAccount) return this.maskAccount(targetAccount);
     if (this.isBankKind(t.kind) && t.receiver_customer_id != null)
       return this.maskAccount(t.receiver_customer_id);
     if (t.bank_op_id != null) return this.maskAccount(t.bank_op_id);
@@ -1640,8 +1692,7 @@ export class PaymentsService {
       if (body.from_time)
         (where.createdAt as { gte?: Date }).gte = new Date(body.from_time);
       const upperBound = this.resolveHistoryUpperBound(body.to_time);
-      if (upperBound)
-        (where.createdAt as { lte?: Date }).lte = upperBound;
+      if (upperBound) (where.createdAt as { lte?: Date }).lte = upperBound;
     }
 
     const items = await this.prisma.transaction.findMany({
@@ -1778,6 +1829,8 @@ export class PaymentsService {
       sender_customer: {
         select: {
           address: true,
+          phone: true,
+          private_key: true,
           first_name: true,
           middle_name: true,
           last_name: true,
@@ -1786,6 +1839,8 @@ export class PaymentsService {
       receiver_customer: {
         select: {
           address: true,
+          phone: true,
+          private_key: true,
           first_name: true,
           middle_name: true,
           last_name: true,
@@ -1835,9 +1890,9 @@ export class PaymentsService {
       currency: side.currency,
       created_at: tx.createdAt.getTime(),
       fee,
-      account_details: this.buildAccountDetails(tx),
+      account_details: this.buildAccountDetails(tx, side.currency),
       recipient_full_name: this.buildRecipientFullName(tx),
-      paid_from_account: this.buildPaidFromAccount(tx),
+      paid_from_account: this.buildPaidFromAccount(tx, side.currency),
       receipt_number: `TX-${tx.id}-${tx.createdAt.getTime()}`,
     };
   }
@@ -3001,9 +3056,7 @@ export class PaymentsService {
     const phone = dto.phone_number?.trim();
     const address = dto.address?.trim();
     if ((!phone && !address) || (phone && address)) {
-      throw new BadRequestException(
-        'Specify either phone_number or address',
-      );
+      throw new BadRequestException('Specify either phone_number or address');
     }
 
     let recipientCustomerId: number;
@@ -3619,7 +3672,13 @@ export class PaymentsService {
           customer_id: bricsRecipient.CustomerID,
           address: recipientAddress.address,
           private_key: recipientAddress.privateKey,
+          phone: transferDto.phone_number,
         },
+      });
+    } else if (!recipient.phone?.trim() && transferDto.phone_number) {
+      recipient = await this.prisma.customer.update({
+        where: { customer_id: recipient.customer_id },
+        data: { phone: transferDto.phone_number },
       });
     }
 

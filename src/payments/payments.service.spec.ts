@@ -208,10 +208,7 @@ describe('PaymentsService', () => {
     };
     const service = makeService(prismaMock);
 
-    const receipt = await service.getReceipt(
-      { transaction_id: 44858139 },
-      7,
-    );
+    const receipt = await service.getReceipt({ transaction_id: 44858139 }, 7);
 
     expect(prismaMock.transaction.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { bank_op_id: 44858139 } }),
@@ -224,6 +221,56 @@ describe('PaymentsService', () => {
       recipient_full_name: 'User Receiver',
     });
     expect(receipt.receipt_number).toBe(`TX-25-${createdAt.getTime()}`);
+  });
+
+  it('uses phone numbers instead of crypto wallets in a SOM transfer receipt', async () => {
+    const createdAt = new Date('2026-08-13T06:35:24.034Z');
+    const prismaMock = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({ address: '0xsender' }),
+      },
+      transaction: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 666,
+          kind: 'BANK_TO_BANK',
+          status: TransactionStatus.SUCCESS,
+          amount_in: '50',
+          asset_in: 'SOM',
+          amount_out: '50',
+          asset_out: 'SOM',
+          fee_amount: '5',
+          tx_hash: null,
+          bank_op_id: 44858139,
+          sender_customer_id: 7,
+          receiver_customer_id: 55,
+          sender_wallet_address: '0xwrong-sender-wallet',
+          receiver_wallet_address: '0xwrong-receiver-wallet',
+          external_address: null,
+          comment: 'SOM transfer',
+          createdAt,
+          sender_customer: {
+            address: '0xsender',
+            phone: '+996777111222',
+            private_key: null,
+          },
+          receiver_customer: {
+            address: '0xreceiver',
+            phone: '+996777960777',
+            private_key: null,
+            first_name: 'Ivan',
+            middle_name: null,
+            last_name: 'Ivanov',
+          },
+          ledger_entries: [],
+        }),
+      },
+    };
+    const service = makeService(prismaMock);
+
+    const receipt = await service.getReceipt({ transaction_id: 666 }, 7);
+
+    expect(receipt.paid_from_account).toBe('****77111222');
+    expect(receipt.account_details).toBe('****77960777');
   });
 
   it('returns fee=0 and fallback recipient when fee is missing', async () => {
@@ -272,8 +319,8 @@ describe('PaymentsService', () => {
 
     expect(receipt.fee).toBe(0);
     expect(receipt.recipient_full_name).toBe('Customer #55');
-    expect(receipt.account_details).toBe('****receiver');
-    expect(receipt.paid_from_account).toBe('****0xsender');
+    expect(receipt.account_details).toBe('****55');
+    expect(receipt.paid_from_account).toBe('****7');
   });
 
   it('falls back to tariff fee in receipt for wallet-to-wallet USDT transfer', async () => {
