@@ -23,7 +23,11 @@ function antifraudMessage(message: string): string {
     reason = 'кошелёк связан с риском финансирования терроризма';
   } else if (normalized.includes('SANCTION') || normalized.includes('САНКЦ')) {
     reason = 'кошелёк находится в санкционном списке';
-  } else if (normalized.includes('FRAUD') || normalized.includes('МОШЕННИЧ')) {
+  } else if (
+    normalized.includes('FRAUDULENT') ||
+    normalized.includes('REASON=FRAUD') ||
+    normalized.includes('МОШЕННИЧ')
+  ) {
     reason = 'кошелёк связан с мошенническими операциями';
   } else if (
     normalized.includes('MONEY LAUNDERING') ||
