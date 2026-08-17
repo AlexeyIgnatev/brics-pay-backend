@@ -21,6 +21,17 @@ describe('paymentErrorMessage', () => {
     ).toContain('сумма операции превышает установленный лимит');
   });
 
+  it('shows a specific AML terrorism reason', () => {
+    expect(
+      paymentErrorMessage(
+        new BadRequestException(
+          'Rejected by anti-fraud (rule=EXTERNAL_WALLET_BLOCKLIST, reason=Terrorism financing)',
+        ),
+        'transfer',
+      ),
+    ).toContain('финансирования терроризма');
+  });
+
   it('does not expose blockchain details', () => {
     const result = paymentErrorMessage(
       new BadRequestException('TRC20 broadcast failed: TAPOS_ERROR deadbeef'),

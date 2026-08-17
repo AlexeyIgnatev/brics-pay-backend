@@ -19,7 +19,18 @@ function antifraudMessage(message: string): string {
   const normalized = message.toUpperCase();
   let reason = 'операция требует дополнительной проверки';
 
-  if (normalized.includes('EXTERNAL_WALLET_BLOCKLIST')) {
+  if (normalized.includes('TERROR') || normalized.includes('ТЕРРОР')) {
+    reason = 'кошелёк связан с риском финансирования терроризма';
+  } else if (normalized.includes('SANCTION') || normalized.includes('САНКЦ')) {
+    reason = 'кошелёк находится в санкционном списке';
+  } else if (normalized.includes('FRAUD') || normalized.includes('МОШЕННИЧ')) {
+    reason = 'кошелёк связан с мошенническими операциями';
+  } else if (
+    normalized.includes('MONEY LAUNDERING') ||
+    normalized.includes('ОТМЫВ')
+  ) {
+    reason = 'кошелёк связан с риском отмывания средств';
+  } else if (normalized.includes('EXTERNAL_WALLET_BLOCKLIST')) {
     reason = 'кошелёк отправителя находится в AML-списке риска';
   } else if (
     normalized.includes('FIAT_ANY_GE_1M') ||
