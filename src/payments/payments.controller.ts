@@ -31,6 +31,7 @@ import {
   RecipientInfoRequestDto,
   RecipientInfoResponseDto,
 } from './dto/recipient-info.dto';
+import { paymentHttpException } from './payment-error-message';
 
 @Controller('payments')
 export class PaymentsController {
@@ -84,7 +85,15 @@ export class PaymentsController {
     const existing = this.inFlightTransfers.get(requestKey);
     if (existing) return existing;
 
-    const operation = this.paymentsService.transfer(transferDto, customerId);
+    const operation = this.paymentsService
+      .transfer(transferDto, customerId)
+      .catch((error: unknown) => {
+        throw paymentHttpException(
+          error,
+          'transfer',
+          transferDto.phone_number ? 'phone' : 'wallet',
+        );
+      });
     this.inFlightTransfers.set(requestKey, operation);
     try {
       return await operation;
@@ -100,10 +109,7 @@ export class PaymentsController {
     @Body() dto: RecipientInfoRequestDto,
     @Req() req: { user: UserInfoDto },
   ): Promise<RecipientInfoResponseDto> {
-    return this.paymentsService.getRecipientInfo(
-      dto,
-      req.user.customer_id,
-    );
+    return this.paymentsService.getRecipientInfo(dto, req.user.customer_id);
   }
 
   @Get('fees')
@@ -137,11 +143,15 @@ export class PaymentsController {
       } catch {}
     }
 
-    return this.paymentsService.convert(
-      dto,
-      req?.user.customer_id,
-      authContext,
-    );
+    try {
+      return await this.paymentsService.convert(
+        dto,
+        req?.user.customer_id,
+        authContext,
+      );
+    } catch (error) {
+      throw paymentHttpException(error, 'conversion');
+    }
   }
 
   @Post('history')

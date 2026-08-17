@@ -17,15 +17,15 @@ function emptyStringToUndefined({ value }: { value: unknown }): unknown {
 
 export class PaymentDto {
   @ApiProperty({ description: 'Payment amount' })
-  @IsNumber()
-  @IsNotEmpty()
+  @IsNumber({}, { message: 'Сумма должна быть числом' })
+  @IsNotEmpty({ message: 'Укажите сумму перевода' })
   amount: number;
 }
 
 export class TransferDto {
   @ApiProperty({ description: 'Transfer amount' })
-  @IsNumber()
-  @IsNotEmpty()
+  @IsNumber({}, { message: 'Сумма должна быть числом' })
+  @IsNotEmpty({ message: 'Укажите сумму перевода' })
   amount: number;
 
   @ApiProperty({ description: 'Recipient phone number', required: false })
@@ -41,7 +41,9 @@ export class TransferDto {
   address?: string;
 
   @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
-  @IsIn([Currency.SOM, Currency.ESOM, Currency.USDT_TRC20])
+  @IsIn([Currency.SOM, Currency.ESOM, Currency.USDT_TRC20], {
+    message: 'Выберите поддерживаемую валюту перевода',
+  })
   currency: Currency;
 
   @ApiProperty({

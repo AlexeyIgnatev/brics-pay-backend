@@ -2325,7 +2325,7 @@ export class PaymentsService {
       if (amount < min) {
         throw new BadRequestException('Amount below minimum withdrawal');
       }
-      const allowed = await this.antiFraud.shouldAllowTransaction({
+      const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.WITHDRAW_CRYPTO,
         amount_in: amount,
         asset_in: asset,
@@ -2334,8 +2334,10 @@ export class PaymentsService {
         external_address: address,
         comment: `Withdraw ${amount} ${asset}`,
       });
-      if (!allowed) {
-        throw new BadRequestException('Rejected by anti-fraud');
+      if (!antiFraudDecision.allowed) {
+        throw new BadRequestException(
+          this.antiFraudRejectMessage('USDT withdrawal', antiFraudDecision),
+        );
       }
       return this.usdtTreasuryOrchestrator.processWithdraw({
         customerId: customer_id,
@@ -2369,7 +2371,7 @@ export class PaymentsService {
       `[withdrawCrypto] fee_fixed=${feeFixed} total_debit=${total}`,
     );
 
-    const allowed = await this.antiFraud.shouldAllowTransaction({
+    const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
       kind: TransactionKind.WITHDRAW_CRYPTO,
       amount_in: amount,
       asset_in: asset,
@@ -2378,8 +2380,14 @@ export class PaymentsService {
       external_address: address,
       comment: `Withdraw ${amount} ${asset}`,
     });
-    this.logger.verbose(`[withdrawCrypto] antifraud allowed=${allowed}`);
-    if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+    this.logger.verbose(
+      `[withdrawCrypto] antifraud allowed=${antiFraudDecision.allowed}`,
+    );
+    if (!antiFraudDecision.allowed) {
+      throw new BadRequestException(
+        this.antiFraudRejectMessage('USDT withdrawal', antiFraudDecision),
+      );
+    }
 
     let transactionId: number | undefined;
     await this.prisma.$transaction(async (tx) => {
@@ -3155,7 +3163,7 @@ export class PaymentsService {
     );
     const fee = tariffFee.fee;
     const totalDebit = amount + fee;
-    const allowed = await this.antiFraud.shouldAllowTransaction({
+    const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
       kind: TransactionKind.WALLET_TO_WALLET,
       amount_in: totalDebit,
       asset_in: asset,
@@ -3165,7 +3173,11 @@ export class PaymentsService {
       receiver_wallet_address: receiverWalletAddress ?? null,
       comment,
     });
-    if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+    if (!antiFraudDecision.allowed) {
+      throw new BadRequestException(
+        this.antiFraudRejectMessage('Wallet transfer', antiFraudDecision),
+      );
+    }
 
     let transactionId: number | undefined;
     await this.prisma.$transaction(async (tx) => {
@@ -3344,18 +3356,24 @@ export class PaymentsService {
           );
         }
         if (internalRecipient) {
-          const allowed = await this.antiFraud.shouldAllowTransaction({
-            kind: TransactionKind.WALLET_TO_WALLET,
-            amount_in: transferDto.amount,
-            asset_in: asset,
-            asset_out: asset,
-            sender_customer_id: customer_id,
-            receiver_customer_id: internalRecipient.customer_id,
-            receiver_wallet_address: internalRecipient.walletAddress,
-            comment: `USDT transfer by wallet address (${asset})`,
-          });
-          if (!allowed) {
-            throw new BadRequestException('Rejected by anti-fraud');
+          const antiFraudDecision =
+            await this.antiFraud.checkTransactionDetailed({
+              kind: TransactionKind.WALLET_TO_WALLET,
+              amount_in: transferDto.amount,
+              asset_in: asset,
+              asset_out: asset,
+              sender_customer_id: customer_id,
+              receiver_customer_id: internalRecipient.customer_id,
+              receiver_wallet_address: internalRecipient.walletAddress,
+              comment: `USDT transfer by wallet address (${asset})`,
+            });
+          if (!antiFraudDecision.allowed) {
+            throw new BadRequestException(
+              this.antiFraudRejectMessage(
+                'USDT wallet transfer',
+                antiFraudDecision,
+              ),
+            );
           }
           return this.usdtTreasuryOrchestrator.processInternalTransfer({
             senderCustomerId: customer_id,
@@ -3396,18 +3414,25 @@ export class PaymentsService {
           });
         }
 
-        const allowed = await this.antiFraud.shouldAllowTransaction({
-          kind: TransactionKind.WALLET_TO_WALLET,
-          amount_in: transferDto.amount,
-          asset_in: asset,
-          asset_out: asset,
-          sender_customer_id: customer_id,
-          receiver_customer_id: recipient.customer_id,
-          receiver_wallet_address: recipient.address,
-          comment: `USDT transfer by phone (${asset})`,
-        });
-        if (!allowed) {
-          throw new BadRequestException('Rejected by anti-fraud');
+        const antiFraudDecision = await this.antiFraud.checkTransactionDetailed(
+          {
+            kind: TransactionKind.WALLET_TO_WALLET,
+            amount_in: transferDto.amount,
+            asset_in: asset,
+            asset_out: asset,
+            sender_customer_id: customer_id,
+            receiver_customer_id: recipient.customer_id,
+            receiver_wallet_address: recipient.address,
+            comment: `USDT transfer by phone (${asset})`,
+          },
+        );
+        if (!antiFraudDecision.allowed) {
+          throw new BadRequestException(
+            this.antiFraudRejectMessage(
+              'USDT phone transfer',
+              antiFraudDecision,
+            ),
+          );
         }
 
         if (this.isBrowserWalletCustomer(me)) {
@@ -3569,7 +3594,7 @@ export class PaymentsService {
         throw new BadRequestException('Recipient not found');
       }
 
-      const allowed = await this.antiFraud.shouldAllowTransaction({
+      const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
         kind: TransactionKind.WALLET_TO_WALLET,
         amount_in: transferDto.amount,
         asset_in: 'ESOM',
@@ -3578,7 +3603,11 @@ export class PaymentsService {
         receiver_customer_id: bricsRecipient.CustomerID,
         comment: 'ESOM transfer',
       });
-      if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+      if (!antiFraudDecision.allowed) {
+        throw new BadRequestException(
+          this.antiFraudRejectMessage('ESOM transfer', antiFraudDecision),
+        );
+      }
 
       const tariffFee = await this.getCustomerTariffFee(
         customer.customer_id,
@@ -3728,7 +3757,7 @@ export class PaymentsService {
       `[transferSom] senderAccount=${senderAccount.AccountNo} senderCurrency=${senderAccount.CurrencyID ?? 'n/a'} receiverAccount=${bricsRecipient.AccountNo} receiverCurrency=${bricsRecipient.CurrencyID ?? 'n/a'} fee=${feeAmount}`,
     );
 
-    const allowed = await this.antiFraud.shouldAllowTransaction({
+    const antiFraudDecision = await this.antiFraud.checkTransactionDetailed({
       kind: TransactionKind.BANK_TO_BANK,
       amount_in: transferDto.amount,
       asset_in: 'SOM',
@@ -3737,7 +3766,11 @@ export class PaymentsService {
       receiver_customer_id: bricsRecipient.CustomerID,
       comment: 'SOM transfer',
     });
-    if (!allowed) throw new BadRequestException('Rejected by anti-fraud');
+    if (!antiFraudDecision.allowed) {
+      throw new BadRequestException(
+        this.antiFraudRejectMessage('SOM transfer', antiFraudDecision),
+      );
+    }
 
     const paymentPurpose = this.buildGenericAbsPurpose(
       this.buildClientFio(customer),
