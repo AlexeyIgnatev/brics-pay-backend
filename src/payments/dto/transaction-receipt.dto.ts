@@ -46,14 +46,18 @@ export class TransactionReceiptDto {
   fee: number;
 
   @ApiProperty({
-    description: 'Реквизиты счета получателя/назначения (маскированно)',
+    description:
+      'Полные реквизиты получателя/назначения. Клиент маскирует их только при отображении квитанции.',
   })
   account_details: string;
 
   @ApiProperty({ description: 'Получатель (ФИО)' })
   recipient_full_name: string;
 
-  @ApiProperty({ description: 'Оплачено со счета (маскированно)' })
+  @ApiProperty({
+    description:
+      'Полные реквизиты отправителя. Клиент маскирует их только при отображении квитанции.',
+  })
   paid_from_account: string;
 
   @ApiProperty({

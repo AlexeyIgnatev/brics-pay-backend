@@ -1491,13 +1491,6 @@ export class PaymentsService {
     return new Date(toTime);
   }
 
-  private maskAccount(value?: string | number | null): string {
-    if (value == null) return 'N/A';
-    const raw = String(value).trim();
-    if (!raw) return 'N/A';
-    return `****${raw.slice(-8)}`;
-  }
-
   private isBankKind(kind: TransactionKind): boolean {
     return kind === 'BANK_TO_BANK' || kind === 'BANK_TO_WALLET';
   }
@@ -1637,10 +1630,10 @@ export class PaymentsService {
           (this.isReceiptAccountForCurrency(t.sender_wallet_address, currency)
             ? t.sender_wallet_address
             : undefined);
-    if (senderAccount) return this.maskAccount(senderAccount);
+    if (senderAccount) return senderAccount;
     if (this.isBankKind(t.kind) && t.sender_customer_id != null)
-      return this.maskAccount(t.sender_customer_id);
-    if (t.bank_op_id != null) return this.maskAccount(t.bank_op_id);
+      return String(t.sender_customer_id);
+    if (t.bank_op_id != null) return String(t.bank_op_id);
     return 'N/A';
   }
 
@@ -1672,10 +1665,10 @@ export class PaymentsService {
       currency === Currency.SOM
         ? customerAccount
         : customerAccount || transactionAccount;
-    if (targetAccount) return this.maskAccount(targetAccount);
+    if (targetAccount) return targetAccount;
     if (this.isBankKind(t.kind) && t.receiver_customer_id != null)
-      return this.maskAccount(t.receiver_customer_id);
-    if (t.bank_op_id != null) return this.maskAccount(t.bank_op_id);
+      return String(t.receiver_customer_id);
+    if (t.bank_op_id != null) return String(t.bank_op_id);
     return 'N/A';
   }
 

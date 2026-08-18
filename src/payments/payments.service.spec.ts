@@ -113,7 +113,7 @@ describe('PaymentsService', () => {
     });
   });
 
-  it('builds receipt by transaction_id and masks accounts', async () => {
+  it('builds receipt by transaction_id with full reusable accounts', async () => {
     const createdAt = new Date('2026-01-01T00:00:00.000Z');
     const prismaMock = {
       customer: {
@@ -159,8 +159,10 @@ describe('PaymentsService', () => {
     expect(receipt.currency).toBe('USDT_TRC20');
     expect(receipt.created_at).toBe(createdAt.getTime());
     expect(receipt.fee).toBe(0.5);
-    expect(receipt.account_details).toBe('****LtXh1SFv');
-    expect(receipt.paid_from_account).toBe('****wJT49WBm');
+    expect(receipt.account_details).toBe('TAkrzNdEsCbiHwBXzTKX72NLkoLtXh1SFv');
+    expect(receipt.paid_from_account).toBe(
+      'TRVh3EuuWTkCfECfXM77SGZZZQwJT49WBm',
+    );
     expect(receipt.receipt_number).toBe(`TX-10-${createdAt.getTime()}`);
   });
 
@@ -273,8 +275,8 @@ describe('PaymentsService', () => {
 
     const receipt = await service.getReceipt({ transaction_id: 666 }, 7);
 
-    expect(receipt.paid_from_account).toBe('****77111222');
-    expect(receipt.account_details).toBe('****77960777');
+    expect(receipt.paid_from_account).toBe('+996777111222');
+    expect(receipt.account_details).toBe('+996777960777');
   });
 
   it('uses distinct currency wallets in ESOM and USDT receipts', async () => {
@@ -341,10 +343,18 @@ describe('PaymentsService', () => {
     });
     const usdtReceipt = await service.getReceipt({ transaction_id: 667 }, 7);
 
-    expect(esomReceipt.paid_from_account).toBe('****11111111');
-    expect(esomReceipt.account_details).toBe('****22222222');
-    expect(usdtReceipt.paid_from_account).toBe('****wJT49WBm');
-    expect(usdtReceipt.account_details).toBe('****LtXh1SFv');
+    expect(esomReceipt.paid_from_account).toBe(
+      '0x1111111111111111111111111111111111111111',
+    );
+    expect(esomReceipt.account_details).toBe(
+      '0x2222222222222222222222222222222222222222',
+    );
+    expect(usdtReceipt.paid_from_account).toBe(
+      'TRVh3EuuWTkCfECfXM77SGZZZQwJT49WBm',
+    );
+    expect(usdtReceipt.account_details).toBe(
+      'TAkrzNdEsCbiHwBXzTKX72NLkoLtXh1SFv',
+    );
   });
 
   it('returns fee=0 and fallback recipient when fee is missing', async () => {
@@ -393,8 +403,8 @@ describe('PaymentsService', () => {
 
     expect(receipt.fee).toBe(0);
     expect(receipt.recipient_full_name).toBe('Customer #55');
-    expect(receipt.account_details).toBe('****55');
-    expect(receipt.paid_from_account).toBe('****7');
+    expect(receipt.account_details).toBe('55');
+    expect(receipt.paid_from_account).toBe('7');
   });
 
   it('falls back to tariff fee in receipt for wallet-to-wallet USDT transfer', async () => {
@@ -483,7 +493,7 @@ describe('PaymentsService', () => {
     });
   });
 
-  it('returns masked fallback accounts instead of bank operation labels', async () => {
+  it('returns fallback account identifiers instead of bank operation labels', async () => {
     const createdAt = new Date('2026-02-02T00:00:00.000Z');
     const prismaMock = {
       customer: {
@@ -522,8 +532,8 @@ describe('PaymentsService', () => {
 
     const receipt = await service.getReceipt({ transaction_id: 12 }, 7);
 
-    expect(receipt.account_details).toBe('****531938');
-    expect(receipt.paid_from_account).toBe('****7');
+    expect(receipt.account_details).toBe('531938');
+    expect(receipt.paid_from_account).toBe('7');
   });
 
   it('returns OUT side for conversion when conversion_side=OUT', async () => {
