@@ -129,35 +129,6 @@ export class UsersListResponseDto {
 }
 
 export class AdminUpdateUserDto {
-  @ApiPropertyOptional()
-  @IsString()
-  @IsNotEmpty()
-  @IsOptional()
-  first_name?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
-  middle_name?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @IsNotEmpty()
-  @IsOptional()
-  last_name?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @IsNotEmpty()
-  @IsOptional()
-  phone?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  @IsNotEmpty()
-  @IsOptional()
-  email?: string;
-
   @ApiPropertyOptional({ enum: UserStatusDtoEnum })
   @IsString()
   @IsNotEmpty()

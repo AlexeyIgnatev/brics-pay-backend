@@ -460,6 +460,11 @@ describe('PaymentsService', () => {
 
     expect(receipt.fee).toBe(10);
     expect(receipt.amount).toBe(100);
+    expect(receipt.credited_amount).toBe(100);
+    expect(receipt.credited_currency).toBe('USDT_TRC20');
+    expect(receipt.total_debited_amount).toBe(110);
+    expect(receipt.debited_currency).toBe('USDT_TRC20');
+    expect(receipt.fee_currency).toBe('USDT_TRC20');
   });
 
   it('uses the larger of percentage fee and minimum fee for tariff calculation', async () => {
@@ -547,11 +552,11 @@ describe('PaymentsService', () => {
           id: 88,
           kind: 'CONVERSION',
           status: TransactionStatus.SUCCESS,
-          amount_in: '1000',
+          amount_in: '1050',
           asset_in: 'ESOM',
-          amount_out: '0.002',
+          amount_out: '10.88',
           asset_out: 'USDT_TRC20',
-          fee_amount: '0.00001',
+          fee_amount: '50',
           tx_hash: null,
           bank_op_id: null,
           sender_customer_id: 7,
@@ -576,8 +581,14 @@ describe('PaymentsService', () => {
       7,
     );
 
-    expect(receipt.amount).toBe(0.002);
+    expect(receipt.amount).toBe(10.88);
     expect(receipt.currency).toBe('USDT_TRC20');
+    expect(receipt.credited_amount).toBe(10.88);
+    expect(receipt.credited_currency).toBe('USDT_TRC20');
+    expect(receipt.fee).toBe(50);
+    expect(receipt.fee_currency).toBe('ESOM');
+    expect(receipt.total_debited_amount).toBe(1050);
+    expect(receipt.debited_currency).toBe('ESOM');
   });
 
   it('throws NotFoundException when transaction does not exist', async () => {

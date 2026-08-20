@@ -1894,6 +1894,22 @@ export class PaymentsService {
 
     const side = this.getDisplaySide(tx, dto);
     const fee = await this.resolveTransactionFeeFromTariffs(tx, customer_id);
+    const debitedCurrency = (tx.asset_in || 'SOM') as unknown as Currency;
+    const creditedCurrency = (tx.asset_out ||
+      tx.asset_in ||
+      'SOM') as unknown as Currency;
+    const isConversion =
+      tx.asset_in !== tx.asset_out &&
+      (tx.kind === TransactionKind.CONVERSION ||
+        tx.kind === TransactionKind.BANK_TO_WALLET ||
+        tx.kind === TransactionKind.WALLET_TO_BANK);
+    const debitedAmount = Number(tx.amount_in ?? 0);
+    const creditedAmount = isConversion
+      ? Number(tx.amount_out ?? 0)
+      : debitedAmount;
+    const totalDebitedAmount = isConversion
+      ? debitedAmount
+      : debitedAmount + fee;
 
     return {
       successful: tx.status === TransactionStatus.SUCCESS,
@@ -1902,6 +1918,14 @@ export class PaymentsService {
       currency: side.currency,
       created_at: tx.createdAt.getTime(),
       fee,
+      fee_currency: debitedCurrency,
+      credited_amount: creditedAmount,
+      credited_currency: creditedCurrency,
+      total_debited_amount: totalDebitedAmount,
+      debited_currency: debitedCurrency,
+      conversion_side: isConversion
+        ? (dto.conversion_side ?? ReceiptConversionSide.OUT)
+        : undefined,
       account_details: this.buildAccountDetails(tx, side.currency),
       recipient_full_name: this.buildRecipientFullName(tx),
       paid_from_account: this.buildPaidFromAccount(tx, side.currency),

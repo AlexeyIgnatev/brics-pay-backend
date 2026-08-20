@@ -113,16 +113,10 @@ export class UserManagementService {
     });
 
     const data: any = {};
-    if (dto.first_name !== undefined) data.first_name = dto.first_name;
-    if (dto.middle_name !== undefined) {
-      const middleName = dto.middle_name.trim();
-      data.middle_name = middleName.length > 0 ? middleName : null;
-    }
-    if (dto.last_name !== undefined) data.last_name = dto.last_name;
-    if (dto.phone !== undefined) data.phone = dto.phone;
-    if (dto.email !== undefined) data.email = dto.email;
     const statusChanged =
-      dto.status !== undefined && current != null && dto.status !== current.status;
+      dto.status !== undefined &&
+      current != null &&
+      dto.status !== current.status;
     const normalizedStatusComment =
       dto.status_comment !== undefined ? dto.status_comment.trim() : undefined;
 

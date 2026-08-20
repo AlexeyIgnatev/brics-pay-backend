@@ -292,29 +292,13 @@ export class UsersService implements OnApplicationBootstrap {
         },
       });
     } else {
-      const data: {
-        first_name?: string;
-        middle_name?: string;
-        last_name?: string;
-        phone?: string;
-        email?: string;
-      } = {};
-
-      if (!user.first_name && profileData.first_name) {
-        data.first_name = profileData.first_name;
-      }
-      if (!user.middle_name && profileData.middle_name) {
-        data.middle_name = profileData.middle_name;
-      }
-      if (!user.last_name && profileData.last_name) {
-        data.last_name = profileData.last_name;
-      }
-      if (!user.phone && profileData.phone) {
-        data.phone = profileData.phone;
-      }
-      if (!user.email && profileData.email) {
-        data.email = profileData.email;
-      }
+      const data = {
+        first_name: profileData.first_name || null,
+        middle_name: profileData.middle_name || null,
+        last_name: profileData.last_name || null,
+        phone: profileData.phone || null,
+        email: profileData.email || null,
+      };
 
       if (!this.isValidCustomerWallet(user)) {
         await this.repairCustomerWallet(customerInfo.CustomerID, profileData);
@@ -323,7 +307,7 @@ export class UsersService implements OnApplicationBootstrap {
             customer_id: customerInfo.CustomerID,
           },
         });
-      } else if (Object.keys(data).length) {
+      } else {
         await this.prisma.customer.update({
           where: { customer_id: customerInfo.CustomerID },
           data,

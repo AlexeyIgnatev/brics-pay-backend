@@ -45,6 +45,24 @@ export class TransactionReceiptDto {
   @ApiProperty({ description: 'Комиссия' })
   fee: number;
 
+  @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
+  fee_currency: Currency;
+
+  @ApiProperty({ description: 'Сумма, зачисленная получателю' })
+  credited_amount: number;
+
+  @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
+  credited_currency: Currency;
+
+  @ApiProperty({ description: 'Полная сумма списания со счета отправителя' })
+  total_debited_amount: number;
+
+  @ApiProperty({ enum: [Currency.SOM, Currency.ESOM, Currency.USDT_TRC20] })
+  debited_currency: Currency;
+
+  @ApiProperty({ required: false, enum: ReceiptConversionSide })
+  conversion_side?: ReceiptConversionSide;
+
   @ApiProperty({
     description:
       'Полные реквизиты получателя/назначения. Клиент маскирует их только при отображении квитанции.',
