@@ -7,6 +7,9 @@ export class SupportTicketDto {
   @ApiProperty()
   customer_id: number;
 
+  @ApiProperty({ required: false, nullable: true })
+  customer_name?: string | null;
+
   @ApiProperty({ enum: ['OPEN', 'CLOSED'] })
   status: string;
 

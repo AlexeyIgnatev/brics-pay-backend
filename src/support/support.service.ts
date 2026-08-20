@@ -37,14 +37,30 @@ export class SupportService {
   private mapTicket(ticket: {
     id: number;
     customer_id: number;
+    customer?: {
+      first_name: string | null;
+      middle_name: string | null;
+      last_name: string | null;
+    } | null;
     status: string;
     createdAt: Date;
     lastMessageAt: Date;
     closedAt: Date | null;
   }): SupportTicketDto {
+    const customerName = ticket.customer
+      ? [
+          ticket.customer.last_name,
+          ticket.customer.first_name,
+          ticket.customer.middle_name,
+        ]
+          .filter((part): part is string => Boolean(part?.trim()))
+          .join(' ')
+      : null;
+
     return {
       id: ticket.id,
       customer_id: ticket.customer_id,
+      ...(ticket.customer ? { customer_name: customerName || null } : {}),
       status: ticket.status,
       created_at: ticket.createdAt.getTime(),
       last_message_at: ticket.lastMessageAt.getTime(),
@@ -127,6 +143,15 @@ export class SupportService {
         orderBy: { lastMessageAt: 'desc' },
         skip: offset,
         take: limit,
+        include: {
+          customer: {
+            select: {
+              first_name: true,
+              middle_name: true,
+              last_name: true,
+            },
+          },
+        },
       }),
     ]);
 
